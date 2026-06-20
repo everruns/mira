@@ -1,0 +1,55 @@
+[package]
+name = "mira-examples"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+homepage.workspace = true
+description = "Runnable example eval servers for Mira (not published)"
+publish = false
+# Each example lives in its own subfolder (`examples/<name>/main.rs`), declared
+# explicitly below; disable autodiscovery of `examples/*.rs`.
+autoexamples = false
+
+[lib]
+name = "mira_examples"
+path = "src/lib.rs"
+
+[dependencies]
+mira-eval.workspace = true
+mira-everruns.workspace = true
+everruns-core.workspace = true
+everruns-runtime.workspace = true
+tokio.workspace = true
+serde_json.workspace = true
+
+[[example]]
+name = "greet"
+path = "greet/main.rs"
+
+[[example]]
+name = "coding"
+path = "coding/main.rs"
+
+[[example]]
+name = "cli_subject"
+path = "cli_subject/main.rs"
+
+[[example]]
+name = "metrics"
+path = "metrics/main.rs"
+
+[[example]]
+name = "matrix"
+path = "matrix/main.rs"
+
+[[example]]
+name = "swe_bench"
+path = "swe_bench/main.rs"
+
+[[example]]
+name = "llmsim"
+path = "llmsim/main.rs"
+
