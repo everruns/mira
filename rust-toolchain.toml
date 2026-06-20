@@ -1,0 +1,5 @@
+[toolchain]
+# Pinned for reproducible builds. Bump deliberately and keep the
+# dtolnay/rust-toolchain@<version> refs in .github/workflows/* in sync.
+channel = "stable"
+components = ["rustfmt", "clippy"]

@@ -1,30 +1,61 @@
-# Standalone workspace: this proposal is intentionally NOT a member of the
-# everruns workspace (it is in the root `exclude` list). It depends on the
-# in-repo runtime via path so it compiles against the exact API. For handover
-# to its own repo, swap the everruns path deps below for the published crates,
-# e.g. everruns-runtime = "0.15", everruns-core = "0.15". The anthropic/openai
-# crates are only needed by eval servers that register those providers.
+# Mira — a Rust-first, code-first evaluation framework for agents and tools.
+# Part of the Everruns ecosystem. See specs/ for design decisions and docs/ for
+# the public protocol reference.
+
 [workspace]
+resolver = "2"
+members = ["crates/*", "examples"]
 
-[package]
-name = "mira"
-version = "0.0.0"
+[workspace.package]
+version = "0.1.0"
 edition = "2024"
-publish = false
-description = "Prototype: a Rust-first, code-first evaluation framework for agents and tools"
+rust-version = "1.85"
+license = "MIT"
+authors = ["Mykhailo Chalyi <mike@chaliy.name>", "Everruns"]
+repository = "https://github.com/everruns/mira"
+homepage = "https://everruns.com"
+documentation = "https://docs.rs/mira-eval"
+keywords = ["eval", "llm", "ai", "agent", "everruns"]
+categories = ["development-tools::testing", "command-line-utilities"]
 
-[dependencies]
+[workspace.dependencies]
+# Core library, shared by the CLI and integration crates via path during
+# development and by version once published.
+mira-eval = { version = "0.1.0", path = "crates/mira-eval" }
+# Proc-macro crate providing the `#[eval]` attribute (re-exported by mira-eval).
+mira-macros = { version = "0.1.0", path = "crates/mira-macros" }
+# everruns runtime adapter (used by the examples crate for the llmsim example).
+mira-everruns = { version = "0.1.0", path = "crates/mira-everruns" }
+
+# Async runtime. The core stays runtime-light (io + process); servers pull what
+# they need.
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "io-std", "io-util", "process", "fs"] }
 async-trait = "0.1"
+
+# Serialization — the protocol and datasets are JSON.
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-tokio = { version = "1", features = ["macros", "rt-multi-thread", "io-std", "io-util", "process"] }
+
+# Scoring + CLI.
 regex = "1"
 clap = { version = "4", features = ["derive"] }
 
-everruns-core = { path = "../../crates/core" }
-everruns-runtime = { path = "../../crates/runtime" }
+# Distributed eval registration (the `register_eval!` macro / `#[eval]` attribute).
+inventory = "0.3"
 
-# The demo server (`src/bin/demo_evals.rs`) registers real providers; their
-# matrix cells are gated on API keys at runtime, so a key-free run stays green.
-everruns-anthropic = { path = "../../crates/anthropic" }
-everruns-openai = { path = "../../crates/openai" }
+# Proc-macro toolchain (used by mira-macros).
+syn = "2"
+quote = "1"
+proc-macro2 = "1"
+
+# Integration crate: the published everruns runtime (optional, separate crate).
+everruns-core = "0.15"
+everruns-runtime = "0.15"
+
+# Testing.
+tempfile = "3"
+
+[profile.release]
+lto = "thin"
+codegen-units = 1
+strip = "symbols"
