@@ -85,11 +85,19 @@ jobs:
 
       # Drive each bundled example server through the host CLI end-to-end. These
       # run fully offline against the `sim` model — no API keys, must stay green.
+      # This is also the host↔server protocol's end-to-end coverage.
       - name: Run example evals via the host CLI
         run: |
-          cargo run -q -p mira-cli -- --example greet run
-          cargo run -q -p mira-cli -- --example coding run
-          cargo run -q -p mira-cli -- --example cli_subject run
+          for ex in greet coding cli_subject metrics matrix swe_bench llmsim; do
+            echo "=== $ex ==="
+            cargo run -q -p mira-cli -- --package mira-examples --example "$ex" run
+          done
+
+      - name: Render an HTML report (smoke)
+        run: |
+          cargo run -q -p mira-cli -- --package mira-examples --example metrics \
+            run --format html --out report.html
+          test -s report.html && grep -q "Mira eval report" report.html
 
   # Gate job for branch protection — name must stay "Check".
   check:

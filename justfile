@@ -43,16 +43,21 @@ doc:
 
 # === Examples ===
 
-# Drive each bundled example server through the host CLI.
+# Drive each bundled example server through the host CLI (offline, sim only).
 run-examples:
-    cargo run -q -p mira-cli -- --example greet run
-    cargo run -q -p mira-cli -- --example coding run
-    cargo run -q -p mira-cli -- --example cli_subject run
+    cargo run -q -p mira-cli -- --package mira-examples --example greet run
+    cargo run -q -p mira-cli -- --package mira-examples --example coding run
+    cargo run -q -p mira-cli -- --package mira-examples --example cli_subject run
+    cargo run -q -p mira-cli -- --package mira-examples --example metrics run
+    cargo run -q -p mira-cli -- --package mira-examples --example matrix run
+    cargo run -q -p mira-cli -- --package mira-examples --example swe_bench run
+    cargo run -q -p mira-cli -- --package mira-examples --example llmsim run
 
 # === Release ===
 
-# Verify every crate can be published (packaging, files, version drift).
+# Verify every publishable crate can be packaged (files, version drift).
 publish-dry-run:
+    cargo publish --dry-run -p mira-macros
     cargo publish --dry-run -p mira-eval
     cargo publish --dry-run -p mira-cli
     cargo publish --dry-run -p mira-everruns

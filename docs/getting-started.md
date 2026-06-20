@@ -9,7 +9,7 @@ binary (`mira-cli`, installed as `mira`).
 
 ```bash
 cargo add mira-eval
-cargo install mira-cli
+brew install everruns/tap/mira   # or: cargo install mira-cli
 ```
 
 ## 2. Write an eval server
@@ -22,8 +22,9 @@ or (handy for libraries) an example:
 // examples/my_evals.rs
 use mira::scorer::{contains, succeeded, tool_called};
 use mira::subject::subject_fn;
-use mira::{Eval, ModelSpec, Sample, Transcript, register_eval};
+use mira::{eval, Eval, ModelSpec, Sample, Transcript};
 
+#[eval]
 fn capital() -> Eval {
     Eval::new("capital")
         .describe("Knows world capitals")
@@ -43,7 +44,6 @@ fn capital() -> Eval {
         .models([ModelSpec::sim(), ModelSpec::anthropic("claude-opus-4-8")])
         .build()
 }
-register_eval!(capital);
 
 #[tokio::main]
 async fn main() -> std::io::Result<()> {
@@ -88,15 +88,17 @@ mira --example my_evals run france                 # substring filter on the cas
 mira --example my_evals run --tag smoke            # by sample tag
 mira --example my_evals run --models sim           # restrict the matrix
 mira --example my_evals run --format junit --out results.xml   # CI artifact
+mira --example my_evals run --format html  --out report.html   # self-contained viewer
 mira --example my_evals run --checkpoint ck.json   # resumable; re-run skips done cells
 ```
 
 The exit code is non-zero if any cell failed, so `mira ... run` drops straight
-into CI.
+into CI. The HTML report is a single dependency-free file (summary, matrix, and
+per-case scores/usage/timing) you can open straight from a CI artifact.
 
 ## Next steps
 
-- [Authoring evals](authoring.md) — datasets, the matrix, metadata.
-- [Scorers](scorers.md) — the built-ins and writing your own.
+- [Authoring evals](authoring.md) — datasets, the matrix, extra axes, metadata.
+- [Scorers](scorers.md) — the built-ins (incl. metric budgets) and writing your own.
 - [Subjects](subjects.md) — in-process, CLI/polyglot, and runtime sessions.
-- [The protocol](protocol.md) — what flows over the wire.
+- [The protocol](protocol.md) — what flows over the wire, and its versioning.

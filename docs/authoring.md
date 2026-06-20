@@ -88,6 +88,29 @@ A cell whose model is **unavailable** (missing API key) is skipped, never failed
 `provider` and `model` fields are passed to the subject via `cx.model`; how
 they're used is the subject's business.
 
+## Extra matrix axes
+
+Beyond the model, add arbitrary discrete axes with `.axis(name, values)`. The
+runner takes the cross-product of every axis with the model matrix, and the
+subject reads the chosen value per cell via `cx.param(name)`:
+
+```rust
+let eval = Eval::new("reasoning")
+    .case("puzzle", "What is 17 * 23?")
+    .axis("effort", ["low", "high"])             // a second axis
+    .models([ModelSpec::sim(), ModelSpec::anthropic("claude-opus-4-8")])
+    .subject(subject_fn(|_s, cx| async move {
+        let effort = cx.param("effort").unwrap_or("low");
+        // …vary behaviour by effort…
+        mira::Transcript::response(format!("({effort}) 391"))
+    }))
+    .scorer(succeeded())
+    .build();
+```
+
+This expands to `samples × models × effort` cells, each with a stable key like
+`reasoning/puzzle@sim[effort=high]` that selection, checkpoints, and reports use.
+
 ## Metadata & observability
 
 Metadata is free-form `string → string` on evals, samples, and models. It rides
@@ -100,17 +123,22 @@ Sample::new("hi", "…").meta("trace", "https://observe.example/run/abc123")
 
 ## Registration vs. explicit lists
 
-Annotate factory functions and let the server collect them:
+Annotate factory functions with `#[eval]` and let the server collect them
+(`#[eval]` is the ergonomic form of `register_eval!`):
 
 ```rust
+use mira::{eval, Eval};
+
+#[eval]
 fn greet() -> Eval { /* … */ }
-register_eval!(greet);
 
 #[tokio::main]
 async fn main() -> std::io::Result<()> { mira::serve_registered().await }
 ```
 
-Or hand `serve` an explicit `Vec<Eval>` if you prefer no magic:
+Prefer no proc-macros? `register_eval!(greet);` is equivalent, and disabling the
+default `macros` feature drops the `#[eval]` attribute entirely. Or hand `serve`
+an explicit `Vec<Eval>`:
 
 ```rust
 #[tokio::main]

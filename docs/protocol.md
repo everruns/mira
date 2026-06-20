@@ -91,18 +91,31 @@ server.
 **Params**
 
 ```json
-{ "protocol_version": "0.1", "host": "mira-cli" }
+{ "protocol_version": "1.0", "host": "mira-cli" }
 ```
 
 **Result**
 
 ```json
-{ "protocol_version": "0.1", "server": "my-evals", "evals": 3 }
+{
+  "protocol_version": "1.0",
+  "server": "my-evals",
+  "evals": 3,
+  "server_version": "0.1.0",
+  "capabilities": ["axes", "events", "usage"]
+}
 ```
 
-The server should reply with the `protocol_version` it implements. Hosts and
-servers sharing the same `MAJOR.MINOR` are compatible. The current version is
-**`0.1`**.
+The server replies with the `protocol_version` it implements. Compatibility is
+by **major**: a host refuses a server whose major differs from its own; a
+differing minor is additive and tolerated (see [Versioning](#versioning)). The
+current version is **`1.0`**.
+
+`capabilities` lets a host feature-detect additively instead of sniffing
+versions. Defined tokens: `axes` (server advertises extra axes and honours
+`run.params`), `events` (emits `event` notifications), `usage` (reports
+token/cost/timing). `server_version` and `capabilities` are optional and
+default to empty.
 
 ### `list`
 
@@ -124,6 +137,7 @@ anything.
         { "label": "sim", "available": true },
         { "label": "anthropic/claude-opus-4-8", "available": false }
       ],
+      "axes": [ { "name": "effort", "values": ["low", "high"] } ],
       "max_turns": 12,
       "metadata": { "suite": "smoke" }
     }
@@ -133,6 +147,10 @@ anything.
 
 - `available: false` marks a cell the server cannot run (e.g. a missing API
   key). The host skips it rather than failing.
+- `axes` (optional, default empty) advertises **extra matrix axes** beyond the
+  model. The host takes the cross-product of every axis with the model matrix and
+  sends the chosen value per cell in `run.params`. A cell's identity is
+  `eval/sample@model` with a sorted `[k=v,…]` suffix when axes vary.
 - `metadata` is free-form `string → string` (provenance, observability links).
 
 ### `run`
@@ -144,8 +162,11 @@ response.
 **Params**
 
 ```json
-{ "eval": "greet", "sample": "hi", "model": "sim" }
+{ "eval": "greet", "sample": "hi", "model": "sim", "params": { "effort": "high" } }
 ```
+
+`params` (optional, default empty) carries the chosen value per extra axis, as
+advertised in `list.axes`.
 
 **Result**
 
@@ -154,6 +175,7 @@ response.
   "eval": "greet",
   "sample": "hi",
   "model": "sim",
+  "params": { "effort": "high" },
   "passed": true,
   "aggregate": 1.0,
   "scores": [
@@ -165,6 +187,7 @@ response.
     "tool_calls_count": 0,
     "tool_calls": [],
     "usage": { "input_tokens": 12, "output_tokens": 8, "cost_usd": 0.0001 },
+    "timing": { "duration_ms": 420, "time_to_first_token_ms": 180 },
     "metadata": {},
     "error": null
   },
@@ -174,11 +197,17 @@ response.
 
 | Field | Type | Notes |
 |-------|------|-------|
+| `params` | object | Echoes the cell's axis values (optional, default empty). |
 | `passed` | bool | True iff every scorer passed (and at least one ran). |
 | `aggregate` | number | Mean of score `value`s, `0.0..=1.0`. |
 | `scores` | array | One [`Score`](#score) per scorer. |
 | `transcript` | object | Lightweight summary (raw events omitted on the wire). |
 | `skipped` | bool | True when the cell was not executed (e.g. unavailable model). |
+
+The `transcript.usage` object may also carry `cache_read_tokens` and
+`reasoning_tokens` (default 0), and `transcript.timing` carries `duration_ms`
+and `time_to_first_token_ms` (omitted when unmeasured). All are optional and
+defaulted — older servers that omit them still validate.
 
 #### Score
 
@@ -225,10 +254,27 @@ subtracted on the next invocation.
 
 ## Versioning
 
-The protocol uses `MAJOR.MINOR` (`PROTOCOL_VERSION`, currently `0.1`). A `MINOR`
-bump is additive (new optional fields, new notification kinds); a `MAJOR` bump
-may change or remove fields. Servers and hosts should accept unknown fields and
-unknown notification methods to stay forward-compatible.
+The protocol uses `MAJOR.MINOR` (`PROTOCOL_VERSION`, currently `1.0`).
+
+- A **MINOR** bump is **additive**: new optional fields, new notification kinds,
+  new capability tokens. A newer peer must keep talking to an older one.
+- A **MAJOR** bump may change or remove fields. Peers with different majors are
+  **incompatible**; the host rejects a mismatched major at `initialize`.
+
+Forward compatibility is a hard requirement on both sides:
+
+1. **Ignore unknown fields.** Every payload is parsed leniently (no strict
+   "deny unknown fields"). A future server adding `transcript.energy_joules` must
+   not break an older host.
+2. **Default missing fields.** New fields are added as optional with sensible
+   defaults (empty map/list, `0`, `null`), so an older server that omits them
+   still validates against a newer host.
+3. **Feature-detect via `capabilities`**, not version sniffing, for optional
+   behaviour (`axes`, `events`, `usage`).
+
+This is why a `0.x`-era server (no `axes`, no `timing`) and a `1.0` host
+interoperate: the host sees an empty `axes`/`capabilities` and a model-only
+matrix, and the missing transcript fields default to zero.
 
 ## Implementing a server in another language
 

@@ -21,23 +21,46 @@ Initial release.
   - `Subject` trait with `subject_fn` (in-process) and `CliSubject` (the
     polyglot path: stdout or canonical JSONL `Event` transcripts, file
     seed/capture).
-  - `Scorer` trait: deterministic built-ins (`contains`, `not_contains`,
-    `equals`, `regex`, `matches_target`, `tool_called`, `tool_calls_within`,
-    `turns_within`, `cost_within`, `file_exists`, `file_contains`, `succeeded`),
-    a `scorer(name, closure)` escape hatch, and `model_graded` LLM-as-judge.
-  - `register_eval!` + `serve_registered()` for `cargo test`-style discovery.
+  - Rich `Transcript` metrics: token `Usage` (input/output plus `cache_read` /
+    `reasoning` breakdowns and `cost_usd`) and wall-clock `Timing`
+    (`duration_ms`, `time_to_first_token_ms`), populated by `CliSubject` /
+    `RuntimeSubject` and the JSONL event walker.
+  - `Scorer` trait with a broad built-in vocabulary: text (`contains`,
+    `not_contains`, `equals`, `regex`, `matches_target`, `non_empty`,
+    `json_valid`, `json_field_equals`); tools (`tool_called`, `tool_not_called`,
+    `tool_calls_within`, `tools_used_exactly`, `tool_called_before`); budgets
+    (`tokens_within`, `output_tokens_within`, `cost_within`, `turns_within`,
+    `latency_within`, `ttft_within`); files (`file_exists`, `file_contains`);
+    combinators (`all_of`, `any_of`, `not`); the `scorer(name, closure)` escape
+    hatch; and `model_graded` LLM-as-judge.
+  - Extra matrix axes beyond the model (`Eval::axis`), crossed with the model
+    matrix; per-cell values reach subjects via `RunCx::param`. Stable cell keys
+    via `mira::cell_key` (`eval/sample@model[k=v,…]`).
+  - `#[eval]` attribute (crate `mira-macros`, re-exported as `mira::eval`) and
+    `register_eval!` + `serve_registered()` for `cargo test`-style discovery.
   - The eval protocol (newline-delimited JSON over stdio): `serve` (server) and
-    `Host` (host), with `initialize` / `list` / `run` and progress
-    notifications.
+    `Host` (host), with `initialize` / `list` / `run`, progress notifications,
+    `MAJOR.MINOR` versioning + capability negotiation, and forward-compatible
+    (default/ignore-unknown) payloads.
   - In-process `Runner` with substring / tag / model selection.
-  - Reporting: terminal matrix, canonical JSON, JUnit XML, Markdown.
+  - Reporting: terminal matrix (with metrics), canonical JSON (per-case
+    usage/timing + rolled-up totals), JUnit XML, Markdown, and a self-contained
+    HTML transcript viewer.
 - **Host CLI (`mira-cli`, binary `mira`)** — `list` / `run` with selection,
-  `--models`, `--format json|junit|md`, `--out`, and resumable `--checkpoint`.
+  `--models`, `--format json|junit|md|html`, `--out`, and resumable
+  `--checkpoint`.
+- **`#[eval]` proc-macro (`mira-macros`)** — the ergonomic registration attribute.
 - **everruns adapter (`mira-everruns`)** — `RuntimeSubject` over the published
-  `everruns-runtime`, plus `model_to_resolved`.
+  `everruns-runtime`, plus `model_to_resolved`; integration-tested against the
+  offline `LlmSim` driver.
+- **Install** — Homebrew (`brew install everruns/tap/mira`) as the default, via
+  the org-wide `everruns/homebrew-tap`: on release, prebuilt `mira` binaries
+  (macOS arm64/x86_64, Linux x86_64) are published and the tap formula is
+  updated. Also `cargo install mira-cli`.
 - **Docs** — getting started, authoring, scorers, subjects, and a full protocol
   reference (`docs/protocol.md`).
-- **Examples** — `greet`, `coding`, `cli_subject`.
+- **Examples (`mira-examples`)** — `greet`, `coding`, `cli_subject`, `metrics`,
+  `matrix`, `swe_bench`, `llmsim`.
 
 [Unreleased]: https://github.com/everruns/mira/compare/v0.1.0...HEAD
 [0.1.0]: https://github.com/everruns/mira/releases/tag/v0.1.0

@@ -29,7 +29,7 @@ change there.
 
 | Spec | Description |
 |------|-------------|
-| SPEC | Core model, crate architecture, execution model, migration |
+| architecture | Core model, crate architecture, execution model, metrics, migration |
 | release-process | Versioning, crates.io publishing flow |
 
 ### Documentation
@@ -46,7 +46,9 @@ crates/mira-eval     core library (lib name `mira`): types, traits, scorers,
                      subjects (subject_fn, CliSubject), protocol, server, host,
                      runner, report.  NO heavy deps.
 crates/mira-cli      the `mira` host binary.
+crates/mira-macros   the `#[eval]` proc-macro (re-exported as `mira::eval`).
 crates/mira-everruns RuntimeSubject over the published everruns-runtime.
+examples/            mira-examples: runnable, offline example eval servers.
 ```
 
 The core is **provider-agnostic**: `ModelSpec` carries `(provider, model)`
@@ -77,7 +79,20 @@ curl -s "https://api.doppler.com/v3/configs/config/secret?name=GITHUB_TOKEN" \
 ```
 
 `CARGO_REGISTRY_TOKEN` (crates.io) and `DOPPLER_TOKEN` are configured as GitHub
-Actions secrets for publishing.
+Actions secrets for publishing. The Homebrew tap push uses
+`HOMEBREW_TAP_GITHUB_TOKEN` (fetched from Doppler in CI).
+
+### Git and commits
+
+- Conventional Commits: `type(scope): description`. Types: `feat`, `fix`,
+  `docs`, `refactor`, `test`, `chore`. Use `chore` for `specs/`, `AGENTS.md`, or
+  CI metadata.
+- **Never add Claude/session/AI attribution** in commits, PRs, docs, or code
+  comments (no `Co-Authored-By: Claude`, no "Generated with Claude Code").
+- Commit attribution must be a real human user. `.claude/hooks/fix-git-identity.sh`
+  (a SessionStart hook) sets it; if git identity is missing or agent-like, stop
+  and ask before committing.
+- Stage files explicitly by name. Avoid broad `git add .` / `git add -A`.
 
 ### Pre-PR checklist
 

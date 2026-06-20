@@ -17,20 +17,54 @@ matrix. `aggregate` on a cell is the mean of the values.
 
 ## Built-in scorers
 
+**Text & output**
+
 | Scorer | Passes when |
 |--------|-------------|
 | `succeeded()` | the subject completed without an `error` |
-| `contains(s)` | the final response contains `s` |
-| `not_contains(s)` | the final response does not contain `s` |
+| `non_empty()` | the final response is non-empty (trimmed) |
+| `contains(s)` / `not_contains(s)` | the final response does / doesn't contain `s` |
 | `equals(s)` | the final response equals `s` (trimmed, case-insensitive) |
 | `regex(p)` | the final response matches regex `p` |
 | `matches_target()` | the final response equals the sample's string `target` |
+| `json_valid()` | the final response parses as JSON |
+| `json_field_equals(k, v)` | the response is a JSON object with top-level `k == v` |
+
+**Tools**
+
+| Scorer | Passes when |
+|--------|-------------|
 | `tool_called(t)` | a tool named `t` was invoked |
+| `tool_not_called(t)` | a tool named `t` was never invoked |
 | `tool_calls_within(n)` | at most `n` tool calls were made |
-| `turns_within(n)` | at most `n` reasoning iterations were taken |
-| `cost_within(usd)` | total cost stayed at or under `usd` |
+| `tools_used_exactly([…])` | exactly that set of tools was used (order-independent) |
+| `tool_called_before(a, b)` | tool `a` was invoked before tool `b` |
+
+**Operational budgets** (tokens, cost, latency)
+
+| Scorer | Passes when |
+|--------|-------------|
+| `tokens_within(n)` | total (input+output) tokens ≤ `n` |
+| `output_tokens_within(n)` | completion tokens ≤ `n` |
+| `cost_within(usd)` | total cost ≤ `usd` |
+| `turns_within(n)` | at most `n` reasoning iterations |
+| `latency_within(ms)` | wall-clock duration ≤ `ms` |
+| `ttft_within(ms)` | time-to-first-token ≤ `ms` (fails if unmeasured) |
+
+**Files**
+
+| Scorer | Passes when |
+|--------|-------------|
 | `file_exists(path)` | the captured workspace has a file at `path` |
 | `file_contains(path, s)` | that file exists and contains `s` |
+
+**Combinators** — compose scorers without a new type:
+
+| Scorer | Passes when |
+|--------|-------------|
+| `all_of(name, [..])` | every inner scorer passes (value = mean) |
+| `any_of(name, [..])` | any inner scorer passes (value = max) |
+| `not(scorer)` | the inner scorer fails |
 
 ```rust
 use mira::scorer::*;
@@ -39,14 +73,23 @@ let eval = Eval::new("coding")
     .subject(/* … */)
     .scorer(succeeded())
     .scorer(tool_called("edit_file"))
-    .scorer(turns_within(5))
-    .scorer(cost_within(0.05))
+    .scorer(tools_used_exactly(["read_file", "edit_file"]))
     .scorer(file_contains("lib.rs", "fn greet"))
+    // One "within SLA" verdict from several budgets.
+    .scorer(all_of("within_sla", vec![
+        latency_within(2_000),
+        cost_within(0.05),
+        tokens_within(4_000),
+    ]))
     .build();
 ```
 
-File-based scorers read `Transcript.files`. A `CliSubject` populates that map
-when built with `.capture_files()`; other subjects fill it as appropriate.
+Operational scorers read `Transcript.usage` (tokens incl. `cache_read` /
+`reasoning`, and `cost_usd`) and `Transcript.timing` (`duration_ms`,
+`time_to_first_token_ms`). Subjects populate what they can measure — `CliSubject`
+and `RuntimeSubject` time the run automatically, and the JSONL event walker
+totals usage from a transcript stream. File-based scorers read `Transcript.files`
+(a `CliSubject` fills it with `.capture_files()`).
 
 ## Closures: the escape hatch
 
