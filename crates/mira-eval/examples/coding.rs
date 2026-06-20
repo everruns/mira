@@ -1,0 +1,67 @@
+//! A coding-style eval with seeded files, a model matrix, and structural +
+//! file-based scorers — the shape that replaces a bespoke bench harness.
+//!
+//! ```bash
+//! mira --example coding list
+//! mira --example coding run --tag smoke
+//! ```
+//!
+//! The subject is an in-process closure that "edits" the seeded file; swap it
+//! for `mira_everruns::RuntimeSubject` to drive a real agent session.
+
+use mira::scorer::{cost_within, file_contains, succeeded, tool_called, turns_within};
+use mira::subject::subject_fn;
+use mira::{Dataset, Eval, ModelSpec, Sample, Transcript, Usage, register_eval};
+
+fn dataset() -> Dataset {
+    Dataset::new(vec![
+        Sample::new(
+            "add-fn",
+            "Add a `greet` function to lib.rs that returns \"hello\".",
+        )
+        .file("lib.rs", "// add code here\n")
+        .tag("smoke"),
+        Sample::new("fix-bug", "Fix the off-by-one in sum().")
+            .file(
+                "lib.rs",
+                "fn sum(xs: &[i32]) -> i32 { xs.iter().take(xs.len()-1).sum() }\n",
+            )
+            .tag("regression"),
+    ])
+}
+
+fn coding() -> Eval {
+    Eval::new("coding")
+        .describe("Edits seeded files to satisfy a coding instruction")
+        .dataset(dataset())
+        .subject(subject_fn(|sample, _cx| async move {
+            // Pretend the agent edited the file and used an edit tool.
+            let mut t = Transcript::response("Done. Added the requested code.");
+            t.iterations = 2;
+            t.tool_calls = vec!["read_file".into(), "edit_file".into()];
+            t.tool_calls_count = 2;
+            t.usage = Usage {
+                input_tokens: 320,
+                output_tokens: 80,
+                cost_usd: 0.002,
+            };
+            let mut contents = sample.files.get("lib.rs").cloned().unwrap_or_default();
+            contents.push_str("\nfn greet() -> &'static str { \"hello\" }\n");
+            t.files.insert("lib.rs".into(), contents);
+            t
+        }))
+        .scorer(succeeded())
+        .scorer(tool_called("edit_file"))
+        .scorer(turns_within(5))
+        .scorer(cost_within(0.05))
+        .scorer(file_contains("lib.rs", "fn greet"))
+        .models([ModelSpec::sim(), ModelSpec::anthropic("claude-opus-4-8")])
+        .max_turns(8)
+        .build()
+}
+register_eval!(coding);
+
+#[tokio::main]
+async fn main() -> std::io::Result<()> {
+    mira::serve_registered().await
+}

@@ -1,0 +1,111 @@
+# Subjects
+
+A `Subject` is the thing under evaluation. It turns a `Sample` into a normalized
+`Transcript`, so scorers and reporting never depend on a subject's internals.
+
+```rust
+#[async_trait]
+pub trait Subject: Send + Sync {
+    async fn run(&self, sample: &Sample, cx: &RunCx) -> Transcript;
+}
+```
+
+`RunCx` carries the matrix cell's `ModelSpec` (`cx.model`) and the run limit
+(`cx.max_turns`). Each run gets a fresh subject invocation, so state from one
+sample cannot leak into another.
+
+A `Transcript` is the shared currency:
+
+```rust
+pub struct Transcript {
+    pub final_response: String,
+    pub iterations: usize,
+    pub tool_calls_count: usize,
+    pub usage: Usage,                 // tokens + cost
+    pub tool_calls: Vec<String>,      // tool names, in order
+    pub files: BTreeMap<String, String>,  // workspace after the run
+    pub events: Vec<serde_json::Value>,   // raw transcript (e.g. JSONL Events)
+    pub metadata: Metadata,
+    pub error: Option<String>,
+}
+```
+
+Mira ships two general subjects, plus a runtime adapter in `mira-everruns`.
+
+## In-process: `subject_fn`
+
+Wrap an async closure. Ideal for evals that live next to the code under test,
+and for fakes in unit tests.
+
+```rust
+use mira::{Transcript, subject::subject_fn};
+
+let subject = subject_fn(|sample, cx| async move {
+    let reply = my_agent::answer(&sample.input.join("\n"), &cx.model.model).await;
+    Transcript::response(reply)
+});
+```
+
+Populate as much of the transcript as you can measure — `iterations`,
+`tool_calls`, `usage`, `files` — so structural and cost scorers have signal.
+
+## Polyglot: `CliSubject`
+
+Run an external binary. This is how **non-Rust agents become first-class**: any
+program in any language is evaluable. The prompt (the sample's input turns,
+joined by newlines) is passed via a `{prompt}` placeholder or on stdin; seeded
+files are materialized into a fresh temp workdir, and `{workdir}` expands to it.
+
+```rust
+use mira::subject::{CliSubject, TranscriptSource};
+
+// Pass the prompt as an argument; stdout is the final response.
+let s = CliSubject::new("my-agent").arg("--task").arg("{prompt}");
+
+// Or send the prompt on stdin.
+let s = CliSubject::new("my-agent").stdin_prompt();
+
+// Read structured results from a canonical JSONL Event stream instead of stdout.
+let s = CliSubject::new("coding-cli")
+    .arg("--prompt").arg("{prompt}")
+    .arg("--transcript").arg("{workdir}/events.jsonl")
+    .transcript(TranscriptSource::EventsFile("events.jsonl".into()))
+    .capture_files();   // read the workdir back into Transcript.files
+```
+
+When reading a JSONL transcript, Mira extracts tool-call names and token/cost
+usage structurally — any producer emitting `{input_tokens, output_tokens, cost}`
+usage blocks and `{name, input}` tool-call objects is understood, including
+everruns coding CLIs. A line with a `final_response` / `response` / `text` field
+sets the final response.
+
+The subprocess also receives `MIRA_MODEL` and `MIRA_PROVIDER` env vars so it can
+route on the matrix cell.
+
+## Runtime sessions: `mira-everruns`
+
+`mira_everruns::RuntimeSubject` drives a real `everruns-runtime`
+`InProcessRuntime` session — the in-process path to evaluating everruns agents.
+The embedder supplies a factory that builds a runtime for each matrix cell; Mira
+normalizes the `TurnResult` and `Event` stream into a `Transcript`.
+
+```rust
+use mira_everruns::{RuntimeSubject, model_to_resolved};
+
+let subject = RuntimeSubject::new(|model| Box::pin(async move {
+    let resolved = model_to_resolved(&model);   // ModelSpec → everruns ResolvedModel
+    // …build an InProcessRuntime registering a driver for `resolved`,
+    // create a session, and return (runtime, session_id)…
+    Ok((runtime, session_id))
+}));
+```
+
+See the [`mira-everruns` crate docs](https://docs.rs/mira-everruns) for the full
+factory contract.
+
+## Writing your own
+
+Implement `Subject` directly for a reusable adapter with state (a connection
+pool, a shared client). The contract: be side-effect-isolated per call, fill the
+`Transcript` with whatever you can measure, and record failures in `error`
+rather than panicking.

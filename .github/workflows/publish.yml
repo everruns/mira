@@ -1,0 +1,106 @@
+name: Publish
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  # Publish mira-eval (the core library) first — the others depend on it.
+  publish-mira-eval:
+    name: Publish mira-eval
+    runs-on: ubuntu-latest
+    environment: release
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+        with:
+          persist-credentials: false
+
+      - name: Verify publish source is on main
+        run: |
+          git fetch --no-tags origin main:refs/remotes/origin/main
+          SOURCE_SHA=$(git rev-parse HEAD)
+          if ! git merge-base --is-ancestor "$SOURCE_SHA" origin/main; then
+            echo "Error: publish source $SOURCE_SHA is not reachable from origin/main"
+            exit 1
+          fi
+          echo "Publish source verified on origin/main: $SOURCE_SHA"
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Verify version matches tag
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+        run: |
+          if [ "$EVENT_NAME" = "release" ]; then
+            TAG_VERSION="$RELEASE_TAG"
+          else
+            if [[ ! "$GITHUB_REF" =~ ^refs/tags/v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+              echo "Error: manual publish must run from a stable release tag"
+              exit 1
+            fi
+            TAG_VERSION="${GITHUB_REF#refs/tags/}"
+          fi
+          TAG_VERSION="${TAG_VERSION#v}"
+          CARGO_VERSION=$(grep '^version' Cargo.toml | head -1 | sed 's/.*"\(.*\)".*/\1/')
+          if [ "$TAG_VERSION" != "$CARGO_VERSION" ]; then
+            echo "Error: tag ($TAG_VERSION) != Cargo.toml ($CARGO_VERSION)"
+            exit 1
+          fi
+          echo "Version verified: $TAG_VERSION"
+
+      - name: Publish mira-eval to crates.io
+        run: cargo publish -p mira-eval
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+
+  # Publish the CLI and the everruns adapter (both depend on mira-eval).
+  publish-dependents:
+    name: Publish dependents
+    runs-on: ubuntu-latest
+    needs: publish-mira-eval
+    environment: release
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+        with:
+          persist-credentials: false
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Wait for crates.io index update
+        run: sleep 30
+
+      - name: Publish mira-cli to crates.io
+        run: cargo publish -p mira-cli
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+
+      - name: Publish mira-everruns to crates.io
+        run: cargo publish -p mira-everruns
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+
+  verify-publish:
+    name: Verify published versions
+    runs-on: ubuntu-latest
+    needs: [publish-mira-eval, publish-dependents]
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+        with:
+          persist-credentials: false
+
+      - name: Verify crates.io versions
+        run: |
+          EXPECTED=$(grep '^version' Cargo.toml | head -1 | sed 's/.*"\(.*\)".*/\1/')
+          echo "Expected version: $EXPECTED"
+          python3 scripts/verify_crates_publish.py --expected "$EXPECTED" \
+            mira-eval mira-cli mira-everruns

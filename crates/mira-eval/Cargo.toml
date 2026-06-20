@@ -1,0 +1,38 @@
+[package]
+name = "mira-eval"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+homepage.workspace = true
+keywords.workspace = true
+categories.workspace = true
+description = "A Rust-first, code-first evaluation framework for agents and tools"
+readme = "README.md"
+
+# The library is named `mira` so user code reads `use mira::...`, while the
+# crates.io package is `mira-eval` (the `mira` name was already taken).
+[lib]
+name = "mira"
+path = "src/lib.rs"
+
+[dependencies]
+async-trait.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tokio.workspace = true
+regex.workspace = true
+inventory.workspace = true
+# CliSubject materializes seeded files in a fresh temp workdir per run.
+tempfile.workspace = true
+
+[[example]]
+name = "greet"
+
+[[example]]
+name = "coding"
+
+[[example]]
+name = "cli_subject"

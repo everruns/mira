@@ -1,0 +1,23 @@
+[package]
+name = "mira-everruns"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+homepage.workspace = true
+keywords.workspace = true
+categories.workspace = true
+description = "Mira Subject adapter for the everruns-runtime: evaluate in-process agent sessions"
+readme = "README.md"
+
+[dependencies]
+mira-eval.workspace = true
+async-trait.workspace = true
+serde_json.workspace = true
+everruns-core.workspace = true
+everruns-runtime.workspace = true
+
+[dev-dependencies]
+tokio.workspace = true

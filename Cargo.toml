@@ -1,0 +1,51 @@
+# Mira — a Rust-first, code-first evaluation framework for agents and tools.
+# Part of the Everruns ecosystem. See specs/ for design decisions and docs/ for
+# the public protocol reference.
+
+[workspace]
+resolver = "2"
+members = ["crates/*"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.85"
+license = "MIT"
+authors = ["Mykhailo Chalyi <mike@chaliy.name>", "Everruns"]
+repository = "https://github.com/everruns/mira"
+homepage = "https://github.com/everruns/mira"
+keywords = ["eval", "evaluation", "ai", "agent", "everruns"]
+categories = ["development-tools::testing", "command-line-utilities"]
+
+[workspace.dependencies]
+# Core library, shared by the CLI and integration crates via path during
+# development and by version once published.
+mira-eval = { version = "0.1.0", path = "crates/mira-eval" }
+
+# Async runtime. The core stays runtime-light (io + process); servers pull what
+# they need.
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "io-std", "io-util", "process", "fs"] }
+async-trait = "0.1"
+
+# Serialization — the protocol and datasets are JSON.
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+# Scoring + CLI.
+regex = "1"
+clap = { version = "4", features = ["derive"] }
+
+# Distributed eval registration (the `#[eval]`-style `register_eval!` macro).
+inventory = "0.3"
+
+# Integration crate: the published everruns runtime (optional, separate crate).
+everruns-core = "0.15"
+everruns-runtime = "0.15"
+
+# Testing.
+tempfile = "3"
+
+[profile.release]
+lto = "thin"
+codegen-units = 1
+strip = "symbols"
