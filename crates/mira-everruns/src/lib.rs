@@ -82,6 +82,7 @@ impl RuntimeSubject {
 #[async_trait]
 impl Subject for RuntimeSubject {
     async fn run(&self, sample: &Sample, cx: &RunCx) -> Transcript {
+        let started = std::time::Instant::now();
         let (runtime, session_id) = match (self.factory)(cx.model.clone()).await {
             Ok(handle) => handle,
             Err(e) => return Transcript::failed(format!("runtime build failed: {e}")),
@@ -119,6 +120,8 @@ impl Subject for RuntimeSubject {
         let (usage, tools) = summarize_events(&transcript.events);
         transcript.usage = usage;
         transcript.tool_calls = tools;
+        transcript.tool_calls_count = transcript.tool_calls.len();
+        transcript.timing.duration_ms = started.elapsed().as_millis() as u64;
         transcript
     }
 }
@@ -166,10 +169,7 @@ mod tests {
     #[tokio::test]
     async fn factory_error_yields_failed_transcript() {
         let subject = RuntimeSubject::new(|_| async { Err("nope".to_string()) });
-        let cx = RunCx {
-            model: ModelSpec::sim(),
-            max_turns: 4,
-        };
+        let cx = RunCx::new(ModelSpec::sim());
         let t = subject.run(&Sample::new("a", "hi"), &cx).await;
         assert!(!t.succeeded());
         assert!(t.error.unwrap().contains("nope"));

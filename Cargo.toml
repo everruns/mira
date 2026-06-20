@@ -4,7 +4,7 @@
 
 [workspace]
 resolver = "2"
-members = ["crates/*"]
+members = ["crates/*", "examples"]
 
 [workspace.package]
 version = "0.1.0"
@@ -13,14 +13,19 @@ rust-version = "1.85"
 license = "MIT"
 authors = ["Mykhailo Chalyi <mike@chaliy.name>", "Everruns"]
 repository = "https://github.com/everruns/mira"
-homepage = "https://github.com/everruns/mira"
-keywords = ["eval", "evaluation", "ai", "agent", "everruns"]
+homepage = "https://everruns.com"
+documentation = "https://docs.rs/mira-eval"
+keywords = ["eval", "llm", "ai", "agent", "everruns"]
 categories = ["development-tools::testing", "command-line-utilities"]
 
 [workspace.dependencies]
 # Core library, shared by the CLI and integration crates via path during
 # development and by version once published.
 mira-eval = { version = "0.1.0", path = "crates/mira-eval" }
+# Proc-macro crate providing the `#[eval]` attribute (re-exported by mira-eval).
+mira-macros = { version = "0.1.0", path = "crates/mira-macros" }
+# everruns runtime adapter (used by the examples crate for the llmsim example).
+mira-everruns = { version = "0.1.0", path = "crates/mira-everruns" }
 
 # Async runtime. The core stays runtime-light (io + process); servers pull what
 # they need.
@@ -35,8 +40,13 @@ serde_json = "1"
 regex = "1"
 clap = { version = "4", features = ["derive"] }
 
-# Distributed eval registration (the `#[eval]`-style `register_eval!` macro).
+# Distributed eval registration (the `register_eval!` macro / `#[eval]` attribute).
 inventory = "0.3"
+
+# Proc-macro toolchain (used by mira-macros).
+syn = "2"
+quote = "1"
+proc-macro2 = "1"
 
 # Integration crate: the published everruns runtime (optional, separate crate).
 everruns-core = "0.15"

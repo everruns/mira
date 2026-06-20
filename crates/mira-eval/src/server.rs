@@ -15,8 +15,8 @@ use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 
 use crate::eval::Eval;
 use crate::protocol::{
-    EvalInfo, InitializeResult, ListResult, ModelInfo, Notification, PROTOCOL_VERSION, Request,
-    Response, RunParams, RunResult, SampleInfo, TranscriptSummary,
+    AxisInfo, EvalInfo, InitializeResult, ListResult, ModelInfo, Notification, PROTOCOL_VERSION,
+    Request, Response, RunParams, RunResult, SampleInfo, TranscriptSummary, capabilities,
 };
 use crate::registry::registered_evals;
 use crate::runner::run_cell;
@@ -58,6 +58,12 @@ async fn dispatch(evals: &[Eval], request: &Request, stdout: &mut tokio::io::Std
                 protocol_version: PROTOCOL_VERSION.into(),
                 server: env!("CARGO_PKG_NAME").into(),
                 evals: evals.len(),
+                server_version: Some(env!("CARGO_PKG_VERSION").into()),
+                capabilities: vec![
+                    capabilities::AXES.into(),
+                    capabilities::EVENTS.into(),
+                    capabilities::USAGE.into(),
+                ],
             }),
         ),
         "list" => Response::ok(request.id, json(&list(evals))),
@@ -106,6 +112,14 @@ pub fn list(evals: &[Eval]) -> ListResult {
                     available: m.available,
                 })
                 .collect(),
+            axes: eval
+                .axes
+                .iter()
+                .map(|a| AxisInfo {
+                    name: a.name.clone(),
+                    values: a.values.clone(),
+                })
+                .collect(),
             max_turns: eval.max_turns,
             metadata: eval.metadata.clone(),
         })
@@ -136,6 +150,7 @@ async fn run(evals: &[Eval], params: &RunParams) -> Result<RunResult, String> {
             eval: params.eval.clone(),
             sample: params.sample.clone(),
             model: params.model.clone(),
+            params: params.params.clone(),
             passed: false,
             aggregate: 0.0,
             scores: Vec::new(),
@@ -144,11 +159,12 @@ async fn run(evals: &[Eval], params: &RunParams) -> Result<RunResult, String> {
         });
     }
 
-    let outcome = run_cell(eval, sample, model).await;
+    let outcome = run_cell(eval, sample, model, &params.params).await;
     Ok(RunResult {
         eval: outcome.eval,
         sample: outcome.sample_id,
         model: outcome.model,
+        params: outcome.params,
         passed: outcome.passed,
         aggregate: outcome.aggregate,
         scores: outcome.scores,
@@ -158,6 +174,7 @@ async fn run(evals: &[Eval], params: &RunParams) -> Result<RunResult, String> {
             tool_calls_count: outcome.transcript.tool_calls_count,
             tool_calls: outcome.transcript.tool_calls,
             usage: outcome.transcript.usage,
+            timing: outcome.transcript.timing,
             metadata: outcome.transcript.metadata,
             error: outcome.transcript.error,
         },
@@ -234,6 +251,7 @@ mod tests {
             eval: "greet".into(),
             sample: "hi".into(),
             model: "sim".into(),
+            params: Default::default(),
         };
         let result = run(&evals(), &params).await.unwrap();
         assert!(result.passed);
@@ -246,6 +264,7 @@ mod tests {
             eval: "nope".into(),
             sample: "hi".into(),
             model: "sim".into(),
+            params: Default::default(),
         };
         assert!(run(&evals(), &params).await.is_err());
     }

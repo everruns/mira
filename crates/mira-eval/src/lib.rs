@@ -62,6 +62,26 @@ use serde::{Deserialize, Serialize};
 #[doc(hidden)]
 pub use inventory;
 
+/// The `#[eval]` attribute: registers a `fn() -> Eval` factory for
+/// `cargo test`-style discovery (the ergonomic form of [`register_eval!`]).
+///
+/// ```
+/// use mira::{eval, Eval, Transcript};
+/// use mira::subject::subject_fn;
+/// use mira::scorer::contains;
+///
+/// #[eval]
+/// fn greet() -> Eval {
+///     Eval::new("greet")
+///         .case("hi", "say hi")
+///         .subject(subject_fn(|_, _| async { Transcript::response("hi there") }))
+///         .scorer(contains("hi"))
+///         .build()
+/// }
+/// ```
+#[cfg(feature = "macros")]
+pub use mira_macros::eval;
+
 pub use dataset::{Dataset, Sample};
 pub use eval::{Case, Eval};
 pub use host::Host;
@@ -81,11 +101,27 @@ pub use subject::{CliSubject, Subject, subject_fn};
 pub type Metadata = BTreeMap<String, String>;
 
 /// Token / cost accounting, summed across all turns of a run.
+///
+/// Beyond raw input/output tokens, `cache_read_tokens` and `reasoning_tokens`
+/// capture the breakdowns modern providers report; they default to zero for
+/// subjects that don't surface them.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct Usage {
     pub input_tokens: u64,
     pub output_tokens: u64,
+    /// Prompt tokens served from cache (a subset of `input_tokens` for providers
+    /// that bill them separately). Zero when not reported.
+    #[serde(default, skip_serializing_if = "is_zero_u64")]
+    pub cache_read_tokens: u64,
+    /// Reasoning / thinking tokens (a subset of `output_tokens`). Zero when not
+    /// reported.
+    #[serde(default, skip_serializing_if = "is_zero_u64")]
+    pub reasoning_tokens: u64,
     pub cost_usd: f64,
+}
+
+fn is_zero_u64(v: &u64) -> bool {
+    *v == 0
 }
 
 impl Usage {
@@ -98,7 +134,29 @@ impl Usage {
     pub fn add(&mut self, other: &Usage) {
         self.input_tokens += other.input_tokens;
         self.output_tokens += other.output_tokens;
+        self.cache_read_tokens += other.cache_read_tokens;
+        self.reasoning_tokens += other.reasoning_tokens;
         self.cost_usd += other.cost_usd;
+    }
+}
+
+/// Wall-clock timing for a run. Subjects that can measure it populate these;
+/// the rest leave them at their defaults.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Serialize, Deserialize)]
+pub struct Timing {
+    /// Total wall-clock duration of the run, in milliseconds.
+    #[serde(default, skip_serializing_if = "is_zero_u64")]
+    pub duration_ms: u64,
+    /// Time from run start to the first streamed token/event, in milliseconds,
+    /// when the subject can measure it (latency a user perceives first).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub time_to_first_token_ms: Option<u64>,
+}
+
+impl Timing {
+    /// True when no timing was recorded (all fields at their defaults).
+    pub fn is_default(&self) -> bool {
+        *self == Timing::default()
     }
 }
 
@@ -119,6 +177,9 @@ pub struct Transcript {
     pub tool_calls_count: usize,
     /// Token / cost usage.
     pub usage: Usage,
+    /// Wall-clock timing (duration, time-to-first-token).
+    #[serde(default, skip_serializing_if = "Timing::is_default")]
+    pub timing: Timing,
     /// Best-effort list of tool names invoked, in order.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub tool_calls: Vec<String>,
@@ -157,6 +218,25 @@ impl Transcript {
     /// True when no error was recorded.
     pub fn succeeded(&self) -> bool {
         self.error.is_none()
+    }
+
+    /// Distinct tool names invoked, in first-seen order. `tool_calls` keeps every
+    /// invocation (with repeats); this collapses to the unique set used.
+    pub fn tools_used(&self) -> Vec<String> {
+        let mut seen = Vec::new();
+        for name in &self.tool_calls {
+            if !seen.contains(name) {
+                seen.push(name.clone());
+            }
+        }
+        seen
+    }
+
+    /// Record wall-clock duration. Returns `self` for builder-style use in
+    /// subjects and tests.
+    pub fn with_duration_ms(mut self, ms: u64) -> Self {
+        self.timing.duration_ms = ms;
+        self
     }
 }
 
@@ -219,6 +299,44 @@ pub struct RunCx {
     pub model: ModelSpec,
     /// Maximum reasoning iterations a subject should take.
     pub max_turns: usize,
+    /// Values for any extra matrix axes this cell varies (axis name → value),
+    /// e.g. `{"effort": "high"}`. Empty for a model-only matrix. A subject reads
+    /// these to vary its behaviour per cell.
+    pub params: Metadata,
+}
+
+impl RunCx {
+    /// A context for `model` with default limits and no extra axis params.
+    pub fn new(model: ModelSpec) -> Self {
+        Self {
+            model,
+            max_turns: 12,
+            params: Metadata::new(),
+        }
+    }
+
+    /// The value of an extra matrix axis for this cell, if set.
+    pub fn param(&self, name: &str) -> Option<&str> {
+        self.params.get(name).map(String::as_str)
+    }
+}
+
+/// The canonical, stable identity of one matrix cell: `eval/sample@model`,
+/// suffixed with `[k=v,…]` (axis params sorted by key) when extra axes vary.
+/// Used for selection, dedupe, checkpoint resume, and reporting — host and
+/// server compute it identically.
+pub fn cell_key(eval: &str, sample: &str, model: &str, params: &Metadata) -> String {
+    let base = format!("{eval}/{sample}@{model}");
+    if params.is_empty() {
+        return base;
+    }
+    // BTreeMap iterates sorted by key, so the suffix is deterministic.
+    let suffix = params
+        .iter()
+        .map(|(k, v)| format!("{k}={v}"))
+        .collect::<Vec<_>>()
+        .join(",");
+    format!("{base}[{suffix}]")
 }
 
 #[cfg(test)]
@@ -231,14 +349,18 @@ mod tests {
             input_tokens: 10,
             output_tokens: 5,
             cost_usd: 0.1,
+            ..Default::default()
         };
         a.add(&Usage {
             input_tokens: 1,
             output_tokens: 2,
+            reasoning_tokens: 4,
             cost_usd: 0.01,
+            ..Default::default()
         });
         assert_eq!(a.input_tokens, 11);
         assert_eq!(a.total_tokens(), 18);
+        assert_eq!(a.reasoning_tokens, 4);
         assert!((a.cost_usd - 0.11).abs() < 1e-9);
     }
 

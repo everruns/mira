@@ -14,6 +14,30 @@ use crate::{Dataset, Metadata, Sample};
 /// A dataset row, in eval-authoring terms.
 pub type Case = Sample;
 
+/// One extra matrix axis beyond the model: a name and the discrete values it
+/// takes (e.g. `("effort", ["low", "high"])`). The runner takes the
+/// cross-product of all axes with the model matrix and the dataset, and the
+/// chosen value for each axis is handed to the subject via [`RunCx::param`].
+///
+/// [`RunCx::param`]: crate::RunCx::param
+#[derive(Clone, Debug, PartialEq)]
+pub struct Axis {
+    pub name: String,
+    pub values: Vec<String>,
+}
+
+impl Axis {
+    pub fn new(
+        name: impl Into<String>,
+        values: impl IntoIterator<Item = impl Into<String>>,
+    ) -> Self {
+        Self {
+            name: name.into(),
+            values: values.into_iter().map(Into::into).collect(),
+        }
+    }
+}
+
 /// A single evaluation, ready to run across its model matrix.
 pub struct Eval {
     pub name: String,
@@ -22,8 +46,33 @@ pub struct Eval {
     pub subject: Arc<dyn Subject>,
     pub scorers: Vec<Box<dyn Scorer>>,
     pub models: Vec<ModelSpec>,
+    /// Extra matrix axes beyond the model (empty for a model-only matrix).
+    pub axes: Vec<Axis>,
     pub max_turns: usize,
     pub metadata: Metadata,
+}
+
+impl Eval {
+    /// Every combination of axis values, as `params` maps, in cross-product
+    /// order. Always yields at least one (empty) map, so a no-axis eval runs a
+    /// single cell per `(sample, model)`.
+    pub fn axis_combinations(&self) -> Vec<Metadata> {
+        let mut combos = vec![Metadata::new()];
+        for axis in &self.axes {
+            let mut next = Vec::new();
+            for combo in &combos {
+                for value in &axis.values {
+                    let mut c = combo.clone();
+                    c.insert(axis.name.clone(), value.clone());
+                    next.push(c);
+                }
+            }
+            if !next.is_empty() {
+                combos = next;
+            }
+        }
+        combos
+    }
 }
 
 impl Eval {
@@ -38,6 +87,7 @@ impl Eval {
             subject: None,
             scorers: Vec::new(),
             models: Vec::new(),
+            axes: Vec::new(),
             max_turns: 12,
             metadata: Metadata::new(),
         }
@@ -51,6 +101,7 @@ pub struct EvalBuilder {
     subject: Option<Arc<dyn Subject>>,
     scorers: Vec<Box<dyn Scorer>>,
     models: Vec<ModelSpec>,
+    axes: Vec<Axis>,
     max_turns: usize,
     metadata: Metadata,
 }
@@ -110,6 +161,32 @@ impl EvalBuilder {
         self
     }
 
+    /// Add an extra matrix axis (beyond the model): a name and the discrete
+    /// values it takes. The runner crosses every axis with the model matrix, and
+    /// the subject reads the chosen value via [`RunCx::param`](crate::RunCx::param).
+    ///
+    /// ```
+    /// # use mira::{Eval, Transcript, subject::subject_fn, scorer::succeeded};
+    /// let eval = Eval::new("e")
+    ///     .case("a", "x")
+    ///     .axis("effort", ["low", "high"])
+    ///     .subject(subject_fn(|_, cx| async move {
+    ///         Transcript::response(cx.param("effort").unwrap_or("?").to_string())
+    ///     }))
+    ///     .scorer(succeeded())
+    ///     .build();
+    /// // One sample × one (default sim) model × two effort values = 2 cells.
+    /// assert_eq!(eval.axis_combinations().len(), 2);
+    /// ```
+    pub fn axis(
+        mut self,
+        name: impl Into<String>,
+        values: impl IntoIterator<Item = impl Into<String>>,
+    ) -> Self {
+        self.axes.push(Axis::new(name, values));
+        self
+    }
+
     /// Cap reasoning iterations per run.
     pub fn max_turns(mut self, max_turns: usize) -> Self {
         self.max_turns = max_turns;
@@ -135,6 +212,7 @@ impl EvalBuilder {
             } else {
                 self.models
             },
+            axes: self.axes,
             max_turns: self.max_turns,
             metadata: self.metadata,
         }

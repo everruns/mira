@@ -9,6 +9,7 @@ repository.workspace = true
 homepage.workspace = true
 keywords.workspace = true
 categories.workspace = true
+documentation = "https://docs.rs/mira-eval"
 description = "A Rust-first, code-first evaluation framework for agents and tools"
 readme = "README.md"
 
@@ -17,6 +18,12 @@ readme = "README.md"
 [lib]
 name = "mira"
 path = "src/lib.rs"
+
+[features]
+default = ["macros"]
+# The `#[eval]` attribute, re-exported as `mira::eval`. Opt out for a leaner
+# build (proc-macro deps) and use `register_eval!` instead.
+macros = ["dep:mira-macros"]
 
 [dependencies]
 async-trait.workspace = true
@@ -27,12 +34,5 @@ regex.workspace = true
 inventory.workspace = true
 # CliSubject materializes seeded files in a fresh temp workdir per run.
 tempfile.workspace = true
-
-[[example]]
-name = "greet"
-
-[[example]]
-name = "coding"
-
-[[example]]
-name = "cli_subject"
+# Optional: the `#[eval]` attribute macro (enabled by the default `macros` feature).
+mira-macros = { workspace = true, optional = true }

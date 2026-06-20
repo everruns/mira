@@ -9,14 +9,20 @@
 
 use crate::eval::Eval;
 use crate::model::ModelSpec;
-use crate::{RunCx, Sample, Score, Transcript};
+use crate::{Metadata, RunCx, Sample, Score, Transcript, cell_key};
 
-/// Run a single matrix cell: one sample, one model. Shared by the in-process
-/// [`Runner`] and the protocol server.
-pub async fn run_cell(eval: &Eval, sample: &Sample, model: &ModelSpec) -> CaseOutcome {
+/// Run a single matrix cell: one sample, one model, one set of axis `params`.
+/// Shared by the in-process [`Runner`] and the protocol server.
+pub async fn run_cell(
+    eval: &Eval,
+    sample: &Sample,
+    model: &ModelSpec,
+    params: &Metadata,
+) -> CaseOutcome {
     let cx = RunCx {
         model: model.clone(),
         max_turns: eval.max_turns,
+        params: params.clone(),
     };
     let transcript = eval.subject.run(sample, &cx).await;
 
@@ -32,6 +38,7 @@ pub async fn run_cell(eval: &Eval, sample: &Sample, model: &ModelSpec) -> CaseOu
         eval: eval.name.clone(),
         sample_id: sample.id.clone(),
         model: model.label.clone(),
+        params: params.clone(),
         scores,
         passed,
         aggregate,
@@ -47,12 +54,14 @@ pub fn aggregate_value(scores: &[Score]) -> f64 {
     scores.iter().map(|s| s.value).sum::<f64>() / scores.len() as f64
 }
 
-/// The result of one matrix cell: one sample, one model.
+/// The result of one matrix cell: one sample, one model, one axis combination.
 #[derive(Clone, Debug)]
 pub struct CaseOutcome {
     pub eval: String,
     pub sample_id: String,
     pub model: String,
+    /// Extra matrix-axis values for this cell (empty for a model-only matrix).
+    pub params: Metadata,
     pub scores: Vec<Score>,
     pub passed: bool,
     pub aggregate: f64,
@@ -61,7 +70,7 @@ pub struct CaseOutcome {
 
 impl CaseOutcome {
     pub fn key(&self) -> String {
-        format!("{}/{}@{}", self.eval, self.sample_id, self.model)
+        cell_key(&self.eval, &self.sample_id, &self.model, &self.params)
     }
 }
 
@@ -155,17 +164,22 @@ impl Runner {
         let mut report = RunReport::default();
 
         for eval in &self.evals {
+            let combos = eval.axis_combinations();
             for model in &eval.models {
                 for sample in &eval.dataset.samples {
-                    let key = format!("{}/{}@{}", eval.name, sample.id, model.label);
-                    if !self.selected(&key, sample, model) {
-                        continue;
+                    for params in &combos {
+                        let key = cell_key(&eval.name, &sample.id, &model.label, params);
+                        if !self.selected(&key, sample, model) {
+                            continue;
+                        }
+                        if !model.available {
+                            report.skipped.push(format!("{key} (unavailable)"));
+                            continue;
+                        }
+                        report
+                            .outcomes
+                            .push(run_cell(eval, sample, model, params).await);
                     }
-                    if !model.available {
-                        report.skipped.push(format!("{key} (unavailable)"));
-                        continue;
-                    }
-                    report.outcomes.push(run_cell(eval, sample, model).await);
                 }
             }
         }

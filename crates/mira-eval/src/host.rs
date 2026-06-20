@@ -6,6 +6,7 @@
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader, Lines};
 use tokio::process::{ChildStdin, ChildStdout, Command};
 
+use crate::Metadata;
 use crate::protocol::{
     InitializeResult, ListResult, Notification, PROTOCOL_VERSION, Request, Response, RunParams,
     RunResult,
@@ -54,7 +55,16 @@ impl Host {
                 serde_json::json!({ "protocol_version": PROTOCOL_VERSION, "host": host_name }),
             )
             .await?;
-        serde_json::from_value(value).map_err(|e| e.to_string())
+        let info: InitializeResult = serde_json::from_value(value).map_err(|e| e.to_string())?;
+        // Forward/backward compatibility: a mismatched *major* is a hard
+        // incompatibility; a differing minor is additive and tolerated.
+        if !crate::protocol::version_compatible(&info.protocol_version) {
+            return Err(format!(
+                "incompatible protocol: server speaks {}, host speaks {} (major mismatch)",
+                info.protocol_version, PROTOCOL_VERSION
+            ));
+        }
+        Ok(info)
     }
 
     pub async fn list(&mut self) -> Result<ListResult, String> {
@@ -62,16 +72,20 @@ impl Host {
         serde_json::from_value(value).map_err(|e| e.to_string())
     }
 
+    /// Run one matrix cell. `params` carries the chosen value per extra axis
+    /// (empty for a model-only matrix).
     pub async fn run(
         &mut self,
         eval: &str,
         sample: &str,
         model: &str,
+        params: &Metadata,
     ) -> Result<RunResult, String> {
         let params = RunParams {
             eval: eval.into(),
             sample: sample.into(),
             model: model.into(),
+            params: params.clone(),
         };
         let value = self
             .request("run", serde_json::to_value(params).unwrap())

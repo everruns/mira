@@ -9,6 +9,7 @@ repository.workspace = true
 homepage.workspace = true
 keywords.workspace = true
 categories.workspace = true
+documentation = "https://docs.rs/mira-everruns"
 description = "Mira Subject adapter for the everruns-runtime: evaluate in-process agent sessions"
 readme = "README.md"
 

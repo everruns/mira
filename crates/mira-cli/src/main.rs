@@ -76,7 +76,7 @@ struct RunArgs {
     /// Write a report file (see --format).
     #[arg(long)]
     out: Option<String>,
-    /// Report file format: json | junit | md.
+    /// Report file format: json | junit | md | html.
     #[arg(long, default_value = "json")]
     format: String,
     /// Persist/resume results here; completed cells are skipped on re-run.
@@ -183,12 +183,14 @@ async fn run(
         }
     }
 
-    for (eval, sample, model) in &plan {
-        let key = format!("{eval}/{sample}@{model}");
+    for cell in &plan {
+        let key = cell.key();
         if done.contains_key(&key) {
             continue;
         }
-        let result = host.run(eval, sample, model).await?;
+        let result = host
+            .run(&cell.eval, &cell.sample, &cell.model, &cell.params)
+            .await?;
         done.insert(key, result);
         if let Some(path) = &args.checkpoint {
             save_checkpoint(path, &done);
@@ -199,7 +201,7 @@ async fn run(
     // Report only the planned cells, in plan order.
     let results: Vec<RunResult> = plan
         .iter()
-        .filter_map(|(e, s, m)| done.get(&format!("{e}/{s}@{m}")).cloned())
+        .filter_map(|cell| done.get(&cell.key()).cloned())
         .collect();
 
     report::print_results(&results);
@@ -213,14 +215,51 @@ async fn run(
     std::process::exit(if failed { 1 } else { 0 });
 }
 
+/// One planned matrix cell: an eval/sample/model plus a chosen value per extra
+/// axis. Mirrors the in-process runner's cell expansion, but driven entirely
+/// from the server's advertised `list` so the host owns the plan.
+struct Cell {
+    eval: String,
+    sample: String,
+    model: String,
+    params: BTreeMap<String, String>,
+}
+
+impl Cell {
+    fn key(&self) -> String {
+        mira::cell_key(&self.eval, &self.sample, &self.model, &self.params)
+    }
+}
+
+/// Every combination of axis values for an eval, as `params` maps (cross
+/// product), always including at least one empty map.
+fn axis_combinations(eval: &mira::protocol::EvalInfo) -> Vec<BTreeMap<String, String>> {
+    let mut combos = vec![BTreeMap::new()];
+    for axis in &eval.axes {
+        let mut next = Vec::new();
+        for combo in &combos {
+            for value in &axis.values {
+                let mut c = combo.clone();
+                c.insert(axis.name.clone(), value.clone());
+                next.push(c);
+            }
+        }
+        if !next.is_empty() {
+            combos = next;
+        }
+    }
+    combos
+}
+
 /// Expand the advertised listing into an ordered, selected list of cells.
 fn plan_grid(
     listing: &ListResult,
     args: &RunArgs,
     model_filter: &Option<Vec<String>>,
-) -> Vec<(String, String, String)> {
+) -> Vec<Cell> {
     let mut plan = Vec::new();
     for eval in &listing.evals {
+        let combos = axis_combinations(eval);
         for sample in &eval.samples {
             if let Some(tag) = &args.tag
                 && !sample.tags.contains(tag)
@@ -233,13 +272,20 @@ fn plan_grid(
                 {
                     continue;
                 }
-                let key = format!("{}/{}@{}", eval.name, sample.id, model.label);
-                if let Some(f) = &args.filter
-                    && !key.contains(f.as_str())
-                {
-                    continue;
+                for params in &combos {
+                    let key = mira::cell_key(&eval.name, &sample.id, &model.label, params);
+                    if let Some(f) = &args.filter
+                        && !key.contains(f.as_str())
+                    {
+                        continue;
+                    }
+                    plan.push(Cell {
+                        eval: eval.name.clone(),
+                        sample: sample.id.clone(),
+                        model: model.label.clone(),
+                        params: params.clone(),
+                    });
                 }
-                plan.push((eval.name.clone(), sample.id.clone(), model.label.clone()));
             }
         }
     }
@@ -279,6 +325,14 @@ fn print_listing(listing: &ListResult) {
                 .collect::<Vec<_>>()
                 .join(", ")
         );
+        if !eval.axes.is_empty() {
+            let axes: Vec<String> = eval
+                .axes
+                .iter()
+                .map(|a| format!("{}=[{}]", a.name, a.values.join(",")))
+                .collect();
+            println!("  axes:    {}", axes.join(", "));
+        }
         if !eval.metadata.is_empty() {
             let meta: Vec<String> = eval
                 .metadata

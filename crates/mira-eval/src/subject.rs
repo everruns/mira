@@ -168,6 +168,7 @@ impl Subject for CliSubject {
 
         let prompt = sample.input.join("\n");
         let workdir_str = workdir_path.to_string_lossy().to_string();
+        let started = std::time::Instant::now();
 
         let mut cmd = tokio::process::Command::new(&self.program);
         cmd.current_dir(&workdir_path);
@@ -203,6 +204,7 @@ impl Subject for CliSubject {
             Ok(o) => o,
             Err(e) => return Transcript::failed(format!("wait: {e}")),
         };
+        let duration_ms = started.elapsed().as_millis() as u64;
 
         let stdout = String::from_utf8_lossy(&output.stdout).to_string();
         let stderr = String::from_utf8_lossy(&output.stderr).to_string();
@@ -235,6 +237,7 @@ impl Subject for CliSubject {
         if self.capture_files {
             transcript.files = read_files(&workdir_path).await;
         }
+        transcript.timing.duration_ms = duration_ms;
 
         transcript
     }
@@ -322,7 +325,20 @@ fn walk(value: &serde_json::Value, usage: &mut Usage, tools: &mut Vec<String>) {
                     .get("output_tokens")
                     .and_then(|v| v.as_u64())
                     .unwrap_or(0);
-                if let Some(cost) = map.get("cost").and_then(|v| v.as_f64()) {
+                usage.cache_read_tokens += map
+                    .get("cache_read_tokens")
+                    .or_else(|| map.get("cached_tokens"))
+                    .and_then(|v| v.as_u64())
+                    .unwrap_or(0);
+                usage.reasoning_tokens += map
+                    .get("reasoning_tokens")
+                    .and_then(|v| v.as_u64())
+                    .unwrap_or(0);
+                if let Some(cost) = map
+                    .get("cost")
+                    .or_else(|| map.get("cost_usd"))
+                    .and_then(|v| v.as_f64())
+                {
                     usage.cost_usd += cost;
                 }
             }
@@ -353,6 +369,7 @@ mod tests {
         RunCx {
             model: ModelSpec::sim(),
             max_turns: 8,
+            params: Default::default(),
         }
     }
 

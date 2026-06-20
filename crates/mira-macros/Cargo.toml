@@ -1,0 +1,22 @@
+[package]
+name = "mira-macros"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+homepage.workspace = true
+documentation = "https://docs.rs/mira-macros"
+keywords = ["eval", "macros", "ai", "agent", "everruns"]
+categories = ["development-tools::testing", "development-tools::procedural-macro-helpers"]
+description = "Procedural macros for Mira: the #[eval] attribute that registers eval factories"
+readme = "README.md"
+
+[lib]
+proc-macro = true
+
+[dependencies]
+syn = { workspace = true, features = ["full"] }
+quote.workspace = true
+proc-macro2.workspace = true

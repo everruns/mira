@@ -9,6 +9,7 @@ repository.workspace = true
 homepage.workspace = true
 keywords.workspace = true
 categories.workspace = true
+documentation = "https://docs.rs/mira-cli"
 description = "The `mira` host CLI: run code-defined evals across a model matrix"
 readme = "README.md"
 

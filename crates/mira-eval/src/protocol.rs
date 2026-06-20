@@ -25,10 +25,39 @@
 
 use serde::{Deserialize, Serialize};
 
-use crate::{Metadata, Score, Usage};
+use crate::{Metadata, Score, Timing, Usage};
 
-/// The protocol version advertised by `initialize`. Bumped on breaking changes.
-pub const PROTOCOL_VERSION: &str = "0.1";
+/// The protocol version advertised by `initialize`, as `MAJOR.MINOR`.
+///
+/// **Compatibility contract** (so old and new peers interoperate):
+/// * The **major** version changes only on a breaking wire change. Peers with
+///   different majors are incompatible — [`version_compatible`] returns false
+///   and the host warns.
+/// * The **minor** version increments for backwards-compatible additions (new
+///   methods, new optional fields). A newer peer talking to an older one must
+///   tolerate missing additions; an older peer must ignore unknown fields.
+///
+/// Every payload struct here is *non-exhaustive on the wire*: unknown fields are
+/// ignored (no `deny_unknown_fields`) and new fields are `#[serde(default)]`, so
+/// adding a field is a minor, non-breaking change.
+pub const PROTOCOL_VERSION: &str = "1.0";
+
+/// The oldest protocol version this build can still talk to.
+pub const MIN_PROTOCOL_VERSION: &str = "1.0";
+
+/// The major component of a `MAJOR.MINOR` version string (0 if malformed).
+pub fn version_major(v: &str) -> u32 {
+    v.split('.')
+        .next()
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(0)
+}
+
+/// Whether this build can talk to a peer advertising version `other`. Same major
+/// ⇒ compatible (minor differences are additive by contract).
+pub fn version_compatible(other: &str) -> bool {
+    version_major(other) == version_major(PROTOCOL_VERSION)
+}
 
 /// host → server.
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -91,6 +120,25 @@ pub struct InitializeResult {
     pub protocol_version: String,
     pub server: String,
     pub evals: usize,
+    /// Optional server version string (e.g. the server crate's version). For
+    /// diagnostics; defaulted for forward/backward compatibility.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub server_version: Option<String>,
+    /// Named capabilities this server supports beyond the base methods, so hosts
+    /// can feature-detect additively (e.g. `"axes"`, `"events"`). Defaulted, so
+    /// an older server that omits it is treated as base-only.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub capabilities: Vec<String>,
+}
+
+/// Capability tokens a server may advertise in [`InitializeResult::capabilities`].
+pub mod capabilities {
+    /// Server advertises extra matrix axes in `list` and honours `run.params`.
+    pub const AXES: &str = "axes";
+    /// Server emits `event` progress notifications during `run`.
+    pub const EVENTS: &str = "events";
+    /// Server reports token/cost usage and timing in transcripts.
+    pub const USAGE: &str = "usage";
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -107,6 +155,14 @@ pub struct ModelInfo {
     pub available: bool,
 }
 
+/// One extra matrix axis advertised by `list`, so the host can plan the full
+/// cross-product without running anything.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct AxisInfo {
+    pub name: String,
+    pub values: Vec<String>,
+}
+
 /// One eval, as advertised by `list`. Enough for the host to plan the full
 /// `samples × models` grid and apply selection without running anything.
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -117,6 +173,10 @@ pub struct EvalInfo {
     pub samples: Vec<SampleInfo>,
     pub scorers: Vec<String>,
     pub models: Vec<ModelInfo>,
+    /// Extra matrix axes beyond the model. Defaulted so older servers that omit
+    /// the field still parse (forward compatibility).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub axes: Vec<AxisInfo>,
     pub max_turns: usize,
     #[serde(default, skip_serializing_if = "Metadata::is_empty")]
     pub metadata: Metadata,
@@ -127,12 +187,17 @@ pub struct ListResult {
     pub evals: Vec<EvalInfo>,
 }
 
-/// `run` params: address one matrix cell by `(eval, sample, model label)`.
+/// `run` params: address one matrix cell by `(eval, sample, model label)` plus
+/// any extra axis `params` (axis name → chosen value).
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct RunParams {
     pub eval: String,
     pub sample: String,
     pub model: String,
+    /// Chosen value per extra matrix axis. Empty/omitted for a model-only
+    /// matrix; defaulted so older hosts/servers interoperate.
+    #[serde(default, skip_serializing_if = "Metadata::is_empty")]
+    pub params: Metadata,
 }
 
 /// Lightweight transcript carried in results and checkpoints (the raw event
@@ -145,6 +210,8 @@ pub struct TranscriptSummary {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub tool_calls: Vec<String>,
     pub usage: Usage,
+    #[serde(default, skip_serializing_if = "Timing::is_default")]
+    pub timing: Timing,
     #[serde(default, skip_serializing_if = "Metadata::is_empty")]
     pub metadata: Metadata,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -157,6 +224,9 @@ pub struct RunResult {
     pub eval: String,
     pub sample: String,
     pub model: String,
+    /// Extra matrix-axis values for this cell (empty for a model-only matrix).
+    #[serde(default, skip_serializing_if = "Metadata::is_empty")]
+    pub params: Metadata,
     pub passed: bool,
     pub aggregate: f64,
     pub scores: Vec<Score>,
@@ -167,10 +237,10 @@ pub struct RunResult {
 }
 
 impl RunResult {
-    /// Stable cell identity: `eval/sample@model`. Used for selection, dedupe,
-    /// and checkpoint resume.
+    /// Stable cell identity: `eval/sample@model` (with an `[k=v,…]` suffix when
+    /// extra axes vary). Used for selection, dedupe, and checkpoint resume.
     pub fn key(&self) -> String {
-        format!("{}/{}@{}", self.eval, self.sample, self.model)
+        crate::cell_key(&self.eval, &self.sample, &self.model, &self.params)
     }
 }
 
@@ -192,6 +262,26 @@ mod tests {
     }
 
     #[test]
+    fn version_compatibility() {
+        assert!(version_compatible(PROTOCOL_VERSION));
+        assert!(version_compatible("1.5")); // newer minor, same major
+        assert!(!version_compatible("2.0")); // newer major
+        assert!(!version_compatible("0.9")); // older major
+        assert_eq!(version_major("1.4"), 1);
+        assert_eq!(version_major("garbage"), 0);
+    }
+
+    #[test]
+    fn unknown_fields_are_ignored_for_forward_compat() {
+        // A future server adds fields the host doesn't know — must still parse.
+        let line = r#"{"protocol_version":"1.7","server":"x","evals":2,
+            "capabilities":["axes","future_thing"],"brand_new_field":{"a":1}}"#;
+        let info: InitializeResult = serde_json::from_str(line).unwrap();
+        assert_eq!(info.evals, 2);
+        assert!(info.capabilities.contains(&"axes".to_string()));
+    }
+
+    #[test]
     fn notification_has_no_id() {
         let n = Notification {
             method: "event".into(),
@@ -209,6 +299,7 @@ mod tests {
             eval: "greet".into(),
             sample: "hi".into(),
             model: "sim".into(),
+            params: Default::default(),
             passed: true,
             aggregate: 1.0,
             scores: vec![],
@@ -216,5 +307,10 @@ mod tests {
             skipped: false,
         };
         assert_eq!(r.key(), "greet/hi@sim");
+
+        let mut params = Metadata::new();
+        params.insert("effort".into(), "high".into());
+        let r2 = RunResult { params, ..r };
+        assert_eq!(r2.key(), "greet/hi@sim[effort=high]");
     }
 }
