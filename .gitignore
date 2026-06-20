@@ -1,2 +1,13 @@
 /target
-/Cargo.lock
+**/*.rs.bk
+Cargo.lock.bak
+*.profraw
+
+# Local eval artifacts
+/report.json
+/report.html
+/*.checkpoint.json
+.DS_Store
+
+# Local Claude Code settings (per-developer)
+.claude/settings.local.json
