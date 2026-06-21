@@ -111,12 +111,12 @@ async fn main() -> std::io::Result<()> {
 Run it with the host CLI:
 
 ```bash
-mira --bin my_evals list                 # what the study advertises
-mira --bin my_evals run                  # run the whole matrix
-mira --bin my_evals run greet            # selective (substring), like cargo test
-mira --bin my_evals run --tag smoke
-mira --bin my_evals run --format html --out report.html   # self-contained viewer
-mira --bin my_evals run --checkpoint ck.json              # resumable long runs
+mira --example my_evals list                 # what the study advertises
+mira --example my_evals run                  # run the whole matrix
+mira --example my_evals run greet            # selective (substring), like cargo test
+mira --example my_evals run --tag smoke
+mira --example my_evals run --format html --out report.html   # self-contained viewer
+mira --example my_evals run --checkpoint ck.json              # resumable long runs
 ```
 
 See [`docs/getting-started.md`](docs/getting-started.md) for a full walkthrough,
@@ -162,6 +162,8 @@ somewhere else. Mira is the one framework they can converge on:
 | [`Formula/`](Formula) | — | The Homebrew formula (mirrored to the tap on release). |
 
 ## Documentation
+
+Indexed in [`docs/`](docs/README.md):
 
 - [How it works](docs/how-it-works.md) — the model and moving parts, end to end
 - [Getting started](docs/getting-started.md)

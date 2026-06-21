@@ -22,7 +22,8 @@ pulls the everruns runtime and is slow on first build.
 - **Keep the core light.** `mira-eval` is provider-agnostic and has no heavy
   dependencies. Provider/runtime integrations are separate crates.
 - **Docs in sync.** User-facing changes update `docs/`; wire-format changes
-  update `docs/protocol.md`; design changes update `specs/`.
+  update `docs/protocol.md`; design changes update `specs/`. Doc conventions
+  (structure, the SVG-diagram rule) live in [`specs/docs.md`](specs/docs.md).
 - **Conventional commits.** e.g. `feat(scorer): add cost_within`,
   `fix(cli): correct checkpoint key`.
 

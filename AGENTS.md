@@ -30,12 +30,15 @@ change there.
 | Spec | Description |
 |------|-------------|
 | architecture | Core model, crate architecture, execution model, metrics, migration |
+| docs | Public-docs structure, diagram (SVG) convention, sync rules |
 | release-process | Versioning, crates.io publishing flow |
 
 ### Documentation
 
-- **Public docs** live in `docs/` — user-facing guides and the protocol
-  reference (`docs/protocol.md`). Keep them in sync with behaviour.
+- **Public docs** live in `docs/`, indexed by `docs/README.md` — user-facing
+  guides and the protocol reference (`docs/protocol.md`). Keep them in sync with
+  behaviour. Conventions (structure, the SVG-diagram rule, sync) are the design
+  of record in [`specs/docs.md`](specs/docs.md).
 - **API docs** are rustdoc on the crates; `cargo doc --no-deps --open` to
   preview. CI builds docs with `-D warnings`.
 
