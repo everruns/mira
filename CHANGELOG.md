@@ -10,6 +10,24 @@ adheres to [Semantic Versioning](https://semver.org/).
 
 - `CONTRIBUTING.md` guidance for the `main` branch-protection gate: require a PR
   and the `CI / Check` status check so a red CI run can no longer be merged.
+- **Infrastructure errors → N/A, not failures.** A run now distinguishes a
+  *failure* (the model under test got it wrong) from an *infrastructure error*
+  (budget/quota, rate limit, provider 5xx/outage, network/timeout — not the
+  model's fault), reusing the [`Score::na`] machinery so the two are consistent.
+  - `ErrorKind` (`Subject` | `Infra`) classifies `Transcript.error`;
+    `Transcript::infra_error(..)` and `Transcript::errored_infra()` are the seam.
+  - Scoring **short-circuits to a single N/A score** on an infra error (the
+    cell-level dual of a scorer returning `Score::na`), so the cell is excluded
+    from the verdict and aggregate — neither passed nor failed, like a skip.
+  - All-N/A cells are now treated as N/A (not failed) across **every** reporter
+    (terminal, JSON `na` count, JUnit `<skipped>`, Markdown, HTML), and don't make
+    `mira run` exit non-zero. (Previously only JUnit handled the all-N/A case.)
+  - The concurrent executor re-queues infra-errored cells (alongside rate-limited
+    ones) up to `--max-retries`. Protocol `1.3`: optional `transcript.error_kind`
+    (additive — a study that omits it still interoperates).
+  - `mira-everruns::classify_runtime_error` maps transient provider error strings
+    (rate limit, quota, 5xx, timeout, network) to `Infra`; ambiguous errors stay
+    subject-attributed.
 - **Live progress bar** for `mira run` — shows `done/total`, elapsed time, ETA,
   and the current cell on an interactive terminal. The total is exact (the host
   plans the full grid up front). Hidden under CI/non-TTY so it doesn't pollute

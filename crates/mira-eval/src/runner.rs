@@ -33,6 +33,18 @@ pub async fn execute_cell(
 /// independent of how it was produced. The second half of [`run_cell`]; used by
 /// the protocol `score` method to (re-)score without re-executing the subject.
 pub async fn score_transcript(eval: &Eval, sample: &Sample, transcript: &Transcript) -> Vec<Score> {
+    // An infrastructure failure (budget, rate limit, provider outage, timeout)
+    // isn't the model's fault and didn't produce a transcript worth grading.
+    // Short-circuit to a single N/A score so the cell is excluded from the
+    // verdict and aggregate (neither pass nor fail) — the cell-level dual of a
+    // scorer returning `Score::na`. The host retries such cells.
+    if transcript.errored_infra() {
+        let reason = transcript
+            .error
+            .clone()
+            .unwrap_or_else(|| "infra error".into());
+        return vec![Score::na("infra", reason)];
+    }
     let mut scores = Vec::with_capacity(eval.scorers.len());
     for scorer in &eval.scorers {
         scores.push(scorer.score(sample, transcript).await);
@@ -308,6 +320,26 @@ mod tests {
         let report = Runner::new().add(all_na).run().await;
         assert!(!report.outcomes[0].passed);
         assert_eq!(report.outcomes[0].aggregate, 0.0);
+    }
+
+    #[tokio::test]
+    async fn infra_error_short_circuits_scoring_to_na() {
+        // A scorer that would FAIL on the errored transcript must never run —
+        // an infra error isn't the model's fault, so the cell is N/A, not failed.
+        let eval = Eval::new("e")
+            .case("a", "x")
+            .subject(subject_fn(|_, _| async {
+                Transcript::infra_error("provider 503: service unavailable")
+            }))
+            .scorer(contains("x"))
+            .build();
+        let report = Runner::new().add(eval).run().await;
+        let out = &report.outcomes[0];
+        assert_eq!(out.scores.len(), 1);
+        assert!(out.scores[0].na); // single N/A score, real scorer skipped
+        assert_eq!(out.scores[0].scorer, "infra");
+        assert!(!out.passed); // N/A ⇒ not passed …
+        assert_eq!(out.aggregate, 0.0); // … and excluded from the aggregate
     }
 
     #[tokio::test]

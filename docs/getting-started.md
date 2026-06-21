@@ -76,8 +76,13 @@ mira --example my_evals run
   eval         sim  anthropic/claude-opus-4-8
   capital      2/2                          —
 
-2 passed / 2 ran (0 failed, 2 skipped)
+2 passed / 2 scored (0 failed, 0 n/a, 2 skipped)
 ```
+
+A cell that *does* run but hits **infrastructure** trouble (out of budget,
+rate-limited, a provider outage) is scored **N/A** rather than failed — it's not
+the model's fault. N/A cells are excluded from the pass-rate and retried; see
+[Infrastructure errors vs. failures](authoring.md#infrastructure-errors-vs-failures).
 
 Set `ANTHROPIC_API_KEY` and the cloud column lights up too.
 

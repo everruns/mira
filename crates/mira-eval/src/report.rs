@@ -75,6 +75,20 @@ pub fn print_results(results: &[RunResult]) {
             println!("  [SKIP] {}/{}@{}{suffix}", r.eval, r.sample, r.model);
             continue;
         }
+        if is_na(r) {
+            // Every score N/A — nothing could be evaluated (e.g. an infra error).
+            let why = r
+                .transcript
+                .error
+                .as_deref()
+                .or_else(|| r.scores.first().map(|s| s.reason.as_str()))
+                .unwrap_or("not evaluated");
+            println!(
+                "  [N/A]  {}/{}@{}{suffix}  ({why})",
+                r.eval, r.sample, r.model
+            );
+            continue;
+        }
         let mark = if r.passed { "PASS" } else { "FAIL" };
         println!(
             "  [{mark}] {}/{}@{}{suffix}  ({:.0}%)",
@@ -109,14 +123,16 @@ pub fn print_results(results: &[RunResult]) {
 
     print_matrix(results);
 
-    let ran: Vec<_> = results.iter().filter(|r| !r.skipped).collect();
-    let passed = ran.iter().filter(|r| r.passed).count();
-    let skipped = results.len() - ran.len();
+    let scored: Vec<_> = results.iter().filter(|r| !r.skipped && !is_na(r)).collect();
+    let passed = scored.iter().filter(|r| r.passed).count();
+    let na = results.iter().filter(|r| !r.skipped && is_na(r)).count();
+    let skipped = results.iter().filter(|r| r.skipped).count();
     println!(
-        "\n{} passed / {} ran ({} failed, {} skipped)",
+        "\n{} passed / {} scored ({} failed, {} n/a, {} skipped)",
         passed,
-        ran.len(),
-        ran.len() - passed,
+        scored.len(),
+        scored.len() - passed,
+        na,
         skipped,
     );
 }
@@ -143,7 +159,7 @@ fn print_matrix(results: &[RunResult]) {
         return;
     }
 
-    println!("\n── matrix (passed/ran) ──");
+    println!("\n── matrix (passed/scored) ──");
     let label_w = evals.iter().map(|e| e.len()).max().unwrap_or(4).max(4);
     let col_w = models.iter().map(|m| m.len()).max().unwrap_or(6).max(7);
 
@@ -162,11 +178,12 @@ fn print_matrix(results: &[RunResult]) {
     }
 }
 
-/// The `passed/ran` cell for one (eval, model), or `—` if absent.
+/// The `passed/scored` cell for one (eval, model), or `—` if absent. Skipped and
+/// all-N/A cells are excluded from the denominator (see [`is_na`]).
 fn cell(results: &[RunResult], eval: &str, model: &str) -> String {
     let cells: Vec<_> = results
         .iter()
-        .filter(|r| r.eval == eval && r.model == model && !r.skipped)
+        .filter(|r| r.eval == eval && r.model == model && !r.skipped && !is_na(r))
         .collect();
     if cells.is_empty() {
         "—".to_string()
@@ -183,8 +200,15 @@ fn cell(results: &[RunResult], eval: &str, model: &str) -> String {
 /// per-case usage/timing (each `RunResult.transcript`) plus rolled-up totals,
 /// so the HTML viewer and trend aggregation consume one stable shape.
 pub fn results_json(results: &[RunResult]) -> serde_json::Value {
-    let ran = results.iter().filter(|r| !r.skipped).count();
-    let passed = results.iter().filter(|r| !r.skipped && r.passed).count();
+    let scored = results.iter().filter(|r| !r.skipped && !is_na(r)).count();
+    let passed = results
+        .iter()
+        .filter(|r| !r.skipped && !is_na(r) && r.passed)
+        .count();
+    let na = results.iter().filter(|r| !r.skipped && is_na(r)).count();
+    let skipped = results.iter().filter(|r| r.skipped).count();
+    // Usage/timing totals cover every cell that actually ran (including N/A ones,
+    // which may have burned tokens before failing); only never-run skips drop out.
     let mut total_tokens = 0u64;
     let mut total_cost = 0.0f64;
     let mut total_tool_calls = 0usize;
@@ -197,10 +221,11 @@ pub fn results_json(results: &[RunResult]) -> serde_json::Value {
     }
     serde_json::json!({
         "summary": {
-            "ran": ran,
+            "scored": scored,
             "passed": passed,
-            "failed": ran - passed,
-            "skipped": results.len() - ran,
+            "failed": scored - passed,
+            "na": na,
+            "skipped": skipped,
             "total_tokens": total_tokens,
             "total_cost_usd": total_cost,
             "total_tool_calls": total_tool_calls,
@@ -210,10 +235,13 @@ pub fn results_json(results: &[RunResult]) -> serde_json::Value {
     })
 }
 
-/// True when a cell ran but every score was N/A — nothing could be evaluated.
-/// Such a cell is reported as skipped (not a failure), so an unreachable judge
-/// doesn't masquerade as a real failure with an empty message.
-fn all_na(r: &RunResult) -> bool {
+/// True when a cell ran but every score was N/A — nothing could be evaluated
+/// (an unreachable judge, or an infrastructure failure that short-circuited
+/// scoring). Such a cell is **neither passed nor failed**: it's excluded from
+/// the pass-rate, like a skip, so infra hiccups don't masquerade as real
+/// failures. The host retries infra-errored cells; one that stays N/A is
+/// reported as such rather than counted against the model.
+pub fn is_na(r: &RunResult) -> bool {
     !r.scores.is_empty() && r.scores.iter().all(|s| s.na)
 }
 
@@ -222,7 +250,7 @@ fn all_na(r: &RunResult) -> bool {
 /// cell carries `<skipped>`. A cell that was not executed or whose scores are
 /// all N/A counts as skipped. Surfaces evals in any CI that understands JUnit.
 pub fn junit_xml(results: &[RunResult]) -> String {
-    let is_skipped = |r: &RunResult| r.skipped || all_na(r);
+    let is_skipped = |r: &RunResult| r.skipped || is_na(r);
     let skipped = results.iter().filter(|r| is_skipped(r)).count();
     let failures = results
         .iter()
@@ -269,12 +297,16 @@ pub fn junit_xml(results: &[RunResult]) -> String {
 pub fn markdown(results: &[RunResult]) -> String {
     let (evals, models) = axes(results);
     let mut out = String::new();
-    let ran = results.iter().filter(|r| !r.skipped).count();
-    let passed = results.iter().filter(|r| !r.skipped && r.passed).count();
+    let scored = results.iter().filter(|r| !r.skipped && !is_na(r)).count();
+    let passed = results
+        .iter()
+        .filter(|r| !r.skipped && !is_na(r) && r.passed)
+        .count();
+    let na = results.iter().filter(|r| !r.skipped && is_na(r)).count();
+    let skipped = results.iter().filter(|r| r.skipped).count();
     out.push_str(&format!(
-        "## Mira eval results\n\n**{passed} / {ran} passed** ({} failed, {} skipped)\n\n",
-        ran - passed,
-        results.len() - ran
+        "## Mira eval results\n\n**{passed} / {scored} passed** ({} failed, {na} n/a, {skipped} skipped)\n\n",
+        scored - passed,
     ));
     if evals.is_empty() || models.is_empty() {
         return out;
@@ -318,10 +350,14 @@ fn html_escape(s: &str) -> String {
 /// final response). Open it straight from a CI artifact.
 pub fn html(results: &[RunResult]) -> String {
     let (evals, models) = axes(results);
-    let ran = results.iter().filter(|r| !r.skipped).count();
-    let passed = results.iter().filter(|r| !r.skipped && r.passed).count();
-    let skipped = results.len() - ran;
-    let failed = ran - passed;
+    let scored = results.iter().filter(|r| !r.skipped && !is_na(r)).count();
+    let passed = results
+        .iter()
+        .filter(|r| !r.skipped && !is_na(r) && r.passed)
+        .count();
+    let na = results.iter().filter(|r| !r.skipped && is_na(r)).count();
+    let skipped = results.iter().filter(|r| r.skipped).count();
+    let failed = scored - passed;
     let total_tokens: u64 = results
         .iter()
         .filter(|r| !r.skipped)
@@ -343,12 +379,22 @@ pub fn html(results: &[RunResult]) -> String {
 
     // Summary banner.
     out.push_str("<section class=\"cards\">\n");
-    let banner = if failed == 0 { "ok" } else { "bad" };
+    // Green when nothing failed; a warn tint when only infra/N/A remains.
+    let banner = if failed > 0 {
+        "bad"
+    } else if na > 0 {
+        "warn"
+    } else {
+        "ok"
+    };
     out.push_str(&format!(
-        "<div class=\"card {banner}\"><b>{passed}/{ran}</b><span>passed</span></div>\n"
+        "<div class=\"card {banner}\"><b>{passed}/{scored}</b><span>passed</span></div>\n"
     ));
     out.push_str(&format!(
         "<div class=\"card\"><b>{failed}</b><span>failed</span></div>\n"
+    ));
+    out.push_str(&format!(
+        "<div class=\"card\"><b>{na}</b><span>n/a</span></div>\n"
     ));
     out.push_str(&format!(
         "<div class=\"card\"><b>{skipped}</b><span>skipped</span></div>\n"
@@ -386,6 +432,8 @@ pub fn html(results: &[RunResult]) -> String {
     for r in results {
         let cls = if r.skipped {
             "skip"
+        } else if is_na(r) {
+            "na"
         } else if r.passed {
             "pass"
         } else {
@@ -393,6 +441,8 @@ pub fn html(results: &[RunResult]) -> String {
         };
         let badge = if r.skipped {
             "SKIP"
+        } else if is_na(r) {
+            "N/A"
         } else if r.passed {
             "PASS"
         } else {
@@ -491,7 +541,7 @@ pub fn html(results: &[RunResult]) -> String {
 }
 
 const CSS: &str = "\
-:root{color-scheme:light dark;--ok:#1a7f37;--bad:#cf222e;--mut:#57606a;--bg:#fff;--fg:#1f2328;--line:#d0d7de}
+:root{color-scheme:light dark;--ok:#1a7f37;--bad:#cf222e;--warn:#9a6700;--mut:#57606a;--bg:#fff;--fg:#1f2328;--line:#d0d7de}
 @media(prefers-color-scheme:dark){:root{--bg:#0d1117;--fg:#e6edf3;--line:#30363d;--mut:#8b949e}}
 *{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--fg);font:15px/1.5 -apple-system,Segoe UI,Roboto,sans-serif}
 main{max-width:960px;margin:0 auto;padding:2rem 1.25rem}
@@ -499,14 +549,14 @@ h1{font-size:1.6rem;margin:0 0 1rem}h2{font-size:1.15rem;margin:2rem 0 .75rem;bo
 .cards{display:flex;flex-wrap:wrap;gap:.75rem}
 .card{flex:1;min-width:96px;border:1px solid var(--line);border-radius:8px;padding:.75rem 1rem;text-align:center}
 .card b{display:block;font-size:1.5rem}.card span{color:var(--mut);font-size:.8rem;text-transform:uppercase;letter-spacing:.04em}
-.card.ok b{color:var(--ok)}.card.bad b{color:var(--bad)}
+.card.ok b{color:var(--ok)}.card.bad b{color:var(--bad)}.card.warn b{color:var(--warn)}
 table.matrix{border-collapse:collapse;width:100%}table.matrix th,table.matrix td{border:1px solid var(--line);padding:.4rem .6rem;text-align:center}
 table.matrix td:first-child,table.matrix th:first-child{text-align:left}
 .case{border:1px solid var(--line);border-radius:8px;margin:.5rem 0;padding:.25rem .75rem}
 .case summary{cursor:pointer;display:flex;gap:.6rem;align-items:center;flex-wrap:wrap}
 .case code{font-size:.92rem}.metrics{color:var(--mut);font-size:.8rem;margin-left:auto}
 .badge{font-size:.7rem;font-weight:700;padding:.1rem .4rem;border-radius:4px;color:#fff}
-.badge.pass{background:var(--ok)}.badge.fail{background:var(--bad)}.badge.skip{background:var(--mut)}
+.badge.pass{background:var(--ok)}.badge.fail{background:var(--bad)}.badge.skip{background:var(--mut)}.badge.na{background:var(--warn)}
 .scores{list-style:none;padding:0;margin:.5rem 0}.scores li{padding:.15rem 0}.scores li.pass{color:var(--ok)}.scores li.fail{color:var(--bad)}.scores li.na{color:var(--mut)}
 .tools,.meta{font-size:.85rem;color:var(--mut)}
 pre{background:rgba(127,127,127,.1);border-radius:6px;padding:.6rem .75rem;overflow:auto;font-size:.85rem;white-space:pre-wrap}
@@ -548,10 +598,36 @@ mod tests {
     #[test]
     fn json_summary_counts() {
         let v = results_json(&sample_results());
-        assert_eq!(v["summary"]["ran"], 2);
+        assert_eq!(v["summary"]["scored"], 2);
         assert_eq!(v["summary"]["passed"], 1);
         assert_eq!(v["summary"]["failed"], 1);
+        assert_eq!(v["summary"]["na"], 0);
         assert_eq!(v["summary"]["skipped"], 1);
+    }
+
+    #[test]
+    fn all_na_cell_counts_as_na_not_failed() {
+        // pass, all-N/A (infra), skip → the N/A cell is excluded from pass/fail
+        // and surfaced in its own bucket across every reporter.
+        let mut na = result("greet", "hi", "opus", false, false);
+        na.scores = vec![Score::na("infra", "provider 503")];
+        let results = vec![
+            result("greet", "hi", "sim", true, false),
+            na,
+            result("code", "a", "opus", false, true),
+        ];
+        let v = results_json(&results);
+        assert_eq!(v["summary"]["scored"], 1); // only the sim pass is scored
+        assert_eq!(v["summary"]["passed"], 1);
+        assert_eq!(v["summary"]["failed"], 0); // the N/A cell is not a failure
+        assert_eq!(v["summary"]["na"], 1);
+        assert_eq!(v["summary"]["skipped"], 1);
+
+        assert!(markdown(&results).contains("1 n/a"));
+        let h = html(&results);
+        assert!(h.contains("N/A"));
+        assert!(h.contains("<span>n/a</span>"));
+        assert!(h.contains("card warn")); // not green when only N/A remains
     }
 
     #[test]

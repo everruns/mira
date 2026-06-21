@@ -228,9 +228,29 @@ fn outcome_rate_limited(res: &Result<RunResult, String>) -> bool {
     }
 }
 
-/// Synthesize a failed result for a cell whose run errored (so one cell's failure
-/// is recorded, not fatal to the whole matrix).
+/// Whether a cell's outcome should be retried: a rate limit (transport or
+/// transcript), or any other *infrastructure* error the study reported
+/// (`error_kind = Infra` — budget, outage, timeout). Not the model's fault
+/// either way, so re-running may succeed. A plain transport error that isn't
+/// rate-limited is left alone (it may be a persistent bug, not transient infra).
+fn outcome_retryable(res: &Result<RunResult, String>) -> bool {
+    match res {
+        Err(e) => crate::is_rate_limited(e),
+        Ok(r) => {
+            r.transcript.error_kind == crate::ErrorKind::Infra
+                || r.transcript
+                    .error
+                    .as_deref()
+                    .is_some_and(crate::is_rate_limited)
+        }
+    }
+}
+
+/// Synthesize a failed result for a cell whose run errored at the transport level
+/// (so one cell's failure is recorded, not fatal to the whole matrix). A
+/// rate-limited transport error is infrastructure, not the model's fault.
 fn failed_result(cell: &CellSpec, error: String) -> RunResult {
+    let infra = crate::is_rate_limited(&error);
     RunResult {
         eval: cell.eval.clone(),
         sample: cell.sample.clone(),
@@ -241,6 +261,11 @@ fn failed_result(cell: &CellSpec, error: String) -> RunResult {
         scores: Vec::new(),
         transcript: TranscriptSummary {
             error: Some(error),
+            error_kind: if infra {
+                crate::ErrorKind::Infra
+            } else {
+                crate::ErrorKind::Subject
+            },
             ..Default::default()
         },
         skipped: false,
@@ -320,7 +345,11 @@ pub async fn run_cells<F, Fut>(
         let rate_limited = outcome_rate_limited(&res);
         limiter.finish(&cell.provider, rate_limited, Instant::now());
 
-        if rate_limited && attempts < cfg.max_retries {
+        // Re-queue rate-limited *and* other infrastructure-errored cells (outage,
+        // budget, timeout — not the model's fault) up to max_retries. Only rate
+        // limits drive the AIMD throttle/backoff above; other infra errors get a
+        // plain bounded retry.
+        if attempts < cfg.max_retries && outcome_retryable(&res) {
             pending.push_back((cell, attempts + 1));
             continue;
         }
@@ -492,6 +521,41 @@ mod tests {
         )
         .await;
         assert_eq!(*attempts.lock().await, 2);
+        assert_eq!(results.len(), 1);
+        assert!(results[0].passed);
+    }
+
+    /// An infra-errored result (`error_kind = Infra`) that is *not* a rate limit
+    /// is still re-queued, then succeeds.
+    #[tokio::test]
+    async fn retries_infra_errored_cell_then_succeeds() {
+        let cfg = Concurrency::new(2);
+        let attempts = Arc::new(Mutex::new(0usize));
+        let a = attempts.clone();
+        let mut results = Vec::new();
+        run_cells(
+            vec![cell("sim", "x")],
+            &cfg,
+            move |c| {
+                let a = a.clone();
+                async move {
+                    let mut n = a.lock().await;
+                    *n += 1;
+                    if *n == 1 {
+                        let mut r = ok_result(&c);
+                        r.passed = false;
+                        r.transcript.error = Some("provider 503 unavailable".into());
+                        r.transcript.error_kind = crate::ErrorKind::Infra;
+                        Ok(r)
+                    } else {
+                        Ok(ok_result(&c))
+                    }
+                }
+            },
+            |_, r| results.push(r),
+        )
+        .await;
+        assert_eq!(*attempts.lock().await, 2); // re-queued once
         assert_eq!(results.len(), 1);
         assert!(results[0].passed);
     }

@@ -362,7 +362,11 @@ async fn run(
         eprintln!("\nwrote {path} ({:?})", format);
     }
 
-    let failed = results.iter().any(|r| !r.skipped && !r.passed);
+    // A cell that's N/A (all scores N/A — e.g. an infra failure) is neither
+    // passed nor failed, so it doesn't make CI red.
+    let failed = results
+        .iter()
+        .any(|r| !r.skipped && !report::is_na(r) && !r.passed);
     std::process::exit(if failed { 1 } else { 0 });
 }
 
@@ -472,7 +476,11 @@ async fn score(
         eprintln!("\nwrote {path} ({:?})", format);
     }
 
-    let failed = results.iter().any(|r| !r.skipped && !r.passed);
+    // A cell that's N/A (all scores N/A — e.g. an infra failure) is neither
+    // passed nor failed, so it doesn't make CI red.
+    let failed = results
+        .iter()
+        .any(|r| !r.skipped && !report::is_na(r) && !r.passed);
     std::process::exit(if failed { 1 } else { 0 });
 }
 
