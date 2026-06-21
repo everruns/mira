@@ -71,6 +71,7 @@ class ExecuteResult:
 @dataclass
 class InitializeResult:
     capabilities: List[str] = field(default_factory=list)
+    capability_params: Dict[str, Any] = field(default_factory=dict)
     evals: int = 0
     protocol_version: str = ""
     study: str = ""
@@ -113,6 +114,8 @@ class Notification:
     method: str = ""
     params: Any = None
     __required__ = ("method",)
+
+Part = Dict[str, Any]  # tagged union: kind in (text, image, audio, file, json)
 
 @dataclass
 class Request:
@@ -191,6 +194,8 @@ class ScoreParams:
     trials: int = 0
     __required__ = ("eval", "model", "sample", "transcript")
 
+Source = Dict[str, Any]  # union of objects
+
 @dataclass
 class Timing:
     duration_ms: int = 0
@@ -207,6 +212,7 @@ class Transcript:
     iterations: int = 0
     metadata: Dict[str, Any] = field(default_factory=dict)
     metrics: Dict[str, float] = field(default_factory=dict)
+    output: List["Part"] = field(default_factory=list)
     timing: "Timing" = None
     tool_calls: List[str] = field(default_factory=list)
     tool_calls_count: int = 0
@@ -221,6 +227,7 @@ class TranscriptSummary:
     iterations: int = 0
     metadata: Dict[str, Any] = field(default_factory=dict)
     metrics: Dict[str, float] = field(default_factory=dict)
+    output: List["Part"] = field(default_factory=list)
     timing: "Timing" = None
     tool_calls: List[str] = field(default_factory=list)
     tool_calls_count: int = 0

@@ -375,11 +375,11 @@ addition is promoted (and earns its minor bump).
 ## 14. Multimodality, interactive evals, and capability parameters
 
 Three limitations of the v0.1 cut, addressed together because they share a root:
-the core types were *text-shaped* and *single-shot*. Status: multimodal **inputs**
-and **interactive** evals are stable; multimodal **output** and structured
-**capability parameters** are implemented but **staged behind `protocol-unstable`**
-(they add typed fields to wire types — see §13 — and promote together once
-concurrent protocol churn settles).
+the core types were *text-shaped* and *single-shot*. All are now on the stable
+contract: multimodal **inputs** and **interactive** evals never needed the wire;
+multimodal **output** and structured **capability parameters** were trialled
+behind `protocol-unstable` and **promoted to the committed wire in protocol
+`1.10`** (typed `Part`s on the transcript + `InitializeResult.capability_params`).
 
 ### 14.1 Content model (`Part`)
 
@@ -402,19 +402,17 @@ type — the study owns the dataset and the host addresses samples by id — so 
 schema, `PROTOCOL_VERSION`, and the SDKs are untouched. Example:
 `examples/multimodal/`.
 
-### 14.3 Multimodal outputs — staged behind `protocol-unstable`
+### 14.3 Multimodal outputs — stable (protocol `1.10`)
 
-`Transcript` (and its wire summary) gain `output: Vec<Part>` — the response as
+`Transcript` (and its wire summary) carry `output: Vec<Part>` — the response as
 typed parts, with `final_response` kept as the canonical text projection so
 text-only scorers keep working. A modality scorer (`scorer::produced_modality`)
 grades it. Because `Transcript` *is* a wire type (it rides in `execute`/`score`),
-this lands behind `#[cfg(feature = "protocol-unstable")]` per §13 — exercised
-in-tree (`cargo test --features protocol-unstable`, `clippy --all-features`) but
-kept off the committed schema. **Promotion path:** drop the `cfg`s on
-`Transcript::output` / `TranscriptSummary::output` / `produced_modality`,
-regenerate `schema/`, mirror in the SDKs, and earn the minor bump — done as a
-single focused change once concurrent protocol work settles, so it doesn't race
-another version bump.
+this was trialled behind `protocol-unstable` first, then **promoted in `1.10`**:
+the committed `schema/` now publishes `output` plus the `Part` / `Source` defs,
+and the SDKs mirror them (the Python codegen renders the `Part`/`Source` object
+unions as pass-through dicts — the wire is `kind`-tagged JSON). `final_response`
+stays the text projection throughout, so nothing text-only had to change.
 
 ### 14.4 Interactive / multi-turn evals — implemented (in-process)
 
@@ -438,16 +436,15 @@ Example: `examples/interactive/` (a clarify-then-answer dialog). A
 model-graded responder (an LLM playing the user) is just a closure that calls a
 judge, no new machinery.
 
-### 14.5 Capability parameters — implemented (staged)
+### 14.5 Capability parameters — stable (protocol `1.10`)
 
 `capabilities: Vec<String>` carries bare tokens; it can't express *config* (which
 event kinds a study emits, supported input/output modalities, a concurrency
-hint). `InitializeResult` gains a sibling `capability_params` map
+hint). `InitializeResult` carries a sibling `capability_params` map
 (`token → JSON`, via `capability_param(token)`) — open-vocabulary like
-`metadata`, so new keys never need a version bump. The study advertises it from
+`metadata`, so new *keys* never need a version bump. The study advertises it from
 `initialize` (event kinds + supported modalities); a host reads it additively,
-defaulting to today's behaviour when a token is absent. Staged behind
-`protocol-unstable` (it's a new typed field on a wire type, and has no stable
-consumer yet) per §13; **promotion path:** drop the `cfg`, regenerate `schema/`,
-mirror in the SDKs, earn the minor bump — folded into the same promotion as
-§14.3 once protocol churn settles.
+defaulting to today's behaviour when a token is absent. Trialled behind
+`protocol-unstable`, then **promoted in `1.10`** alongside §14.3 (the field is a
+typed wire addition, so adding the field itself — unlike adding keys — took the
+minor bump).

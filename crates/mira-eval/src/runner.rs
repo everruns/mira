@@ -105,16 +105,12 @@ fn merge_turn(combined: &mut Transcript, t: &Transcript) {
     for (k, v) in &t.metadata {
         combined.metadata.insert(k.clone(), v.clone());
     }
-    #[cfg(feature = "protocol-unstable")]
-    {
-        combined.output = t.output.clone();
-    }
+    combined.output = t.output.clone();
 }
 
-/// The subject's turn as conversation parts: its multimodal `output` when set
-/// (experimental), else the text `final_response`.
+/// The subject's turn as conversation parts: its multimodal `output` when set,
+/// else the text `final_response`.
 fn assistant_parts(t: &Transcript) -> Vec<Part> {
-    #[cfg(feature = "protocol-unstable")]
     if !t.output.is_empty() {
         return t.output.clone();
     }

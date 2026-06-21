@@ -140,7 +140,12 @@ study.
   "study": "my-evals",
   "evals": 3,
   "study_version": "0.1.0",
-  "capabilities": ["axes", "events", "usage", "execute", "score", "trials", "cancel", "paginate"]
+  "capabilities": ["axes", "events", "usage", "execute", "score", "trials", "cancel", "paginate"],
+  "capability_params": {
+    "events": { "kinds": ["started"] },
+    "modalities": { "input": ["text", "image", "audio", "file", "json"],
+                    "output": ["text", "image", "audio", "file", "json"] }
+  }
 }
 ```
 
@@ -159,6 +164,12 @@ and may return `EvalInfo.next_cursor` from `list`). `study_version` and
 `capabilities` are optional and default to empty. A `1.0` study that only
 implements `run` interoperates unchanged — the host simply won't see the
 `execute`/`score`/`trials`/`cancel`/`paginate` capabilities.
+
+`capability_params` (optional, defaulted) carries **structured config** for the
+advertised capabilities, keyed by capability token — the data a bare token
+can't: which `event` kinds the study emits, the input/output `modalities` it
+understands, and so on. It is open-vocabulary like `metadata`, so a host reads
+it additively and falls back to default behaviour when a token is absent.
 
 ### `list`
 
@@ -337,6 +348,30 @@ and `time_to_first_token_ms` (omitted when unmeasured). The optional
 study reports (e.g. `{"retrieval_recall@5": 0.83}`); hosts that don't recognise a
 key simply carry it through. All are optional and defaulted — older studies that
 omit them still validate.
+
+For a **multimodal** subject the transcript may also carry an `output` array —
+the response as ordered, typed [`Part`](#multimodal-content)s — alongside
+`final_response`. `final_response` stays the canonical *text* projection (so a
+text-only scorer keeps working); `output` carries the non-text modalities. It is
+optional and omitted for the common text-only case.
+
+#### Multimodal content
+
+A `Part` is one piece of content, a self-describing JSON object tagged by `kind`:
+
+```json
+{ "kind": "text",  "text": "a cat on a mat" }
+{ "kind": "image", "media_type": "image/png", "source": { "uri": "https://x/cat.png" } }
+{ "kind": "image", "media_type": "image/png", "source": { "data": "<base64>" } }
+{ "kind": "file",  "name": "report.pdf", "media_type": "application/pdf", "source": { "uri": "…" } }
+{ "kind": "json",  "json": { "label": "cat", "p": 0.91 } }
+```
+
+Media is **referenced, not embedded**: a media part carries a `media_type` plus a
+`source` that is **exactly one** of `{ "uri": … }` (a URL or `data:` URI) or
+`{ "data": … }` (inline base64) — never raw bytes, so a part is plain JSON. A
+media part with neither source is invalid. Inputs (a study's dataset) use the
+same vocabulary off-wire; `output` puts it on the wire.
 
 ### `execute`
 
@@ -579,8 +614,11 @@ capability; `1.9` gave `event`/`log` notifications a typed, schematized payload
 (`EventParams`/`LogParams`) and a `request_id` correlating each progress event to
 its originating `run` request; `1.10` added cursor-paginated sample listing (the
 optional `EvalInfo.next_cursor`, the `list_samples` method, and the `paginate`
-capability). A `1.0` study (or any study implementing only `run`, emitting no
-notifications) interoperates with a `1.10` host.
+capability); `1.11` promoted multimodal `output` (typed `Part`s on the
+transcript) and structured `InitializeResult.capability_params` from the
+`protocol-unstable` staging ground onto the committed wire. A `1.0` study (or any
+study implementing only `run`, emitting no notifications) interoperates with a
+`1.11` host.
 
 - A **MINOR** bump is **additive**: new optional fields, new notification kinds,
   new capability tokens. A newer peer must keep talking to an older one.
@@ -646,6 +684,8 @@ covers *structural* changes — a new typed field or method — that the open
 `metrics` / `metadata` / `capabilities` vocabularies can't express; those
 already extend without a protocol bump. It lets such a change land and be
 exercised in-tree without prematurely freezing the language-neutral contract.
+Multimodal `output` and `capability_params` rode this path before promotion in
+`1.10`; `TranscriptSummary.experimental` is the reserved placeholder for the next.
 
 ## Implementing a study in another language
 

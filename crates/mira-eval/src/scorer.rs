@@ -411,14 +411,11 @@ pub fn json_field_equals(key: impl Into<String>, value: impl Into<String>) -> Bo
     )
 }
 
-// ----- multimodal output (experimental) -------------------------------------
+// ----- multimodal output ----------------------------------------------------
 
 /// Passes if the subject produced an output [`Part`](crate::Part) of the given
-/// modality (`"text"` / `"image"` / `"audio"` / `"file"` / `"json"`).
-///
-/// EXPERIMENTAL — grades [`Transcript::output`](crate::Transcript::output),
-/// which is staged behind the `protocol-unstable` feature.
-#[cfg(feature = "protocol-unstable")]
+/// modality (`"text"` / `"image"` / `"audio"` / `"file"` / `"json"`). Grades
+/// [`Transcript::output`](crate::Transcript::output).
 pub fn produced_modality(kind: impl Into<String>) -> Box<dyn Scorer> {
     let kind = kind.into();
     scorer(format!("produced_modality({kind})"), move |_, t| {
@@ -730,7 +727,6 @@ mod tests {
         assert!(!run(file_contains("out.txt", "bye"), &s).await.pass);
     }
 
-    #[cfg(feature = "protocol-unstable")]
     #[tokio::test]
     async fn produced_modality_scorer() {
         use crate::Part;

@@ -20,6 +20,17 @@ adheres to [Semantic Versioning](https://semver.org/).
   per-direction id spaces, two-way negotiation) as the design of record. See
   [`docs/protocol.md`](docs/protocol.md#reverse-requests-studyhost) and
   [`specs/architecture.md`](specs/architecture.md).
+- **Multimodal output + capability params promoted to the wire** (protocol `1.11`)
+  — the multimodal `output` (typed `Part`s on `Transcript` / `TranscriptSummary`,
+  graded by `scorer::produced_modality`) and structured
+  `InitializeResult.capability_params` that shipped staged behind
+  `protocol-unstable` are now part of the **committed** contract: `schema/v1/`
+  publishes `output`, `capability_params`, and the `Part` / `Source` content
+  defs, and the Python SDK mirrors them (codegen renders the `Part`/`Source`
+  object unions as pass-through `kind`-tagged dicts). `final_response` stays the
+  canonical text projection, and both fields are optional/defaulted, so `1.0`–
+  `1.10` peers still interoperate. `TranscriptSummary.experimental` remains the
+  reserved `protocol-unstable` staging slot for the next structural addition.
 - **Run cancellation** (`cancel`, protocol `1.8`) — a host can now abort one
   in-flight `run`/`execute`/`score` by its request `id` without tearing down the
   connection (previously the only lever was closing stdin, which ended *every*
