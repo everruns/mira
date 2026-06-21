@@ -246,6 +246,8 @@ mod tests {
                 values: vec!["low".into(), "high".into()],
             }],
             max_turns: 4,
+            trials: 0,
+            seed: None,
             metadata: Default::default(),
         }
     }
@@ -256,6 +258,9 @@ mod tests {
             sample: "hi".into(),
             model: "sim".into(),
             params: Default::default(),
+            trial: 0,
+            trials: 0,
+            seed: None,
             passed: true,
             aggregate: 1.0,
             scores: vec![],

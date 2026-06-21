@@ -49,6 +49,16 @@ pub struct Eval {
     /// Extra matrix axes beyond the model (empty for a model-only matrix).
     pub axes: Vec<Axis>,
     pub max_turns: usize,
+    /// How many times to run each cell (trials/repetitions). `1` = a single run.
+    /// `> 1` repeats the cell so the host can report pass@k / pass-rate /
+    /// variance over a stochastic subject (see [`crate::aggregate`]). The host
+    /// may override this with `--trials`.
+    pub trials: usize,
+    /// Base seed for reproducible trials. When set, trial `t` runs with seed
+    /// `seed + t`, so the whole repetition set replays deterministically; the
+    /// subject reads it via [`RunCx::seed`](crate::RunCx::seed). `None` leaves
+    /// seeding to the subject.
+    pub seed: Option<u64>,
     pub metadata: Metadata,
 }
 
@@ -89,6 +99,8 @@ impl Eval {
             models: Vec::new(),
             axes: Vec::new(),
             max_turns: 12,
+            trials: 1,
+            seed: None,
             metadata: Metadata::new(),
         }
     }
@@ -103,6 +115,8 @@ pub struct EvalBuilder {
     models: Vec<ModelSpec>,
     axes: Vec<Axis>,
     max_turns: usize,
+    trials: usize,
+    seed: Option<u64>,
     metadata: Metadata,
 }
 
@@ -193,6 +207,29 @@ impl EvalBuilder {
         self
     }
 
+    /// Run each cell `n` times (trials/repetitions) instead of once, so the host
+    /// can report pass@k, pass-rate, and score variance over a stochastic
+    /// subject. Trials are repetitions of the *same* cell (unlike an [`axis`],
+    /// which forms new cells), grouped back for aggregation. `n` is clamped to at
+    /// least 1. The host may override this with `--trials`.
+    ///
+    /// Pair with [`seed`](EvalBuilder::seed) for reproducible repetitions.
+    ///
+    /// [`axis`]: EvalBuilder::axis
+    pub fn trials(mut self, n: usize) -> Self {
+        self.trials = n.max(1);
+        self
+    }
+
+    /// Set a base seed so trials are reproducible: trial `t` runs with seed
+    /// `seed + t`. The subject reads it via [`RunCx::seed`](crate::RunCx::seed)
+    /// to seed its RNG / sampling. Without a seed, trials still repeat but the
+    /// subject decides its own (non-)determinism.
+    pub fn seed(mut self, seed: u64) -> Self {
+        self.seed = Some(seed);
+        self
+    }
+
     /// Attach a metadata key/value (provenance, suite, observability links).
     /// The value is open-ended JSON, so `"smoke"`, `3`, or a nested object all
     /// work.
@@ -216,6 +253,8 @@ impl EvalBuilder {
             },
             axes: self.axes,
             max_turns: self.max_turns,
+            trials: self.trials.max(1),
+            seed: self.seed,
             metadata: self.metadata,
         }
     }
@@ -250,5 +289,31 @@ mod tests {
         assert_eq!(eval.description, "desc");
         assert_eq!(eval.metadata.get("suite").unwrap(), "smoke");
         assert_eq!(eval.models.len(), 2);
+    }
+
+    #[test]
+    fn trials_default_to_one_and_are_clamped() {
+        let eval = Eval::new("e")
+            .case("a", "x")
+            .subject(subject_fn(|_, _| async { Transcript::default() }))
+            .build();
+        assert_eq!(eval.trials, 1);
+        assert_eq!(eval.seed, None);
+
+        let repeated = Eval::new("e")
+            .case("a", "x")
+            .trials(0) // clamped up to 1
+            .subject(subject_fn(|_, _| async { Transcript::default() }))
+            .build();
+        assert_eq!(repeated.trials, 1);
+
+        let seeded = Eval::new("e")
+            .case("a", "x")
+            .trials(8)
+            .seed(123)
+            .subject(subject_fn(|_, _| async { Transcript::default() }))
+            .build();
+        assert_eq!(seeded.trials, 8);
+        assert_eq!(seeded.seed, Some(123));
     }
 }

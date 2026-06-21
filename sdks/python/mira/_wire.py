@@ -27,6 +27,8 @@ class EvalInfo:
     name: str = ""
     samples: List["SampleInfo"] = field(default_factory=list)
     scorers: List[str] = field(default_factory=list)
+    seed: Optional[int] = None
+    trials: int = 0
     __required__ = ("models", "name", "samples", "scorers")
 
 @dataclass
@@ -35,8 +37,11 @@ class ExecuteResult:
     model: str = ""
     params: Dict[str, str] = field(default_factory=dict)
     sample: str = ""
+    seed: Optional[int] = None
     skipped: bool = False
     transcript: "Transcript" = field(default_factory=lambda: Transcript())
+    trial: int = 0
+    trials: int = 0
     __required__ = ("eval", "model", "sample", "transcript")
 
 @dataclass
@@ -94,6 +99,9 @@ class RunParams:
     model: str = ""
     params: Dict[str, str] = field(default_factory=dict)
     sample: str = ""
+    seed: Optional[int] = None
+    trial: int = 0
+    trials: int = 0
     __required__ = ("eval", "model", "sample")
 
 @dataclass
@@ -105,8 +113,11 @@ class RunResult:
     passed: bool = False
     sample: str = ""
     scores: List["Score"] = field(default_factory=list)
+    seed: Optional[int] = None
     skipped: bool = False
     transcript: "TranscriptSummary" = field(default_factory=lambda: TranscriptSummary())
+    trial: int = 0
+    trials: int = 0
     __required__ = ("aggregate", "eval", "model", "passed", "sample", "scores", "transcript")
 
 @dataclass
@@ -130,7 +141,10 @@ class ScoreParams:
     model: str = ""
     params: Dict[str, str] = field(default_factory=dict)
     sample: str = ""
+    seed: Optional[int] = None
     transcript: "Transcript" = field(default_factory=lambda: Transcript())
+    trial: int = 0
+    trials: int = 0
     __required__ = ("eval", "model", "sample", "transcript")
 
 @dataclass

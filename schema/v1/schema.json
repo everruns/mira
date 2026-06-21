@@ -78,6 +78,21 @@
             "type": "string"
           },
           "type": "array"
+        },
+        "seed": {
+          "description": "Base seed the study declared for reproducible trials (trial `t` uses\n`seed + t`). The host threads it into runs unless `--seed` overrides.\nDefaulted/omitted when the study left seeding to the subject.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "trials": {
+          "description": "How many times each cell of this eval should be run (trials/repetitions),\nfor pass@k / variance over a stochastic subject. `0`/`1` mean a single\nrun (no trial dimension). The host may override with `--trials`. Defaulted\nso older/foreign studies that omit it still parse.",
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
         }
       },
       "required": [
@@ -107,6 +122,15 @@
         "sample": {
           "type": "string"
         },
+        "seed": {
+          "description": "Per-trial seed this transcript was produced with, when set.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
         "skipped": {
           "default": false,
           "description": "True when the cell was not executed (e.g. model unavailable).",
@@ -115,6 +139,18 @@
         "transcript": {
           "$ref": "#/$defs/Transcript",
           "description": "The complete transcript, unlike the summary carried in [`RunResult`]."
+        },
+        "trial": {
+          "description": "0-based trial index when this cell is repeated (see [`RunParams::trial`]).",
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "trials": {
+          "description": "Total trials for this cell (`0`/`1` = single run). Part of the cell key\nwhen `> 1`, so trial artifacts stay distinct.",
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
         }
       },
       "required": [
@@ -301,6 +337,27 @@
         },
         "sample": {
           "type": "string"
+        },
+        "seed": {
+          "description": "Per-trial seed for reproducibility, when the host set one. The study\nthreads it to the subject (see [`crate::Trial::seed`]).",
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "trial": {
+          "description": "0-based trial index when this cell is being repeated; `0` for a single\nrun. Defaulted so older hosts/studies interoperate.",
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "trials": {
+          "description": "Total trials planned for this cell (`0`/`1` = single run). Lets the study\necho the cell's trial identity back so its key matches the host's plan.",
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
         }
       },
       "required": [
@@ -342,6 +399,15 @@
           },
           "type": "array"
         },
+        "seed": {
+          "description": "Per-trial seed this result was produced with, when set.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
         "skipped": {
           "default": false,
           "description": "True when the cell was not executed (e.g. model unavailable).",
@@ -349,6 +415,18 @@
         },
         "transcript": {
           "$ref": "#/$defs/TranscriptSummary"
+        },
+        "trial": {
+          "description": "0-based trial index when this cell is repeated (see [`RunParams::trial`]).",
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "trials": {
+          "description": "Total trials for this cell (`0`/`1` = single run). Part of the cell key\nwhen `> 1`; the host groups results by their *logical* key (without the\ntrial suffix) to aggregate pass@k / variance (see [`crate::aggregate`]).",
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
         }
       },
       "required": [
@@ -426,8 +504,29 @@
         "sample": {
           "type": "string"
         },
+        "seed": {
+          "description": "Per-trial seed this transcript was produced with, when set.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
         "transcript": {
           "$ref": "#/$defs/Transcript"
+        },
+        "trial": {
+          "description": "0-based trial index for the cell this transcript came from (echoed into\nthe resulting [`RunResult`] so it keeps its trial identity on re-score).",
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "trials": {
+          "description": "Total trials for this cell (`0`/`1` = single run).",
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
         }
       },
       "required": [
@@ -648,6 +747,6 @@
       "$ref": "#/$defs/Notification"
     }
   ],
-  "description": "Wire schema for the Mira host<->study protocol (newline-delimited JSON over stdio). Protocol version 1.5. Generated from mira::protocol by `mira-schema-gen` (`just schema`); do not edit by hand.",
+  "description": "Wire schema for the Mira host<->study protocol (newline-delimited JSON over stdio). Protocol version 1.6. Generated from mira::protocol by `mira-schema-gen` (`just schema`); do not edit by hand.",
   "title": "Mira Eval Protocol"
 }

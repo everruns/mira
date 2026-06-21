@@ -20,11 +20,11 @@ use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader, Lines};
 use tokio::process::{Child, ChildStdin, ChildStdout, Command};
 use tokio::sync::{Mutex, oneshot};
 
-use crate::Params;
 use crate::protocol::{
     ExecuteResult, InitializeResult, ListResult, Notification, PROTOCOL_VERSION, Request, Response,
     RpcError, RunParams, RunResult, ScoreParams,
 };
+use crate::{Params, Trial};
 
 /// Callback invoked for each progress notification (e.g. to render a live log).
 type EventCb = Arc<dyn Fn(&Notification) + Send + Sync>;
@@ -72,20 +72,18 @@ impl HostHandle {
     }
 
     /// Run one matrix cell. `params` carries the chosen value per extra axis
-    /// (empty for a model-only matrix). Safe to call concurrently from clones.
+    /// (empty for a model-only matrix); `trial` carries the repetition index and
+    /// seed (use [`Trial::single`] for an unrepeated cell). Safe to call
+    /// concurrently from clones.
     pub async fn run(
         &self,
         eval: &str,
         sample: &str,
         model: &str,
         params: &Params,
+        trial: Trial,
     ) -> Result<RunResult, RpcError> {
-        let params = RunParams {
-            eval: eval.into(),
-            sample: sample.into(),
-            model: model.into(),
-            params: params.clone(),
-        };
+        let params = run_params(eval, sample, model, params, trial);
         let value = self
             .request("run", serde_json::to_value(params).unwrap())
             .await?;
@@ -101,13 +99,9 @@ impl HostHandle {
         sample: &str,
         model: &str,
         params: &Params,
+        trial: Trial,
     ) -> Result<ExecuteResult, RpcError> {
-        let params = RunParams {
-            eval: eval.into(),
-            sample: sample.into(),
-            model: model.into(),
-            params: params.clone(),
-        };
+        let params = run_params(eval, sample, model, params, trial);
         let value = self
             .request("execute", serde_json::to_value(params).unwrap())
             .await?;
@@ -123,6 +117,9 @@ impl HostHandle {
             sample: captured.sample.clone(),
             model: captured.model.clone(),
             params: captured.params.clone(),
+            trial: captured.trial,
+            trials: captured.trials,
+            seed: captured.seed,
             transcript: captured.transcript.clone(),
         };
         let value = self
@@ -179,6 +176,21 @@ impl HostHandle {
                 Err(RpcError::new("study closed the connection"))
             }
         }
+    }
+}
+
+/// Build the `run`/`execute` params for one cell + trial. Trial fields ride
+/// along so the study can echo the cell's trial identity back (its key must match
+/// the host's plan).
+fn run_params(eval: &str, sample: &str, model: &str, params: &Params, trial: Trial) -> RunParams {
+    RunParams {
+        eval: eval.into(),
+        sample: sample.into(),
+        model: model.into(),
+        params: params.clone(),
+        trial: trial.index,
+        trials: trial.count,
+        seed: trial.seed,
     }
 }
 
@@ -253,8 +265,9 @@ impl Host {
         sample: &str,
         model: &str,
         params: &Params,
+        trial: Trial,
     ) -> Result<RunResult, RpcError> {
-        self.handle.run(eval, sample, model, params).await
+        self.handle.run(eval, sample, model, params, trial).await
     }
 
     /// Execute one cell's subject without scoring (sequential convenience; see
@@ -265,8 +278,11 @@ impl Host {
         sample: &str,
         model: &str,
         params: &Params,
+        trial: Trial,
     ) -> Result<ExecuteResult, RpcError> {
-        self.handle.execute(eval, sample, model, params).await
+        self.handle
+            .execute(eval, sample, model, params, trial)
+            .await
     }
 
     /// Score a captured transcript without re-executing (sequential convenience;

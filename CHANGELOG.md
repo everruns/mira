@@ -8,6 +8,21 @@ adheres to [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- **Trials / repetitions + seed** — first-class N-sampling for pass@k, pass-rate,
+  variance, and reproducibility, instead of faking them through an axis. Declare
+  `Eval::trials(n)` (+ optional `Eval::seed(base)`) or override per-run with
+  `mira run --trials N` / `--seed S`. The host repeats each cell `n` times; trial
+  `t` runs with seed `base + t` (reproducible) and the subject reads it via
+  `cx.seed()`. Trials are repetitions of one *logical* cell (unlike an axis, which
+  forms new cells): a repeated cell's key gains a `#trial` suffix
+  (`greet/hi@sim#2`), and the host groups them back by logical key. New
+  `mira::aggregate` module is the **aggregation contract** — per-cell
+  `TrialAggregate` (pass-rate, the unbiased `pass@k` estimator, score mean/σ),
+  surfaced in the terminal report and as a `trials` array in the JSON record.
+  Additive **protocol `1.6`**: optional `trial`/`trials`/`seed` on
+  `RunParams`/`ScoreParams`/`RunResult`/`ExecuteResult`, optional
+  `EvalInfo.trials`/`EvalInfo.seed`, and the `trials` capability. `examples/trials`
+  demonstrates a seed-driven flaky agent.
 - **Structured RPC errors** (protocol `1.5`) — the response `error` object is
   promoted from `{ message }` to the JSON-RPC-shaped
   `{ code, message, retryable, data }`. A protocol-level failure can now be

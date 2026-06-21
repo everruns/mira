@@ -2114,6 +2114,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "mira-example-trials"
+version = "0.1.0"
+dependencies = [
+ "mira-eval",
+ "tokio",
+]
+
+[[package]]
 name = "mira-judge"
 version = "0.1.0"
 dependencies = [

@@ -102,6 +102,23 @@ sorted `[k=v,…]` suffix when axes vary (e.g.
 `reasoning/puzzle@sim[effort=high]`), computed identically by host and study
 (`mira::cell_key`).
 
+**Trials & reproducibility.** pass@k, variance, and reproducibility are core eval
+semantics, so N-sampling is first-class — not faked through an axis. `Eval::trials(n)`
+(+ optional `Eval::seed(base)`), overridable per-run by `--trials` / `--seed`,
+repeats each cell `n` times. Crucially, trials are **not an axis**: they're
+repetitions of the *same* logical cell, so they don't cross-multiply with the
+matrix and they're grouped back for aggregation. A trial carries `(index, count,
+seed)` (`mira::Trial`) on the wire (`trial`/`trials`/`seed`, protocol `1.5`, all
+additive) and reaches the subject via `RunCx::seed()`; seeding is deterministic
+(`seed + index`) so a repetition set replays identically. A repeated cell's key
+gains a `#index` suffix (`flaky/answer@sim#2`) while all trials share one *logical*
+key (`RunResult::logical_key`); the host groups by that key. The **aggregation
+contract** lives in `mira::aggregate`: a per-cell `TrialAggregate` with pass-rate,
+the unbiased pass@k estimator (Chen et al.), and score mean/σ — surfaced in the
+terminal report and as a `trials` array in the JSON record. Whether a flaky run is
+"green" is still per-trial (a failing trial is a failure); a pass-rate *threshold*
+is a future knob alongside the deferred cost caps (§12).
+
 ### Selective evaluation
 
 Mirrors `cargo test`: a substring `filter` on the case key plus a `--tag` narrow

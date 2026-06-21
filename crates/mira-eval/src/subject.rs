@@ -370,6 +370,7 @@ mod tests {
             model: ModelSpec::sim(),
             max_turns: 8,
             params: Default::default(),
+            trial: crate::Trial::single(),
         }
     }
 

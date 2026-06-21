@@ -139,6 +139,7 @@ impl Study {
                         capabilities::USAGE.into(),
                         capabilities::EXECUTE.into(),
                         capabilities::SCORE.into(),
+                        capabilities::TRIALS.into(),
                     ],
                 }),
             ),
@@ -246,6 +247,8 @@ impl Study {
                     })
                     .collect(),
                 max_turns: eval.max_turns,
+                trials: eval.trials,
+                seed: eval.seed,
                 metadata: eval.metadata.clone(),
             })
             .collect();
@@ -260,12 +263,15 @@ impl Study {
             return Ok(skipped_result(params));
         }
 
-        let outcome = run_cell(eval, sample, model, &params.params).await;
+        let outcome = run_cell(eval, sample, model, &params.params, params.trial()).await;
         Ok(RunResult {
             eval: outcome.eval,
             sample: outcome.sample_id,
             model: outcome.model,
             params: outcome.params,
+            trial: params.trial,
+            trials: params.trials,
+            seed: params.seed,
             passed: outcome.passed,
             aggregate: outcome.aggregate,
             scores: outcome.scores,
@@ -284,16 +290,22 @@ impl Study {
                 sample: params.sample.clone(),
                 model: params.model.clone(),
                 params: params.params.clone(),
+                trial: params.trial,
+                trials: params.trials,
+                seed: params.seed,
                 transcript: Default::default(),
                 skipped: true,
             });
         }
-        let transcript = execute_cell(eval, sample, model, &params.params).await;
+        let transcript = execute_cell(eval, sample, model, &params.params, params.trial()).await;
         Ok(ExecuteResult {
             eval: params.eval.clone(),
             sample: params.sample.clone(),
             model: params.model.clone(),
             params: params.params.clone(),
+            trial: params.trial,
+            trials: params.trials,
+            seed: params.seed,
             transcript,
             skipped: false,
         })
@@ -321,6 +333,9 @@ impl Study {
             sample: params.sample.clone(),
             model: params.model.clone(),
             params: params.params.clone(),
+            trial: params.trial,
+            trials: params.trials,
+            seed: params.seed,
             passed: verdict(&scores),
             aggregate: aggregate_value(&scores),
             scores,
@@ -363,6 +378,9 @@ fn skipped_result(params: &RunParams) -> RunResult {
         sample: params.sample.clone(),
         model: params.model.clone(),
         params: params.params.clone(),
+        trial: params.trial,
+        trials: params.trials,
+        seed: params.seed,
         passed: false,
         aggregate: 0.0,
         scores: Vec::new(),
@@ -444,10 +462,44 @@ mod tests {
             sample: "hi".into(),
             model: "sim".into(),
             params: Default::default(),
+            trial: 0,
+            trials: 0,
+            seed: None,
         };
         let result = study().run(&params).await.unwrap();
         assert!(result.passed);
         assert_eq!(result.transcript.final_response, "hi there");
+    }
+
+    #[tokio::test]
+    async fn run_echoes_trial_identity_and_threads_seed() {
+        // A study whose subject echoes its seed, so we can confirm the host's
+        // trial/seed params reached the subject and round-tripped into the result.
+        let s = Study::new().eval(
+            Eval::new("rng")
+                .case("a", "x")
+                .trials(4)
+                .subject(subject_fn(|_, cx| async move {
+                    Transcript::response(format!("seed={:?}", cx.seed()))
+                }))
+                .scorer(contains("seed="))
+                .build(),
+        );
+        let params = RunParams {
+            eval: "rng".into(),
+            sample: "a".into(),
+            model: "sim".into(),
+            params: Default::default(),
+            trial: 2,
+            trials: 4,
+            seed: Some(77),
+        };
+        let result = s.run(&params).await.unwrap();
+        assert_eq!(result.trial, 2);
+        assert_eq!(result.trials, 4);
+        assert_eq!(result.seed, Some(77));
+        assert_eq!(result.key(), "rng/a@sim#2");
+        assert!(result.transcript.final_response.contains("77"));
     }
 
     #[tokio::test]
@@ -457,6 +509,9 @@ mod tests {
             sample: "hi".into(),
             model: "sim".into(),
             params: Default::default(),
+            trial: 0,
+            trials: 0,
+            seed: None,
         };
         assert!(study().run(&params).await.is_err());
     }
@@ -468,6 +523,9 @@ mod tests {
             sample: "hi".into(),
             model: "sim".into(),
             params: Default::default(),
+            trial: 0,
+            trials: 0,
+            seed: None,
         };
         let captured = study().execute(&params).await.unwrap();
         assert!(!captured.skipped);
@@ -482,6 +540,9 @@ mod tests {
             sample: "hi".into(),
             model: "sim".into(),
             params: Default::default(),
+            trial: 0,
+            trials: 0,
+            seed: None,
         };
         let fused = s.run(&rp).await.unwrap();
 
@@ -492,6 +553,9 @@ mod tests {
             sample: captured.sample.clone(),
             model: captured.model.clone(),
             params: captured.params.clone(),
+            trial: captured.trial,
+            trials: captured.trials,
+            seed: captured.seed,
             transcript: captured.transcript.clone(),
         };
         let split = s.score(&sp).await.unwrap();
@@ -513,6 +577,9 @@ mod tests {
             sample: "hi".into(),
             model: "sim".into(),
             params: Default::default(),
+            trial: 0,
+            trials: 0,
+            seed: None,
             transcript: Transcript::response("hi there"),
         };
         let first = s.score(&sp).await.unwrap();
@@ -528,6 +595,9 @@ mod tests {
             sample: "hi".into(),
             model: "sim".into(),
             params: Default::default(),
+            trial: 0,
+            trials: 0,
+            seed: None,
             transcript: Transcript::response("x"),
         };
         assert!(study().score(&sp).await.is_err());

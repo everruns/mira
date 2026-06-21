@@ -109,6 +109,8 @@ fn payloads_validate_against_their_defs() {
             }],
             axes: vec![],
             max_turns: 12,
+            trials: 3,
+            seed: Some(7),
             metadata: Default::default(),
         }],
     };
@@ -119,6 +121,9 @@ fn payloads_validate_against_their_defs() {
         sample: "hi".into(),
         model: "sim".into(),
         params: Default::default(),
+        trial: 1,
+        trials: 3,
+        seed: Some(8),
     };
     assert_valid_against_def("RunParams", &to_value(&params));
 
@@ -132,6 +137,9 @@ fn payloads_validate_against_their_defs() {
         sample: "hi".into(),
         model: "sim".into(),
         params: Default::default(),
+        trial: 1,
+        trials: 3,
+        seed: Some(8),
         passed: true,
         aggregate: 1.0,
         scores: vec![Score::pass("succeeded", "ok")],
@@ -154,6 +162,9 @@ fn payloads_validate_against_their_defs() {
         sample: "hi".into(),
         model: "sim".into(),
         params: Default::default(),
+        trial: 1,
+        trials: 3,
+        seed: Some(8),
         transcript: transcript.clone(),
         skipped: false,
     };
@@ -164,6 +175,9 @@ fn payloads_validate_against_their_defs() {
         sample: "hi".into(),
         model: "sim".into(),
         params: Default::default(),
+        trial: 1,
+        trials: 3,
+        seed: Some(8),
         transcript,
     };
     assert_valid_against_def("ScoreParams", &to_value(&score));
