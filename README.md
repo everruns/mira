@@ -118,7 +118,7 @@ Teams run agents and tools against datasets in incompatible ways — a Python
 SWE-bench harness here, a bespoke Rust string-check bench there, an rstest matrix
 somewhere else. Mira is the one framework they can converge on:
 
-- **Agent-trajectory–native** — score tool calls (`tool_called`,
+- **Agent-trajectory-native** — score tool calls (`tool_called`,
   `tools_used_exactly`), multi-turn transcripts, and live runtime sessions;
   checkpoints resume long-running payloads that take minutes to play out.
 - **Code-first authoring** with `cargo test`-style discovery (`#[eval]`) and
