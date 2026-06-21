@@ -41,7 +41,7 @@ mira-everruns = { version = "0.1.0", path = "crates/mira-everruns" }
 
 # Async runtime. The core stays runtime-light (io + process); servers pull what
 # they need.
-tokio = { version = "1", features = ["macros", "rt-multi-thread", "io-std", "io-util", "process", "fs"] }
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "io-std", "io-util", "process", "fs", "sync", "time"] }
 async-trait = "0.1"
 
 # Serialization — the protocol and datasets are JSON.

@@ -7,7 +7,12 @@
 //! mira --bin matrix list
 //! mira --bin matrix run
 //! mira --bin matrix run 'effort=high'   # substring filter
+//! mira --bin matrix run -j 4 --provider-concurrency anthropic=2     # bounded, per-provider
 //! ```
+//!
+//! The host runs cells concurrently (bounded by `-j`, per-provider caps, and
+//! adaptive backoff when a provider rate-limits), so a wide matrix finishes fast
+//! without hammering any one provider.
 //!
 //! The subject reads the chosen axis value with `cx.param("effort")` and varies
 //! its behaviour — here, "high" effort spends more tokens to get the answer

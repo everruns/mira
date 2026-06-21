@@ -18,6 +18,19 @@ adheres to [Semantic Versioning](https://semver.org/).
   results array. A resume reports accurate `done/total` progress and **warns when
   a cached cell is stale** because its eval definition changed
   (scorers/axes/models/samples/metadata/`max_turns`); `--fresh` recomputes.
+- **Bounded, provider-aware, adaptive concurrency** for matrix runs. The host now
+  multiplexes many `run` requests over the single study pipe (responses correlate
+  by `id`) and the study dispatches them concurrently. New `mira run` flags:
+  `-j/--max-concurrent` (global cap), `--provider-concurrency` (per-provider caps,
+  e.g. `anthropic=2,openai=4`), `--no-adaptive`, and `--max-retries`.
+- **Adaptive throttling**: a cell whose result carries a rate-limit signal (HTTP
+  429, "overloaded", quota — see `mira::is_rate_limited`) halves its provider's
+  in-flight limit (AIMD) and is re-queued after an exponential backoff, growing
+  back as cells succeed — so a busy provider is throttled instead of hammered.
+- `mira::exec` module (`Concurrency`, `CellSpec`, `run_cells`), `mira::HostHandle`
+  (cheaply-cloneable concurrent client), and `mira::is_rate_limited`.
+- Protocol `1.1`: optional `ModelInfo.provider` so the host can bucket concurrency
+  per provider. Additive — a `1.0` study that omits it still interoperates.
 
 ## [0.1.0] - 2026-06-20
 
