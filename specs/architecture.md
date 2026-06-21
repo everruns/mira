@@ -316,6 +316,28 @@ half-built: `event` notifications carry a typed, schematized payload
 `output`/`finished`) and a `request_id` correlating each event to its run, so a
 host can render per-cell progress live (protocol `1.5`).
 
+**Reverse request channel (study→host) — reserved seam.** Every request flows
+host→study today; the study is self-contained and keys live study-side by design.
+The one direction the protocol doesn't carry is the *reverse* request — the study
+asking the host for something mid-run. It is the single addition that introduces a
+new envelope direction, and so the one most likely to force a breaking 2.0 if
+retrofitted carelessly; we fix its design now even though we don't build it.
+Motivating cases: **host-brokered model access** (central credentials, caching,
+budgeting instead of per-study keys), **shared resources** the host owns (sandbox,
+fixtures), and **human-in-the-loop** (pause a cell to ask the operator). The
+framing already admits it as a *minor*, additive change, guaranteed by three
+invariants: (1) **field-based message classification** — a line bearing `method`
+is a request/notification, never a response, so a reverse request on the study's
+stdout is unambiguous to a host that predates it; (2) **independent `id` spaces
+per direction**, correlated only with responses flowing back the same way, so host
+and study ids can overlap without collision; (3) **two-way capability negotiation**
+— off unless the host advertises support in `initialize.params` *and* the study
+advertises the reserved `host_requests` capability. The host already classifies
+inbound lines this way (`host::classify`) and safely ignores any reverse request
+rather than letting its id corrupt response routing, so the seam is exercised, not
+theoretical; the concrete reverse methods would stage behind `protocol-unstable`.
+Full design: [`docs/protocol.md`](../docs/protocol.md#reverse-requests-studyhost).
+
 **Run archive (landed seam).** `mira run --save` / `mira score --save` archive
 each invocation into `<results_dir>/<run_id>/` (`report.json`, `report.html`, and
 `meta.json` = `mira::run::RunMeta`: a sortable `YYYYMMDDThhmmssZ-xxxx` run id,

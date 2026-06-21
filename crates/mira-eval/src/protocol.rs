@@ -12,9 +12,14 @@
 //! wire — the host addresses models by *label*.
 //!
 //! ## Framing
-//! One JSON object per line. A line with `id` is a [`Response`]; a line with
-//! `method` but no `id` is a [`Notification`]. [`Request`]s flow host→study;
-//! [`Response`]s and [`Notification`]s flow study→host.
+//! One JSON object per line, classified by **fields** (not by which pipe it
+//! arrived on): a line bearing `method` is a [`Request`] (with `id`) or a
+//! [`Notification`] (no `id`); a line without `method` is a [`Response`], routed
+//! by `id`. Today [`Request`]s flow host→study and [`Response`]/[`Notification`]
+//! flow study→host. Classifying on `method` rather than direction is deliberate:
+//! it keeps a future **reverse** request (study→host) an additive, minor change
+//! rather than a breaking one (see the reverse-channel seam in
+//! `docs/protocol.md`).
 //!
 //! ## Methods
 //! * `initialize` → [`InitializeResult`]
@@ -360,6 +365,15 @@ impl InitializeResult {
 }
 
 /// Capability tokens a study may advertise in [`InitializeResult::capabilities`].
+///
+/// # Reserved (not yet implemented)
+/// `host_requests` is the negotiation handle for the **reverse channel** — a
+/// study→host request direction (host-brokered model access, shared resources,
+/// human-in-the-loop). It is *reserved*, not defined here: no const is minted and
+/// it is absent from the generated `meta.json` until the channel actually lands
+/// (then as a minor bump). The framing already accommodates it without a breaking
+/// change — see the `Inbound` classifier in [`crate::host`] and the
+/// reverse-channel seam in `docs/protocol.md` / `specs/architecture.md`.
 pub mod capabilities {
     /// Study advertises extra matrix axes in `list` and honours `run.params`.
     pub const AXES: &str = "axes";

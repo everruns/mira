@@ -42,13 +42,19 @@ machine-readable definition, see the generated **JSON Schema** under
 
 ## Message types
 
-A line is classified by its fields:
+A line is classified by its **fields**, not by which pipe it arrived on:
 
-| Has `id` | Has `method` | Type |
+| Has `method` | Has `id` | Type |
 |---|---|---|
-| ✓ | ✓ | **Request** (host → study) |
-| ✓ | — | **Response** (study → host) |
-| — | ✓ | **Notification** (study → host) |
+| ✓ | ✓ | **Request** |
+| ✓ | — | **Notification** |
+| — | ✓ | **Response** (correlated by `id`) |
+
+`method` is the discriminator: a line that has it is a request or notification,
+never a response. Today requests flow host→study and responses/notifications flow
+study→host, so direction and shape line up. But the rule is field-based on
+purpose — it leaves room for a **reverse request** (study→host) without changing
+the framing (see [Reverse requests](#reverse-requests-studyhost)).
 
 ### Request (host → study)
 
@@ -388,6 +394,51 @@ the Rust [`mira`](https://docs.rs/mira-eval) host sends a best-effort `cancel`
 automatically when a `run` future is dropped (e.g. by `tokio::time::timeout` or a
 fail-fast `select!`), and also exposes an explicit `HostHandle::cancel(id)`.
 
+### Reverse requests (study→host)
+
+> **Status: reserved seam, not yet implemented.** No reverse method is defined
+> and no host answers one today. This section is the *design of record* so the
+> channel can be added later as a **minor** bump, not a breaking 2.0 — the one
+> direction the protocol doesn't yet carry, and the one most likely to force a
+> major version if retrofitted carelessly.
+
+Today a study is fully self-contained: subjects and provider keys live study-side
+by design, and every request flows host→study. Some capabilities want the
+opposite direction — the study asking the host for something mid-run:
+
+- **host-brokered model access** — central credentials, caching, and budgeting
+  in the host instead of per-study keys;
+- **shared resources** — a sandbox, fixture, or dataset the host owns;
+- **human-in-the-loop** — pause a cell to ask the operator a question.
+
+Each needs a study→host **request** (with a host **response**), a direction that
+doesn't exist yet. The framing already admits it without a breaking change,
+provided these invariants hold — they are the contract a future implementation
+must keep:
+
+1. **Field-based classification.** A line is a request/notification iff it bears
+   `method` (see [Message types](#message-types)); only a `method`-less line is a
+   response. So a reverse request (`{ "id": …, "method": …, "params": … }`) on
+   the study's stdout is unambiguous and is **never** mistaken for a response —
+   even by a host that predates the feature.
+2. **Independent `id` spaces per direction.** Host-originated and study-originated
+   request ids are separate sequences; each correlates only with responses
+   flowing back the same way. They may overlap (both start at 1) without
+   collision, because a response is matched to a pending request *on the same
+   side*. A host that ignores the channel must therefore not route an inbound
+   `method`-bearing line through its response table.
+3. **Capability-negotiated, both ways.** The channel is off unless **both** peers
+   opt in: the host advertises support in `initialize.params` and the study
+   advertises the reserved `host_requests` capability (and only then emits reverse
+   requests). A study must assume the channel is absent until it sees host
+   support — exactly the additive, feature-detected pattern the rest of the
+   protocol uses.
+
+A conforming host that doesn't implement the channel simply never advertises it,
+and safely ignores any reverse request it receives (it logs and drops it rather
+than letting the id corrupt its own request routing). That graceful-ignore
+behaviour is implemented today, so the seam is real, not theoretical.
+
 #### Score
 
 ```json
@@ -498,6 +549,12 @@ Forward compatibility is a hard requirement on both sides:
 This is why a `0.x`-era study (no `axes`, no `timing`) and a `1.0` host
 interoperate: the host sees an empty `axes`/`capabilities` and a model-only
 matrix, and the missing transcript fields default to zero.
+
+The [reverse request channel](#reverse-requests-studyhost) is the one *new
+direction* the protocol reserves for a future minor: its framing and negotiation
+are fixed now (field-based classification, per-direction `id` spaces, the
+`host_requests` capability) so adding it stays additive. The concrete methods
+would be staged behind `protocol-unstable` like any other structural addition.
 
 ## Machine-readable schema
 

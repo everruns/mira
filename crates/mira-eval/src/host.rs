@@ -441,6 +441,53 @@ impl Host {
     }
 }
 
+/// How a study→host line is classified. Classification is by **fields, not the
+/// pipe**: this is what lets a future *reverse* request (study→host) be added as
+/// a minor, non-breaking change instead of a 2.0. The discriminator is `method`:
+///
+/// * a line bearing `method` is a [`Notification`] (no `id`) or a reverse
+///   [`Request`] (`id` + `method`) — never a response;
+/// * only a line **without** `method` is a [`Response`], routed by `id`.
+///
+/// Checking `method` first is the safety property: a reverse request's `id`
+/// lives in the study's own id space and would otherwise collide with the host's
+/// pending ids (both start at 1), spuriously completing an unrelated in-flight
+/// request with an "empty response". See the reverse-channel seam in
+/// `docs/protocol.md` and `specs/architecture.md`.
+enum Inbound {
+    Response(Response),
+    Notification(Notification),
+    /// A study→host request. Reserved seam — no reverse method is supported
+    /// today (the host advertises no such capability, so a conforming study
+    /// never sends one). Carried so a future host can answer it instead of
+    /// misrouting it; for now it is logged and ignored.
+    Request(Request),
+    /// Unparseable / neither shape; ignored.
+    Junk,
+}
+
+fn classify(line: &str) -> Inbound {
+    // `method` present ⇒ not a response. Distinguish notification (no id) from a
+    // reverse request (id + method) so neither is mistaken for a response.
+    let has_method = serde_json::from_str::<serde_json::Value>(line)
+        .ok()
+        .and_then(|v| v.get("method").map(|m| !m.is_null()))
+        .unwrap_or(false);
+    if has_method {
+        if let Ok(req) = serde_json::from_str::<Request>(line) {
+            return Inbound::Request(req);
+        }
+        if let Ok(note) = serde_json::from_str::<Notification>(line) {
+            return Inbound::Notification(note);
+        }
+        return Inbound::Junk;
+    }
+    match serde_json::from_str::<Response>(line) {
+        Ok(resp) => Inbound::Response(resp),
+        Err(_) => Inbound::Junk,
+    }
+}
+
 /// Read framed lines until EOF: route responses to their waiters by `id`, hand
 /// notifications to `on_event`. On EOF, fail any still-pending requests.
 async fn reader_loop(
@@ -452,30 +499,97 @@ async fn reader_loop(
         if line.trim().is_empty() {
             continue;
         }
-        // A response carries `id`; a notification carries `method` only.
-        if let Ok(response) = serde_json::from_str::<Response>(&line) {
-            let result = match (response.result, response.error) {
-                (Some(result), _) => Ok(result),
-                (None, Some(err)) => Err(err),
-                (None, None) => Err(RpcError::new("empty response")),
-            };
-            if let Some(tx) = pending
-                .lock()
-                .expect("pending mutex poisoned")
-                .remove(&response.id)
-            {
-                let _ = tx.send(result);
+        match classify(&line) {
+            Inbound::Response(response) => {
+                let result = match (response.result, response.error) {
+                    (Some(result), _) => Ok(result),
+                    (None, Some(err)) => Err(err),
+                    (None, None) => Err(RpcError::new("empty response")),
+                };
+                if let Some(tx) = pending
+                    .lock()
+                    .expect("pending mutex poisoned")
+                    .remove(&response.id)
+                {
+                    let _ = tx.send(result);
+                }
             }
-            continue;
-        }
-        if let Ok(notification) = serde_json::from_str::<Notification>(&line) {
-            let cb = on_event.lock().expect("on_event mutex poisoned").clone();
-            cb(&notification);
+            Inbound::Notification(notification) => {
+                let cb = on_event.lock().expect("on_event mutex poisoned").clone();
+                cb(&notification);
+            }
+            Inbound::Request(req) => {
+                // Reverse channel is a reserved, capability-gated seam (see the
+                // `Inbound` docs). The host advertises no support, so this is
+                // unexpected; drop it rather than let its id corrupt routing.
+                let cb = on_event.lock().expect("on_event mutex poisoned").clone();
+                cb(&Notification {
+                    method: "log".into(),
+                    params: serde_json::json!({
+                        "message": format!("ignoring unsupported host request: {}", req.method)
+                    }),
+                });
+            }
+            Inbound::Junk => {}
         }
     }
     // EOF: nothing more will arrive, so unblock every outstanding waiter.
     let mut pending = pending.lock().expect("pending mutex poisoned");
     for (_, tx) in pending.drain() {
         let _ = tx.send(Err(RpcError::new("study closed the connection")));
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn classifies_response_notification_and_reverse_request() {
+        // A response: id, no method.
+        assert!(matches!(
+            classify(r#"{"id":3,"result":{"ok":true}}"#),
+            Inbound::Response(r) if r.id == 3
+        ));
+        // A notification: method, no id.
+        assert!(matches!(
+            classify(r#"{"method":"event","params":{"kind":"started"}}"#),
+            Inbound::Notification(n) if n.method == "event"
+        ));
+        // A reverse request: id + method. Must NOT be seen as a response.
+        assert!(matches!(
+            classify(r#"{"id":1,"method":"broker_model","params":{}}"#),
+            Inbound::Request(r) if r.method == "broker_model" && r.id == 1
+        ));
+    }
+
+    // The forward-compat guarantee that keeps a reverse channel a *minor*
+    // addition: a study→host request whose id collides with a host's in-flight
+    // request id must not spuriously complete that request. Pre-fix, the line
+    // parsed as an "empty response" and `pending.remove(&1)` corrupted routing.
+    #[tokio::test]
+    async fn reverse_request_does_not_complete_a_pending_host_request() {
+        let pending: Pending = Arc::new(std::sync::Mutex::new(HashMap::new()));
+        let (tx, rx) = oneshot::channel();
+        pending.lock().unwrap().insert(1, tx); // host's in-flight request id=1
+
+        // A reverse request reusing id=1 (the study's own id space).
+        match classify(r#"{"id":1,"method":"ping","params":{}}"#) {
+            Inbound::Request(_) => {} // correct: routed away from the response path
+            other => panic!(
+                "reverse request misclassified as {}",
+                match other {
+                    Inbound::Response(_) => "response",
+                    Inbound::Notification(_) => "notification",
+                    Inbound::Junk => "junk",
+                    Inbound::Request(_) => unreachable!(),
+                }
+            ),
+        }
+
+        // The waiter is still pending and unfulfilled.
+        assert!(pending.lock().unwrap().contains_key(&1));
+        drop(pending);
+        assert!(rx.await.is_err(), "waiter must not have been completed");
     }
 }
