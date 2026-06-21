@@ -212,11 +212,17 @@ A `Transcript` carries the operational signals of a run, not just its text:
 token `Usage` (input/output plus `cache_read`/`reasoning` breakdowns and
 `cost_usd`), wall-clock `Timing` (`duration_ms`, `time_to_first_token_ms`), the
 ordered list of tool calls (so the exact set and ordering are scorable), and
-captured files. Subjects populate what they can measure (`CliSubject` and
+captured files. Usage and timing stay **typed** because the shared budget scorers
+depend on their shape; anything else is an **open vocabulary** — `metrics`, a
+`string → f64` map a subject fills with custom numeric signals (recall@k,
+energy_joules, …) and grades with `metric_within`/`metric_at_least`. The map is a
+versioned, additive part of the wire (it bumped the protocol to `1.2`), but new
+metric *keys* need no further protocol change. Subjects populate what they can
+measure (`CliSubject` and
 `RuntimeSubject` time the run; the event walker totals usage from JSONL). Budget
 scorers (`tokens_within`, `cost_within`, `latency_within`, `ttft_within`,
-`tools_used_exactly`, `tool_called_before`, …) turn these into pass/fail, and the
-JSON/HTML reports surface them per cell and in aggregate.
+`metric_within`, `tools_used_exactly`, `tool_called_before`, …) turn these into
+pass/fail, and the JSON/HTML reports surface them per cell and in aggregate.
 
 ## 10. Delivered since the initial cut
 

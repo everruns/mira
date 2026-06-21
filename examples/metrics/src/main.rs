@@ -2,7 +2,10 @@
 //! tokens (total / output / cache / reasoning), cost, wall-clock latency,
 //! time-to-first-token, tool-call count, and the exact set and ordering of
 //! tools used. Every one of these is a first-class field on the `Transcript`
-//! and has a budget scorer.
+//! and has a budget scorer. It also reports a *custom* metric
+//! (`retrieval_recall@5`) through the open `Transcript::metrics` map and grades
+//! it with the generic `metric_at_least` scorer — the seam for any metric the
+//! core doesn't model as a typed field.
 //!
 //! ```bash
 //! mira --bin metrics run
@@ -13,8 +16,8 @@
 //! (and therefore the pass/fail verdicts) are stable.
 
 use mira::scorer::{
-    all_of, contains, cost_within, latency_within, output_tokens_within, succeeded, tokens_within,
-    tool_called_before, tools_used_exactly, ttft_within, turns_within,
+    all_of, contains, cost_within, latency_within, metric_at_least, output_tokens_within,
+    succeeded, tokens_within, tool_called_before, tools_used_exactly, ttft_within, turns_within,
 };
 use mira::subject::subject_fn;
 use mira::{Eval, eval};
@@ -52,6 +55,9 @@ fn metrics() -> Eval {
         // Latency budgets (wall-clock and time-to-first-token).
         .scorer(latency_within(2_000))
         .scorer(ttft_within(500))
+        // Custom, open-vocabulary metric: a domain signal the core doesn't model
+        // as a typed field, reported by the subject and graded generically.
+        .scorer(metric_at_least("retrieval_recall@5", 0.8))
         // Tool usage: how many, exactly which, and in what order.
         .scorer(turns_within(5))
         .scorer(tools_used_exactly(["search", "read", "summarize"]))

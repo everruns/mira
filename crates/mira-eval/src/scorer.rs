@@ -290,6 +290,43 @@ pub fn ttft_within(max_ms: u64) -> Box<dyn Scorer> {
     })
 }
 
+// ----- custom (open-vocabulary) metrics -------------------------------------
+
+/// Passes if the subject's custom metric `name` is at or below `max`. The
+/// generic budget check for [`Transcript::metrics`] — the same shape as
+/// `tokens_within`/`cost_within`, but for any metric a subject reports. A
+/// transcript that never recorded `name` fails (the budget can't be verified).
+///
+/// [`Transcript::metrics`]: crate::Transcript::metrics
+pub fn metric_within(name: impl Into<String>, max: f64) -> Box<dyn Scorer> {
+    let name = name.into();
+    scorer(
+        format!("metric_within({name} <= {max})"),
+        move |_, t| match t.metric(&name) {
+            Some(v) if v <= max => Score::pass("metric_within", format!("{name}={v} <= {max}")),
+            Some(v) => Score::fail("metric_within", format!("{name}={v} > {max}")),
+            None => Score::fail("metric_within", format!("subject did not report {name}")),
+        },
+    )
+}
+
+/// Passes if the subject's custom metric `name` is at or above `min` — for
+/// metrics where higher is better (recall, coverage, …). A transcript that
+/// never recorded `name` fails.
+///
+/// [`Transcript::metrics`]: crate::Transcript::metrics
+pub fn metric_at_least(name: impl Into<String>, min: f64) -> Box<dyn Scorer> {
+    let name = name.into();
+    scorer(
+        format!("metric_at_least({name} >= {min})"),
+        move |_, t| match t.metric(&name) {
+            Some(v) if v >= min => Score::pass("metric_at_least", format!("{name}={v} >= {min}")),
+            Some(v) => Score::fail("metric_at_least", format!("{name}={v} < {min}")),
+            None => Score::fail("metric_at_least", format!("subject did not report {name}")),
+        },
+    )
+}
+
 // ----- richer tool checks ---------------------------------------------------
 
 /// Passes if exactly the given set of tools was used (order-independent, repeats
@@ -520,6 +557,7 @@ mod tests {
                 time_to_first_token_ms: Some(40),
             },
             files: BTreeMap::from([("out.txt".into(), "hello world".into())]),
+            metrics: BTreeMap::from([("recall@5".into(), 0.8), ("p95_ms".into(), 250.0)]),
             ..Default::default()
         }
     }
@@ -574,6 +612,20 @@ mod tests {
         assert!(!run(latency_within(100), &s).await.pass);
         assert!(run(ttft_within(50), &s).await.pass);
         assert!(!run(ttft_within(30), &s).await.pass);
+    }
+
+    #[tokio::test]
+    async fn custom_metric_scorers() {
+        let s = Sample::new("a", "q");
+        // higher-is-better
+        assert!(run(metric_at_least("recall@5", 0.75), &s).await.pass);
+        assert!(!run(metric_at_least("recall@5", 0.9), &s).await.pass);
+        // lower-is-better
+        assert!(run(metric_within("p95_ms", 300.0), &s).await.pass);
+        assert!(!run(metric_within("p95_ms", 200.0), &s).await.pass);
+        // unreported metric can't be verified → fail
+        assert!(!run(metric_within("absent", 1.0), &s).await.pass);
+        assert!(!run(metric_at_least("absent", 0.0), &s).await.pass);
     }
 
     #[tokio::test]

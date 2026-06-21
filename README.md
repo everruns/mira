@@ -151,7 +151,9 @@ somewhere else. Mira is the one framework they can converge on:
 - [Getting started](docs/getting-started.md)
 - [Authoring evals](docs/authoring.md)
 - [Scorers](docs/scorers.md)
+- [Metrics](docs/metrics.md) — tokens/cost/latency and custom metrics
 - [Subjects](docs/subjects.md)
+- [Extensibility](docs/extensibility.md) — the map of every extension seam
 - [The eval protocol](docs/protocol.md) — the wire format, ACP-style reference
 - [Architecture](specs/architecture.md)
 

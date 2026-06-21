@@ -23,5 +23,8 @@ pub fn fake_agent(response: &str, tools: &[&str]) -> Transcript {
         duration_ms: 60 + output_tokens * 4,
         time_to_first_token_ms: Some(35 + input_tokens / 8),
     };
+    // A custom, domain-specific metric the core doesn't model as a typed field:
+    // retrieval recall@5 (higher is better). Graded with `metric_at_least`.
+    t.record_metric("retrieval_recall@5", 0.83);
     t
 }

@@ -111,6 +111,7 @@ with `--fresh` to recompute from scratch.
 
 - [Authoring evals](authoring.md) — datasets, the matrix, extra axes, metadata.
 - [Scorers](scorers.md) — the built-ins (incl. metric budgets) and writing your own.
+- [Metrics](metrics.md) — tokens/cost/latency, and how to add a custom metric.
 - [Subjects](subjects.md) — in-process, CLI/polyglot, and runtime sessions.
 - [Extensibility](extensibility.md) — the map of every seam: custom subjects,
   scorers, metrics, events, and protocol-level extension.

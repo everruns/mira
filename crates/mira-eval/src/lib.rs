@@ -194,6 +194,21 @@ pub struct Transcript {
     /// Raw serialized events (e.g. the everruns `Event` JSONL transcript).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub events: Vec<serde_json::Value>,
+    /// Extensible **numeric** metrics a subject measured that the core doesn't
+    /// model as a typed field (recall@k, energy_joules, p95 latency, …).
+    ///
+    /// Design: `Usage`/`Timing` stay typed because shared budget scorers depend
+    /// on their exact shape; everything else is an *open vocabulary* keyed by
+    /// name so a subject can report a *new metric key* and grade it with
+    /// [`metric_within`]/[`metric_at_least`] without a new protocol version (the
+    /// `metrics` map itself is a versioned, additive part of the wire). Use this
+    /// (not `metadata`) for anything you want to compare numerically — values
+    /// stay `f64`, surface in the JSON/HTML reports, and feed generic scorers.
+    ///
+    /// [`metric_within`]: crate::scorer::metric_within
+    /// [`metric_at_least`]: crate::scorer::metric_at_least
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub metrics: BTreeMap<String, f64>,
     /// Free-form metadata: observability links, run ids, etc.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub metadata: Metadata,
@@ -242,6 +257,32 @@ impl Transcript {
     pub fn with_duration_ms(mut self, ms: u64) -> Self {
         self.timing.duration_ms = ms;
         self
+    }
+
+    /// Record a custom numeric metric. Returns `self` for builder-style use:
+    /// `Transcript::response(text).with_metric("recall@5", 0.8)`.
+    ///
+    /// Non-finite values (`NaN`/`±inf`) are dropped rather than stored: JSON
+    /// can't represent them, so storing one would break report serialization.
+    /// The metric stays *unreported*, and a budget over it fails accordingly.
+    pub fn with_metric(mut self, name: impl Into<String>, value: f64) -> Self {
+        self.record_metric(name, value);
+        self
+    }
+
+    /// Record a custom numeric metric in place (for subjects that build the
+    /// transcript mutably). Non-finite values are dropped — see [`with_metric`].
+    ///
+    /// [`with_metric`]: Transcript::with_metric
+    pub fn record_metric(&mut self, name: impl Into<String>, value: f64) {
+        if value.is_finite() {
+            self.metrics.insert(name.into(), value);
+        }
+    }
+
+    /// Look up a custom numeric metric by name.
+    pub fn metric(&self, name: &str) -> Option<f64> {
+        self.metrics.get(name).copied()
     }
 }
 
@@ -410,5 +451,19 @@ mod tests {
         assert!(is_rate_limited("insufficient_quota"));
         assert!(!is_rate_limited("invalid api key"));
         assert!(!is_rate_limited("connection refused"));
+    }
+
+    #[test]
+    fn custom_metrics_round_trip_and_reject_non_finite() {
+        let t = Transcript::response("ok")
+            .with_metric("recall@5", 0.8)
+            .with_metric("nan", f64::NAN)
+            .with_metric("inf", f64::INFINITY);
+        // Finite values stored; non-finite dropped (so they stay "unreported").
+        assert_eq!(t.metric("recall@5"), Some(0.8));
+        assert_eq!(t.metric("nan"), None);
+        assert_eq!(t.metric("inf"), None);
+        // What we kept must serialize as JSON (non-finite floats would error).
+        serde_json::to_string(&t).expect("transcript with metrics serializes");
     }
 }

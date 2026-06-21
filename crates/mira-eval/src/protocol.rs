@@ -44,7 +44,10 @@ use crate::{Metadata, Score, Timing, Transcript, Usage};
 /// Every payload struct here is *non-exhaustive on the wire*: unknown fields are
 /// ignored (no `deny_unknown_fields`) and new fields are `#[serde(default)]`, so
 /// adding a field is a minor, non-breaking change.
-pub const PROTOCOL_VERSION: &str = "1.1";
+///
+/// History (all additive over `1.0`): `1.1` added `ModelInfo.provider`; `1.2`
+/// added the optional `transcript.metrics` map.
+pub const PROTOCOL_VERSION: &str = "1.2";
 
 /// The oldest protocol version this build can still talk to.
 pub const MIN_PROTOCOL_VERSION: &str = "1.0";
@@ -231,6 +234,9 @@ pub struct TranscriptSummary {
     pub usage: Usage,
     #[serde(default, skip_serializing_if = "Timing::is_default")]
     pub timing: Timing,
+    /// Custom open-vocabulary numeric metrics (see `Transcript::metrics`).
+    #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
+    pub metrics: std::collections::BTreeMap<String, f64>,
     #[serde(default, skip_serializing_if = "Metadata::is_empty")]
     pub metadata: Metadata,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -248,6 +254,7 @@ impl TranscriptSummary {
             tool_calls: t.tool_calls.clone(),
             usage: t.usage,
             timing: t.timing,
+            metrics: t.metrics.clone(),
             metadata: t.metadata.clone(),
             error: t.error.clone(),
         }
