@@ -96,6 +96,17 @@ The exit code is non-zero if any cell failed, so `mira ... run` drops straight
 into CI. The HTML report is a single dependency-free file (summary, matrix, and
 per-case scores/usage/timing) you can open straight from a CI artifact.
 
+On an interactive terminal a live progress bar shows `done/total`, elapsed time,
+and an ETA as cells complete; it's hidden under CI/non-TTY so it never pollutes
+logs.
+
+`--checkpoint` writes a **session** record (run metadata + per-cell results),
+saved after every cell. Re-running with the same path resumes: completed cells
+are skipped and the progress bar starts at the right `done/total`. The session
+fingerprints each eval's definition, so if you change an eval's scorers, axes,
+models, or metadata, a resume **warns that the cached cells are stale** — re-run
+with `--fresh` to recompute from scratch.
+
 ## Next steps
 
 - [Authoring evals](authoring.md) — datasets, the matrix, extra axes, metadata.

@@ -166,9 +166,19 @@ The host owns all of this; the study only returns per-cell results.
   it straight from a CI artifact.
 - **JUnit XML** (`--format junit`) — surfaces evals in any CI test UI.
 - **Markdown** (`--format md`) — for PR job summaries.
-- **Checkpoints** (`--checkpoint`) — each completed cell persists as it finishes;
-  a re-run loads it and skips done cells (`--fresh` ignores it). Resumable long
-  matrix runs fall out of the host owning the plan.
+- **Progress** — on an interactive terminal the host renders a live bar
+  (`done/total`, elapsed, ETA, current cell). The total is exact: the host plans
+  the full grid up front, so it's a count, not an estimate. Hidden under
+  CI/non-TTY so it never pollutes logs.
+- **Sessions & checkpoints** (`--checkpoint`) — the checkpoint is a first-class
+  *session* record (`mira::session::Session`): run metadata (study, planned
+  `total`, created/updated timestamps, per-eval definition fingerprints) plus the
+  per-cell results, rewritten after each cell. A re-run loads it, skips done
+  cells, and resumes the progress bar at the right `done/total` (`--fresh`
+  ignores it). The fingerprints let a resume **warn when an eval's definition
+  changed** (scorers/axes/models/samples/metadata/`max_turns`) so stale cached
+  cells aren't silently reused. Resumable long matrix runs fall out of the host
+  owning the plan.
 
 ## 8. Migration paths
 

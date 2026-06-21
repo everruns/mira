@@ -18,15 +18,18 @@
 //! another package with `--package` / `--manifest-path`.
 
 use std::collections::BTreeMap;
-use std::path::Path;
+use std::io::IsTerminal;
 use std::str::FromStr;
+use std::sync::Arc;
 
 use clap::{Args, Parser, Subcommand};
+use indicatif::{ProgressBar, ProgressDrawTarget, ProgressStyle};
 use tokio::process::Command;
 
 use mira::Host;
-use mira::protocol::{ListResult, RunResult};
+use mira::protocol::{InitializeResult, ListResult, RunResult};
 use mira::report::{self, Format};
+use mira::session::{self, Session};
 
 #[derive(Parser)]
 #[command(name = "mira", version, about = "Host runner for code-defined evals")]
@@ -92,22 +95,21 @@ struct RunArgs {
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let cli = Cli::parse();
+
+    // One progress bar, shared with the event handler so study `log` lines print
+    // cleanly above the bar (via `suspend`) instead of corrupting it. It starts
+    // hidden; `run` gives it a length and a draw target once the plan is known.
+    let progress = Arc::new(ProgressBar::hidden());
+    let progress_evt = progress.clone();
     let mut host = Host::spawn(build_command(&cli.target))
         .await?
-        .on_event(|n| {
-            if n.method == "event" {
-                let p = &n.params;
-                eprintln!(
-                    "  · {}/{}@{} {}",
-                    p["eval"].as_str().unwrap_or("?"),
-                    p["sample"].as_str().unwrap_or("?"),
-                    p["model"].as_str().unwrap_or("?"),
-                    p["kind"].as_str().unwrap_or(""),
-                );
-            } else if n.method == "log"
+        .on_event(move |n| {
+            // Per-cell `event` notifications drive the bar's message from the run
+            // loop, so they no longer spam stderr. Only study logs are surfaced.
+            if n.method == "log"
                 && let Some(msg) = n.params["message"].as_str()
             {
-                eprintln!("  study: {msg}");
+                progress_evt.suspend(|| eprintln!("  study: {msg}"));
             }
         });
 
@@ -124,7 +126,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             host.shutdown().await?;
             Ok(())
         }
-        Cmd::Run(args) => run(host, listing, args).await,
+        Cmd::Run(args) => run(host, info, listing, args, progress).await,
     }
 }
 
@@ -159,8 +161,10 @@ fn build_command(target: &Target) -> Command {
 
 async fn run(
     mut host: Host,
+    info: InitializeResult,
     listing: ListResult,
     args: RunArgs,
+    progress: Arc<ProgressBar>,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let format = Format::from_str(&args.format)?;
     let model_filter: Option<Vec<String>> = args
@@ -175,30 +179,84 @@ async fn run(
         eprintln!("no cells matched the selection");
     }
 
-    // Resume from a checkpoint unless --fresh.
+    // Fingerprint the advertised definitions so a resume can detect stale caches.
+    let fingerprints = session::fingerprints(&listing);
+
+    // Resume from a session checkpoint unless --fresh. The session carries the
+    // planned `total` and per-eval fingerprints, so we can report accurate
+    // progress and warn when a cached cell's eval definition has changed.
     let mut done: BTreeMap<String, RunResult> = BTreeMap::new();
+    let mut session = Session::new(
+        info.study.clone(),
+        info.study_version.clone(),
+        plan.len(),
+        fingerprints.clone(),
+    );
     if let Some(path) = &args.checkpoint
         && !args.fresh
+        && let Some(prev) = Session::load(path)
     {
-        done = load_checkpoint(path);
-        if !done.is_empty() {
-            eprintln!("resuming checkpoint: {} cells already done", done.len());
+        let stale = prev.stale_keys(&fingerprints);
+        for r in prev.results {
+            done.insert(r.key(), r);
+        }
+        session.created_unix = prev.created_unix;
+        let resumable = plan.iter().filter(|c| done.contains_key(&c.key())).count();
+        eprintln!(
+            "resuming checkpoint: {resumable}/{} cells already done",
+            plan.len()
+        );
+        if !stale.is_empty() {
+            eprintln!(
+                "warning: {} cached cell(s) are stale — their eval definition changed \
+                 since they were recorded. They'll be reused as-is; re-run with --fresh \
+                 to recompute. e.g. {}",
+                stale.len(),
+                stale.iter().take(3).cloned().collect::<Vec<_>>().join(", "),
+            );
         }
     }
+
+    // Configure the progress bar now the plan is known. TTY only — in CI/non-TTY
+    // it stays hidden so it doesn't pollute logs; the final report still prints.
+    let resumable = plan.iter().filter(|c| done.contains_key(&c.key())).count();
+    if !plan.is_empty() && std::io::stderr().is_terminal() {
+        progress.set_draw_target(ProgressDrawTarget::stderr());
+        progress.set_style(
+            ProgressStyle::with_template(
+                "{spinner:.green} [{elapsed_precise}] [{bar:30.cyan/blue}] \
+                 {pos}/{len} (eta {eta}) {msg}",
+            )
+            .unwrap()
+            .progress_chars("=>-"),
+        );
+    }
+    progress.set_length(plan.len() as u64);
+    progress.set_position(resumable as u64);
 
     for cell in &plan {
         let key = cell.key();
         if done.contains_key(&key) {
             continue;
         }
+        progress.set_message(key.clone());
         let result = host
             .run(&cell.eval, &cell.sample, &cell.model, &cell.params)
             .await?;
         done.insert(key, result);
+        progress.inc(1);
         if let Some(path) = &args.checkpoint {
-            save_checkpoint(path, &done);
+            session.update(
+                plan.len(),
+                fingerprints.clone(),
+                done.values().cloned().collect(),
+            );
+            if let Err(e) = session.save(path) {
+                progress.suspend(|| eprintln!("warning: failed to write checkpoint: {e}"));
+            }
         }
     }
+    progress.finish_and_clear();
     host.shutdown().await?;
 
     // Report only the planned cells, in plan order.
@@ -344,28 +402,5 @@ fn print_listing(listing: &ListResult) {
                 .collect();
             println!("  meta:    {}", meta.join(", "));
         }
-    }
-}
-
-fn load_checkpoint(path: &str) -> BTreeMap<String, RunResult> {
-    let mut map = BTreeMap::new();
-    if !Path::new(path).exists() {
-        return map;
-    }
-    let Ok(text) = std::fs::read_to_string(path) else {
-        return map;
-    };
-    if let Ok(results) = serde_json::from_str::<Vec<RunResult>>(&text) {
-        for r in results {
-            map.insert(r.key(), r);
-        }
-    }
-    map
-}
-
-fn save_checkpoint(path: &str, done: &BTreeMap<String, RunResult>) {
-    let results: Vec<&RunResult> = done.values().collect();
-    if let Ok(text) = serde_json::to_string_pretty(&results) {
-        let _ = std::fs::write(path, text);
     }
 }
