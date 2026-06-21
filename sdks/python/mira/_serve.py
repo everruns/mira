@@ -12,6 +12,7 @@ from dataclasses import dataclass, field
 from typing import Any, Callable, Dict, List, Optional, Sequence
 
 from . import _codec
+from ._meta import PROTOCOL_VERSION
 from ._wire import (
     AxisInfo,
     EvalInfo,
@@ -27,13 +28,19 @@ from ._wire import (
 )
 from .scorers import Scorer, make_score
 
-PROTOCOL_VERSION = "1.5"
+# PROTOCOL_VERSION is imported from the generated `_meta` (above) — derived from
+# schema/v1/meta.json, not hardcoded, so a version bump can't leave it stale.
 
 # JSON-RPC error codes for the structured `error` object (mirrors the Rust
 # `protocol::codes`). All caller mistakes here are non-retryable.
 _CODE_METHOD_NOT_FOUND = -32601
 _CODE_INVALID_PARAMS = -32602
 _CODE_INTERNAL_ERROR = -32603
+
+# The protocol methods this SDK dispatches in `Study.handle`. Kept explicit so a
+# test can assert it covers every method in the generated `_meta.METHODS` — a new
+# protocol method then fails CI until the serve loop handles it.
+HANDLED_METHODS = ("initialize", "list", "run", "execute", "score")
 
 
 # ----- authoring types --------------------------------------------------------

@@ -9,10 +9,12 @@ checkpoints, and reporting; the study owns subjects and scoring. Any language
 that speaks the protocol is a first-class study — this SDK just makes the Python
 side ergonomic.
 
-The wire types in [`mira/_wire.py`](mira/_wire.py) are **generated** from the
-canonical JSON Schema under [`schema/v1/`](../../schema/v1/) — the same
-language-neutral contract the Rust host is generated from — so they never drift
-from the wire format.
+The protocol layer is **generated** from the canonical artifacts under
+[`schema/v1/`](../../schema/v1/) — the same language-neutral contract the Rust
+host is generated from — so it never drifts from the wire format:
+[`mira/_wire.py`](mira/_wire.py) (wire types, from `schema.json`) and
+[`mira/_meta.py`](mira/_meta.py) (protocol version, methods, capability tokens,
+from `meta.json`).
 
 ## Use
 
@@ -70,10 +72,10 @@ A complete, runnable example lives in
 ## Develop
 
 ```bash
-python3 codegen.py            # regenerate mira/_wire.py from schema/v1/
-python3 codegen.py --check    # fail if stale (CI drift guard)
+python3 codegen.py            # regenerate mira/_wire.py + mira/_meta.py from schema/v1/
+python3 codegen.py --check    # fail if either is stale (CI drift guard)
 pip install -e .[dev]
-python3 -m pytest             # schema-conformance + serve-loop tests
+python3 -m pytest             # conformance + metadata-coverage + serve-loop tests
 ```
 
 The runtime has **zero dependencies**; `jsonschema` and `pytest` are dev-only.

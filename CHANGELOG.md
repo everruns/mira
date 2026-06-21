@@ -32,7 +32,14 @@ adheres to [Semantic Versioning](https://semver.org/).
   JSON-RPC codes. All new fields are optional and defaulted, so a `1.4`-era peer
   that sends bare `{ "message": "…" }` still parses. The host request path carries
   the structured `RpcError` end-to-end (`mira::protocol::RpcError`, `codes`).
-
+- **Python SDK protocol-metadata drift guard** — `codegen.py` now also generates
+  `mira/_meta.py` (protocol version, method list, capability tokens) from
+  `schema/v1/meta.json`, and the serve loop derives `PROTOCOL_VERSION` from it
+  instead of hardcoding. New tests bind the SDK's handled methods and advertised
+  capabilities to the generated metadata, so a new protocol method/capability (or
+  a version bump) fails CI until the SDK tracks it. Closes the version/method/
+  capability drift gaps that wire-type codegen alone didn't cover; `specs/sdks.md`
+  §3 now states exactly what the guards do and don't catch.
 - **Python SDK** (`sdks/python`) — a native, pure-stdlib library for authoring
   Mira eval studies in Python (no Rust dependency). Speaks the protocol over
   stdio; its wire types are **generated from `schema/v1/`** (the same contract
