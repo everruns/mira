@@ -1,0 +1,19 @@
+[package]
+name = "mira-example-multimodal"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+homepage.workspace = true
+description = "Mira example: a multimodal eval — a sample with an image attachment"
+publish = false
+
+[[bin]]
+name = "multimodal"
+path = "src/main.rs"
+
+[dependencies]
+mira-eval.workspace = true
+tokio.workspace = true

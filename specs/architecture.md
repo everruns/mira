@@ -340,3 +340,83 @@ primarily through *open vocabularies* — `metrics` (numeric), `metadata`
 stages it behind `#[cfg(feature = "protocol-unstable")]`; the generator builds
 without it, so the committed schema describes only the stable protocol until the
 addition is promoted (and earns its minor bump).
+
+## 14. Multimodality, interactive evals, and capability parameters
+
+Three limitations of the v0.1 cut, addressed together because they share a root:
+the core types were *text-shaped* and *single-shot*. Status: multimodal **inputs**
+and **interactive** evals are stable; multimodal **output** and structured
+**capability parameters** are implemented but **staged behind `protocol-unstable`**
+(they add typed fields to wire types — see §13 — and promote together once
+concurrent protocol churn settles).
+
+### 14.1 Content model (`Part`)
+
+`mira::content::Part` is a small, typed vocabulary for one piece of content —
+`Text`, `Image`, `Audio`, `File`, or `Json` (the structured-output escape
+hatch). Media is **referenced, not embedded**: a media part carries a
+`media_type` plus either a `uri` (URL or `data:` URI) or inline base64 `data`,
+never raw bytes — so a `Part` is plain JSON that rides the wire and JSONL
+datasets unchanged, and the core stays codec-free. The text fields
+(`Sample::input`, `Transcript::final_response`) remain the canonical text path;
+`Part` lists carry what text can't.
+
+### 14.2 Multimodal inputs — stable, off-wire
+
+A `Sample` gains `attachments: Vec<Part>` (images/audio/files/JSON alongside the
+text turns); `Sample::prompt_parts()` fuses text turns + attachments into one
+ordered `Part` list for a multimodal subject, and `Sample::modalities()` reports
+the distinct kinds. This needs **no protocol change**: `Sample` is not a wire
+type — the study owns the dataset and the host addresses samples by id — so the
+schema, `PROTOCOL_VERSION`, and the SDKs are untouched. Example:
+`examples/multimodal/`.
+
+### 14.3 Multimodal outputs — staged behind `protocol-unstable`
+
+`Transcript` (and its wire summary) gain `output: Vec<Part>` — the response as
+typed parts, with `final_response` kept as the canonical text projection so
+text-only scorers keep working. A modality scorer (`scorer::produced_modality`)
+grades it. Because `Transcript` *is* a wire type (it rides in `execute`/`score`),
+this lands behind `#[cfg(feature = "protocol-unstable")]` per §13 — exercised
+in-tree (`cargo test --features protocol-unstable`, `clippy --all-features`) but
+kept off the committed schema. **Promotion path:** drop the `cfg`s on
+`Transcript::output` / `TranscriptSummary::output` / `produced_modality`,
+regenerate `schema/`, mirror in the SDKs, and earn the minor bump — done as a
+single focused change once concurrent protocol work settles, so it doesn't race
+another version bump.
+
+### 14.4 Interactive / multi-turn evals — implemented (in-process)
+
+`Subject::run` still runs once per call, but an `Eval` may now carry a
+`Responder` — a simulated user, `Fn(&[Message]) -> Option<Vec<Part>>`. When
+present, `runner::execute_cell` drives a **turn exchange**: it invokes the
+subject once per turn (handing it the running conversation via
+`RunCx::conversation`), records the subject's `Assistant` turn, asks the
+responder for the next `User` turn, and repeats until the responder returns
+`None` or `max_turns` is hit. The turns are folded into one `Transcript` (last
+response wins; usage/duration/tools/events/files/metrics accumulate), so:
+
+- **Scoring is unchanged** — scorers grade the final accumulated `Transcript`.
+- **No protocol change** — the study owns the loop; the host's `run`/`execute`
+  call is identical, so this is stable and needs no wire feature. (A future
+  *host-driven* exchange would add an additive `interactive` capability and
+  per-turn `event` notifications, but the in-process driver covers the common
+  simulated-user case.)
+
+Example: `examples/interactive/` (a clarify-then-answer dialog). A
+model-graded responder (an LLM playing the user) is just a closure that calls a
+judge, no new machinery.
+
+### 14.5 Capability parameters — implemented (staged)
+
+`capabilities: Vec<String>` carries bare tokens; it can't express *config* (which
+event kinds a study emits, supported input/output modalities, a concurrency
+hint). `InitializeResult` gains a sibling `capability_params` map
+(`token → JSON`, via `capability_param(token)`) — open-vocabulary like
+`metadata`, so new keys never need a version bump. The study advertises it from
+`initialize` (event kinds + supported modalities); a host reads it additively,
+defaulting to today's behaviour when a token is absent. Staged behind
+`protocol-unstable` (it's a new typed field on a wire type, and has no stable
+consumer yet) per §13; **promotion path:** drop the `cfg`, regenerate `schema/`,
+mirror in the SDKs, earn the minor bump — folded into the same promotion as
+§14.3 once protocol churn settles.

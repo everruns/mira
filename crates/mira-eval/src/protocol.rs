@@ -243,6 +243,26 @@ pub struct InitializeResult {
     /// an older study that omits it is treated as base-only.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub capabilities: Vec<String>,
+    /// EXPERIMENTAL (gated behind `protocol-unstable`): structured **config** for
+    /// capabilities, keyed by capability token — the data a bare
+    /// [`capabilities`](Self::capabilities) string can't carry (which event
+    /// kinds the study emits, the input/output modalities it supports, a
+    /// concurrency hint, …). Open-vocabulary like `metadata`, so new keys need no
+    /// version bump; a host reads it additively, falling back to today's
+    /// behaviour when a token is absent. Staged off the committed schema until a
+    /// real consumer justifies promotion (architecture §14.5).
+    #[cfg(feature = "protocol-unstable")]
+    #[serde(default, skip_serializing_if = "Metadata::is_empty")]
+    pub capability_params: Metadata,
+}
+
+#[cfg(feature = "protocol-unstable")]
+impl InitializeResult {
+    /// The structured config a study advertised for `capability`, if any (see
+    /// [`capability_params`](Self::capability_params)).
+    pub fn capability_param(&self, capability: &str) -> Option<&serde_json::Value> {
+        self.capability_params.get(capability)
+    }
 }
 
 /// Capability tokens a study may advertise in [`InitializeResult::capabilities`].
@@ -444,6 +464,14 @@ pub struct TranscriptSummary {
     /// infra-errored cells. Defaulted/omitted for the common subject case.
     #[serde(default, skip_serializing_if = "crate::ErrorKind::is_subject")]
     pub error_kind: crate::ErrorKind,
+    /// EXPERIMENTAL (gated behind `protocol-unstable`): the run's multimodal
+    /// output parts (see [`Transcript::output`](crate::Transcript::output)),
+    /// carried in the lightweight summary so results/checkpoints retain the
+    /// non-text modalities, not just `final_response`. Staged off the committed
+    /// schema until promotion.
+    #[cfg(feature = "protocol-unstable")]
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub output: Vec<crate::Part>,
     /// EXPERIMENTAL (gated behind `protocol-unstable`): reserved staging slot for
     /// the next *structural* wire addition — the kind the open `metrics`/`metadata`
     /// maps can't express (those carry numeric/string key-values; a new typed
@@ -474,6 +502,8 @@ impl TranscriptSummary {
             // No source on the core `Transcript` yet — left unset until promoted.
             #[cfg(feature = "protocol-unstable")]
             experimental: None,
+            #[cfg(feature = "protocol-unstable")]
+            output: t.output.clone(),
         }
     }
 }

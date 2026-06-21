@@ -91,6 +91,8 @@ fn payloads_validate_against_their_defs() {
         evals: 1,
         study_version: Some("0.1.0".into()),
         capabilities: vec!["axes".into(), "execute".into(), "score".into()],
+        #[cfg(feature = "protocol-unstable")]
+        capability_params: Default::default(),
     };
     assert_valid_against_def("InitializeResult", &to_value(&init));
 

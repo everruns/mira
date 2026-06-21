@@ -371,6 +371,7 @@ mod tests {
             max_turns: 8,
             params: Default::default(),
             trial: crate::Trial::single(),
+            conversation: Vec::new(),
         }
     }
 

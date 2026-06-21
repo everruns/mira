@@ -411,6 +411,25 @@ pub fn json_field_equals(key: impl Into<String>, value: impl Into<String>) -> Bo
     )
 }
 
+// ----- multimodal output (experimental) -------------------------------------
+
+/// Passes if the subject produced an output [`Part`](crate::Part) of the given
+/// modality (`"text"` / `"image"` / `"audio"` / `"file"` / `"json"`).
+///
+/// EXPERIMENTAL — grades [`Transcript::output`](crate::Transcript::output),
+/// which is staged behind the `protocol-unstable` feature.
+#[cfg(feature = "protocol-unstable")]
+pub fn produced_modality(kind: impl Into<String>) -> Box<dyn Scorer> {
+    let kind = kind.into();
+    scorer(format!("produced_modality({kind})"), move |_, t| {
+        if t.output.iter().any(|p| p.kind() == kind) {
+            Score::pass("produced_modality", format!("produced a {kind} part"))
+        } else {
+            Score::fail("produced_modality", format!("no {kind} part in output"))
+        }
+    })
+}
+
 // ----- combinators ----------------------------------------------------------
 
 /// Passes only if **all** inner scorers pass. The aggregate value is their mean.
@@ -709,6 +728,18 @@ mod tests {
         assert!(!run(file_exists("nope.txt"), &s).await.pass);
         assert!(run(file_contains("out.txt", "hello"), &s).await.pass);
         assert!(!run(file_contains("out.txt", "bye"), &s).await.pass);
+    }
+
+    #[cfg(feature = "protocol-unstable")]
+    #[tokio::test]
+    async fn produced_modality_scorer() {
+        use crate::Part;
+        let s = Sample::new("a", "draw a cat");
+        let t = Transcript::response("here you go")
+            .with_output([Part::text("here you go"), Part::image_uri("image/png", "u")]);
+        assert!(produced_modality("image").score(&s, &t).await.pass);
+        assert!(produced_modality("text").score(&s, &t).await.pass);
+        assert!(!produced_modality("audio").score(&s, &t).await.pass);
     }
 
     #[tokio::test]

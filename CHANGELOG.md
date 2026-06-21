@@ -64,6 +64,31 @@ adheres to [Semantic Versioning](https://semver.org/).
   sample metadata, model metadata, then transcript metadata. The breakdown prints
   to the terminal and is folded into the JSON (`groups` block), Markdown, and HTML
   reports (and the saved-run bundle).
+- **Multimodal content** (`mira::content::Part`) — a typed vocabulary for non-text
+  content (`text` / `image` / `audio` / `file` / `json`); media is *referenced*
+  (`media_type` + `uri` or inline base64 `data`), so a part is plain JSON with no
+  codecs in the core. **Multimodal inputs** land stable: `Sample::attachments`
+  carries images/audio/files alongside the text turns, `Sample::prompt_parts()`
+  fuses them into one ordered list for a subject, and `Sample::modalities()`
+  reports the kinds — no protocol change (a `Sample` isn't a wire type). New
+  runnable example `examples/multimodal/`. **Multimodal outputs**
+  (`Transcript::output`, the `produced_modality` scorer) are **staged behind the
+  `protocol-unstable` feature** — `Transcript` is a wire type, so they stay off
+  the committed schema until promoted (see `specs/architecture.md` §14).
+  `final_response` remains the canonical text projection throughout.
+- **Interactive / multi-turn evals** — an `Eval` may carry a `.responder(..)` (a
+  simulated user, `Fn(&[Message]) -> Option<Vec<Part>>`). The runner then drives
+  a turn exchange — invoking the subject once per turn with the running
+  conversation in `RunCx::conversation`, appending the responder's reply, until
+  it ends or `max_turns` is hit — and folds the dialog into one transcript the
+  scorers grade. **Stable, no protocol change** (the study owns the loop). New
+  types `Message`/`Role`; example `examples/interactive/`.
+- **Structured capability parameters** — `InitializeResult.capability_params`
+  (`token → JSON`, read via `capability_param(token)`) lets a study advertise
+  *config* a bare capability token can't carry (event kinds, supported
+  input/output modalities, concurrency hints). Open-vocabulary like `metadata`.
+  **Staged behind `protocol-unstable`** (a new typed wire field with no stable
+  consumer yet); see `specs/architecture.md` §14.5.
 - **Python SDK** (`sdks/python`) — a native, pure-stdlib library for authoring
   Mira eval studies in Python (no Rust dependency). Speaks the protocol over
   stdio; its wire types are **generated from `schema/v1/`** (the same contract

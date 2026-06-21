@@ -10,14 +10,26 @@ use std::path::Path;
 use serde::{Deserialize, Serialize};
 
 use crate::Metadata;
+use crate::content::Part;
 
 /// One dataset row: an input conversation plus optional target / metadata.
+///
+/// Multimodal note: `input` carries the *text* turns (the common case);
+/// `attachments` carries any non-text input (images, audio, files, structured
+/// JSON) accompanying the prompt. [`Sample::prompt_parts`] fuses both into one
+/// ordered [`Part`] list for a multimodal subject. `Sample` is **not** a wire
+/// type — the study owns the dataset and the host addresses samples by id — so
+/// this stays a study-side concern with no protocol impact.
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct Sample {
     /// Stable identifier within the eval (used in case keys and selection).
     pub id: String,
     /// Sequence of user turns to send. Most samples have exactly one.
     pub input: Vec<String>,
+    /// Non-text input accompanying the prompt: images, audio, files, or
+    /// structured JSON. Empty for text-only samples.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub attachments: Vec<Part>,
     /// Optional reference answer / expected value for target-based scorers.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub target: Option<serde_json::Value>,
@@ -58,6 +70,43 @@ impl Sample {
     pub fn tag(mut self, tag: impl Into<String>) -> Self {
         self.tags.push(tag.into());
         self
+    }
+
+    /// Attach a non-text input [`Part`] (image, audio, file, JSON) to the prompt.
+    pub fn attach(mut self, part: Part) -> Self {
+        self.attachments.push(part);
+        self
+    }
+
+    /// Attach an image input, referenced by a `uri` (a URL or `data:` URI).
+    pub fn image(self, media_type: impl Into<String>, uri: impl Into<String>) -> Self {
+        self.attach(Part::image_uri(media_type, uri))
+    }
+
+    /// The full multimodal prompt as one ordered [`Part`] list: the text turns
+    /// (each an [`Part::Text`]) followed by the `attachments`. The single entry
+    /// point a multimodal subject reads, regardless of how the sample was built.
+    pub fn prompt_parts(&self) -> Vec<Part> {
+        let mut parts: Vec<Part> = self.input.iter().map(|s| Part::text(s.as_str())).collect();
+        parts.extend(self.attachments.iter().cloned());
+        parts
+    }
+
+    /// The distinct input modalities present (`text`, `image`, …), in first-seen
+    /// order — `text` first when there are text turns, then attachment kinds.
+    /// Computed without cloning the (possibly large) attachment payloads.
+    pub fn modalities(&self) -> Vec<&'static str> {
+        let mut seen: Vec<&'static str> = Vec::new();
+        if !self.input.is_empty() {
+            seen.push("text");
+        }
+        for part in &self.attachments {
+            let k = part.kind();
+            if !seen.contains(&k) {
+                seen.push(k);
+            }
+        }
+        seen
     }
 
     /// Set the reference target.
@@ -195,5 +244,31 @@ mod tests {
     fn multi_turn() {
         let s = Sample::turns("c", ["a", "b", "c"]);
         assert_eq!(s.input.len(), 3);
+    }
+
+    #[test]
+    fn multimodal_input_fuses_text_and_attachments() {
+        let s = Sample::new("a", "what is in this image?")
+            .image("image/png", "https://x/cat.png")
+            .attach(Part::audio_uri("audio/wav", "https://x/clip.wav"));
+        let parts = s.prompt_parts();
+        assert_eq!(parts.len(), 3); // 1 text turn + 2 attachments
+        assert_eq!(parts[0].as_text(), Some("what is in this image?"));
+        assert_eq!(parts[1].kind(), "image");
+        assert_eq!(s.modalities(), vec!["text", "image", "audio"]);
+    }
+
+    #[test]
+    fn text_only_sample_has_no_attachments_on_the_wire() {
+        // A plain sample omits `attachments` when serialized (back-compat with
+        // existing JSONL datasets).
+        let s = Sample::new("a", "hi");
+        assert!(s.attachments.is_empty());
+        let line = serde_json::to_string(&s).unwrap();
+        assert!(!line.contains("attachments"));
+        // …and a multimodal sample round-trips through JSONL.
+        let m = Sample::new("b", "describe").image("image/png", "u");
+        let back: Sample = serde_json::from_str(&serde_json::to_string(&m).unwrap()).unwrap();
+        assert_eq!(back, m);
     }
 }

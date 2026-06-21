@@ -12,6 +12,13 @@ authors.workspace = true
 repository.workspace = true
 publish = false
 
+[features]
+# Forwards mira-eval's staging flag so the validation tests can construct the
+# unstable wire shape under `--all-features` (as `just check`'s clippy does).
+# Deliberately NOT a default and NOT enabled by `just schema` / the generator
+# binary, so the *committed* schema only ever describes the stable wire format.
+protocol-unstable = ["mira-eval/protocol-unstable"]
+
 [dependencies]
 # The protocol types, with their `schemars::JsonSchema` derives enabled. Note:
 # `protocol-unstable` is deliberately NOT enabled, so the generated schema only

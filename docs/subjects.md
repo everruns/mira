@@ -106,6 +106,31 @@ let subject = RuntimeSubject::new(|model| Box::pin(async move {
 See the [`mira-everruns` crate docs](https://docs.rs/mira-everruns) for the full
 factory contract.
 
+## Multimodal inputs
+
+A `Sample` carries text turns in `input`; attach non-text input (images, audio,
+files, structured JSON) with `attachments`. A subject reads the fused prompt via
+`Sample::prompt_parts()` — the text turns followed by the attachments, as one
+ordered `Part` list:
+
+```rust
+use mira::{Part, Sample};
+
+let sample = Sample::new("vqa", "What format is this image?")
+    .image("image/png", "https://example/cat.png")        // or a `data:` URI
+    .attach(Part::audio_uri("audio/wav", "https://example/clip.wav"));
+
+// In the subject: send the whole multimodal prompt to the model.
+let parts = sample.prompt_parts();          // [Text, Image, Audio]
+let kinds = sample.modalities();            // ["text", "image", "audio"]
+```
+
+Media is *referenced* (`media_type` + a `uri` or inline base64 `data`), never raw
+bytes, so a sample stays plain JSON in a JSONL dataset. This is study-side only —
+no protocol change. Runnable example: `examples/multimodal/`. Multimodal *output*
+(`Transcript::output`) is staged behind the `protocol-unstable` feature; see
+[architecture §14](../specs/architecture.md).
+
 ## Writing your own
 
 Reach for a `subject_fn` closure first. Implement `Subject` directly when you

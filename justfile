@@ -70,6 +70,8 @@ run-examples:
     cargo run -q -p mira-cli -- --bin matrix run
     cargo run -q -p mira-cli -- --bin swe_bench run
     cargo run -q -p mira-cli -- --bin llmsim run
+    cargo run -q -p mira-cli -- --bin multimodal run
+    cargo run -q -p mira-cli -- --bin interactive run
     cargo run -q -p mira-cli -- --cmd "python3 examples/greet-python/study.py" run
 
 # === Release ===
