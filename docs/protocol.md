@@ -134,8 +134,8 @@ anything.
       "samples": [ { "id": "hi", "tags": ["smoke"] } ],
       "scorers": ["succeeded", "contains(\"42\")"],
       "models": [
-        { "label": "sim", "available": true },
-        { "label": "anthropic/claude-opus-4-8", "available": false }
+        { "label": "sim", "provider": "sim", "available": true },
+        { "label": "anthropic/claude-opus-4-8", "provider": "anthropic", "available": false }
       ],
       "axes": [ { "name": "effort", "values": ["low", "high"] } ],
       "max_turns": 12,
@@ -147,6 +147,10 @@ anything.
 
 - `available: false` marks a cell the study cannot run (e.g. a missing API
   key). The host skips it rather than failing.
+- `provider` (optional, default empty) is the model's provider id (`sim`,
+  `anthropic`, …). The host uses it to bucket concurrency per provider and to
+  back off a provider that returns rate-limit errors. A study that omits it
+  groups all such cells under the empty provider.
 - `axes` (optional, default empty) advertises **extra matrix axes** beyond the
   model. The host takes the cross-product of every axis with the model matrix and
   sends the chosen value per cell in `run.params`. A cell's identity is
@@ -231,17 +235,26 @@ host                                   study
  │  (host plans grid: selection×matrix,  │
  │   subtracts checkpointed cells)       │
  │                                       │
- │ run {greet,hi,sim} ─────────────────▶ │
- │◀──── event {kind:"started"}           │   (0+ notifications)
- │◀──── { passed, scores, transcript }   │
- │ run {…next cell…} ──────────────────▶ │
+ │ run {greet,hi,sim} ─────────────────▶ │   (many in flight at once)
+ │ run {…cell 2…} ─────────────────────▶ │
+ │◀──── event {kind:"started"}           │   (0+ notifications, any order)
+ │◀──── { id:2, passed, … }              │   responses correlate by id
+ │◀──── { id:1, passed, … }              │
  │            ⋮                          │
  │ (close stdin) ──────────────────────▶ │   EOF ⇒ study exits
 ```
 
-The host issues one `run` per planned cell. Because the host owns the plan,
-**resume** falls out for free: completed cells are persisted to a checkpoint and
-subtracted on the next invocation.
+The host issues one `run` per planned cell. Requests are **multiplexed**: the
+host may keep many runs in flight over the single pipe, and the study dispatches
+them concurrently — responses are correlated to requests by `id`, so they may
+arrive in any order. The host bounds how many run at once with a global cap, a
+per-provider cap, and **adaptive** per-provider backoff: a cell whose response
+(or transcript) carries a rate-limit signal (HTTP 429, "overloaded", quota) is
+re-queued after an exponential backoff while that provider's concurrency is
+halved, recovering as cells succeed. Models are bucketed by their `list`
+`provider`. Because the host owns the plan, **resume** falls out for free:
+completed cells are persisted to a checkpoint and subtracted on the next
+invocation.
 
 ## Errors
 
@@ -254,7 +267,9 @@ subtracted on the next invocation.
 
 ## Versioning
 
-The protocol uses `MAJOR.MINOR` (`PROTOCOL_VERSION`, currently `1.0`).
+The protocol uses `MAJOR.MINOR` (`PROTOCOL_VERSION`, currently `1.1`). The `1.1`
+minor added the optional `ModelInfo.provider` field (additive; a `1.0` study that
+omits it still interoperates).
 
 - A **MINOR** bump is **additive**: new optional fields, new notification kinds,
   new capability tokens. A newer peer must keep talking to an older one.

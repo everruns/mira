@@ -27,6 +27,7 @@ use indicatif::{ProgressBar, ProgressDrawTarget, ProgressStyle};
 use tokio::process::Command;
 
 use mira::Host;
+use mira::exec::{self, CellSpec, Concurrency};
 use mira::protocol::{InitializeResult, ListResult, RunResult};
 use mira::report::{self, Format};
 use mira::session::{self, Session};
@@ -90,6 +91,20 @@ struct RunArgs {
     /// Ignore an existing checkpoint and run everything fresh.
     #[arg(long)]
     fresh: bool,
+    /// Max cells to run in parallel across all providers.
+    #[arg(long, short = 'j', default_value_t = 8)]
+    max_concurrent: usize,
+    /// Per-provider concurrency ceilings, e.g. `anthropic=2,openai=4`. Caps a
+    /// single provider below the global limit so it can't be flooded.
+    #[arg(long)]
+    provider_concurrency: Option<String>,
+    /// Disable adaptive throttling (don't shrink a provider's concurrency or
+    /// retry when it returns rate-limit / overload errors).
+    #[arg(long)]
+    no_adaptive: bool,
+    /// Times a rate-limited cell is retried (after backoff) before it's failed.
+    #[arg(long, default_value_t = 4)]
+    max_retries: u32,
 }
 
 #[tokio::main]
@@ -101,7 +116,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // hidden; `run` gives it a length and a draw target once the plan is known.
     let progress = Arc::new(ProgressBar::hidden());
     let progress_evt = progress.clone();
-    let mut host = Host::spawn(build_command(&cli.target))
+    let host = Host::spawn(build_command(&cli.target))
         .await?
         .on_event(move |n| {
             // Per-cell `event` notifications drive the bar's message from the run
@@ -160,7 +175,7 @@ fn build_command(target: &Target) -> Command {
 }
 
 async fn run(
-    mut host: Host,
+    host: Host,
     info: InitializeResult,
     listing: ListResult,
     args: RunArgs,
@@ -242,30 +257,51 @@ async fn run(
     progress.set_length(plan.len() as u64);
     progress.set_position(resumable as u64);
 
-    for cell in &plan {
-        let key = cell.key();
-        if done.contains_key(&key) {
-            continue;
-        }
-        progress.set_message(key.clone());
-        let result = host
-            .run(&cell.eval, &cell.sample, &cell.model, &cell.params)
-            .await?;
-        done.insert(key, result);
-        progress.inc(1);
-        if let Some(path) = &args.checkpoint {
-            // Persist only the planned cells, in plan order — so the file stays
-            // deterministic and doesn't accumulate cells dropped by a narrower
-            // selection on resume.
-            let results = plan
-                .iter()
-                .filter_map(|c| done.get(&c.key()).cloned())
-                .collect();
-            session.update(plan.len(), fingerprints.clone(), results);
-            if let Err(e) = session.save(path) {
-                progress.suspend(|| eprintln!("warning: failed to write checkpoint: {e}"));
-            }
-        }
+    // Only run cells not already checkpointed.
+    let todo: Vec<CellSpec> = plan
+        .iter()
+        .filter(|cell| !done.contains_key(&cell.key()))
+        .cloned()
+        .collect();
+
+    let cfg = concurrency(&args);
+
+    // Run cells concurrently under the bounded, provider-aware policy. Each
+    // finished cell advances the bar and is persisted to the session checkpoint
+    // as it lands, so a long run stays resumable.
+    {
+        let handle = host.handle();
+        exec::run_cells(
+            todo,
+            &cfg,
+            |cell| {
+                let handle = handle.clone();
+                async move {
+                    handle
+                        .run(&cell.eval, &cell.sample, &cell.model, &cell.params)
+                        .await
+                }
+            },
+            |cell, result| {
+                progress.set_message(cell.key());
+                done.insert(cell.key(), result);
+                progress.inc(1);
+                if let Some(path) = &args.checkpoint {
+                    // Persist only the planned cells, in plan order — so the file
+                    // stays deterministic and doesn't accumulate cells dropped by a
+                    // narrower selection on resume.
+                    let results = plan
+                        .iter()
+                        .filter_map(|c| done.get(&c.key()).cloned())
+                        .collect();
+                    session.update(plan.len(), fingerprints.clone(), results);
+                    if let Err(e) = session.save(path) {
+                        progress.suspend(|| eprintln!("warning: failed to write checkpoint: {e}"));
+                    }
+                }
+            },
+        )
+        .await;
     }
     progress.finish_and_clear();
     host.shutdown().await?;
@@ -287,20 +323,27 @@ async fn run(
     std::process::exit(if failed { 1 } else { 0 });
 }
 
-/// One planned matrix cell: an eval/sample/model plus a chosen value per extra
-/// axis. Mirrors the in-process runner's cell expansion, but driven entirely
-/// from the study's advertised `list` so the host owns the plan.
-struct Cell {
-    eval: String,
-    sample: String,
-    model: String,
-    params: BTreeMap<String, String>,
-}
-
-impl Cell {
-    fn key(&self) -> String {
-        mira::cell_key(&self.eval, &self.sample, &self.model, &self.params)
+/// Build the concurrency policy from the run flags.
+fn concurrency(args: &RunArgs) -> Concurrency {
+    let mut cfg = Concurrency::new(args.max_concurrent);
+    cfg.adaptive = !args.no_adaptive;
+    cfg.max_retries = args.max_retries;
+    if let Some(spec) = &args.provider_concurrency {
+        for entry in spec.split(',') {
+            let entry = entry.trim();
+            if entry.is_empty() {
+                continue;
+            }
+            if let Some((provider, n)) = entry.split_once('=')
+                && let Ok(limit) = n.trim().parse::<usize>()
+            {
+                cfg = cfg.provider(provider.trim(), limit);
+            } else {
+                eprintln!("ignoring malformed --provider-concurrency entry: {entry:?}");
+            }
+        }
     }
+    cfg
 }
 
 /// Every combination of axis values for an eval, as `params` maps (cross
@@ -323,12 +366,13 @@ fn axis_combinations(eval: &mira::protocol::EvalInfo) -> Vec<BTreeMap<String, St
     combos
 }
 
-/// Expand the advertised listing into an ordered, selected list of cells.
+/// Expand the advertised listing into an ordered, selected list of cells. Each
+/// cell carries its model's provider so the executor can bucket concurrency.
 fn plan_grid(
     listing: &ListResult,
     args: &RunArgs,
     model_filter: &Option<Vec<String>>,
-) -> Vec<Cell> {
+) -> Vec<CellSpec> {
     let mut plan = Vec::new();
     for eval in &listing.evals {
         let combos = axis_combinations(eval);
@@ -351,10 +395,11 @@ fn plan_grid(
                     {
                         continue;
                     }
-                    plan.push(Cell {
+                    plan.push(CellSpec {
                         eval: eval.name.clone(),
                         sample: sample.id.clone(),
                         model: model.label.clone(),
+                        provider: model.provider.clone(),
                         params: params.clone(),
                     });
                 }

@@ -107,12 +107,25 @@ decision. Full wire reference: [`docs/protocol.md`](../docs/protocol.md).
   rendering. **Provider API keys live only here and never cross the wire.**
 - **host** — the `mira` CLI. Compiles + spawns the study, enumerates evals
   (`initialize` + `list`), plans the run (selection × matrix), drives execution
-  cell-by-cell (`run`), then aggregates / saves / checkpoints / renders.
+  (`run`), then aggregates / saves / checkpoints / renders.
 
 Three methods (`initialize`, `list`, `run`) plus fire-and-forget `event`/`log`
 notifications. Models are addressed by **label**; an unavailable cell is skipped.
 The boundary is the natural seam for **polyglot studies** — any program in any
 language that speaks the protocol is a valid study.
+
+**Concurrency & adaptive throttling.** The host multiplexes many `run`s over the
+single pipe (responses correlate by `id`), and the study dispatches them on
+independent tasks. How many run at once is the host's call, smallest-wins across
+three knobs: a **global** cap (`-j/--max-concurrent`), a **per-provider** cap
+(`--provider-concurrency anthropic=2,…`), and **adaptive reduction** — a cell
+whose result carries a rate-limit signal (HTTP 429, "overloaded", quota; see
+`mira::is_rate_limited`) halves that provider's in-flight limit (AIMD) and is
+re-queued after an exponential backoff, recovering one slot per success streak.
+Cells bucket by the `list` `provider`, so one provider's limits can't be flooded
+while others run flat-out. The policy lives in `mira::exec` (host side); the
+study stays oblivious. `--no-adaptive` disables it; `sim` (offline) runs at the
+global cap.
 
 **Versioning & forward compatibility.** `initialize` advertises a
 `MAJOR.MINOR` `protocol_version` plus a `capabilities` list. The contract: a
@@ -147,9 +160,10 @@ crate `mira-macros`, re-exported as `mira::eval` behind the default `macros`
 feature.
 
 **Running** — the `mira` CLI: `list`, `run [filter]`, `--tag`, `--models`,
-`--format json|junit|md|html`, `--out`, `--checkpoint`/`--fresh`. Non-zero exit
-on failure, so it drops into CI. In-process `Runner` for evals as
-`#[tokio::test]`s.
+`--format json|junit|md|html`, `--out`, `--checkpoint`/`--fresh`, and concurrency
+controls `-j/--max-concurrent`, `--provider-concurrency`, `--no-adaptive`,
+`--max-retries`. Non-zero exit on failure, so it drops into CI. In-process
+`Runner` for evals as `#[tokio::test]`s.
 
 ## 7. Reporting, checkpoints & resume
 

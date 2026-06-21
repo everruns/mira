@@ -40,7 +40,7 @@ use crate::{Metadata, Score, Timing, Usage};
 /// Every payload struct here is *non-exhaustive on the wire*: unknown fields are
 /// ignored (no `deny_unknown_fields`) and new fields are `#[serde(default)]`, so
 /// adding a field is a minor, non-breaking change.
-pub const PROTOCOL_VERSION: &str = "1.0";
+pub const PROTOCOL_VERSION: &str = "1.1";
 
 /// The oldest protocol version this build can still talk to.
 pub const MIN_PROTOCOL_VERSION: &str = "1.0";
@@ -151,6 +151,12 @@ pub struct SampleInfo {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct ModelInfo {
     pub label: String,
+    /// Provider id (e.g. `sim`, `anthropic`, `openai`). Lets the host bucket
+    /// concurrency per provider so one provider's rate limits can't be flooded.
+    /// Defaulted (empty) so an older/foreign study that omits it still parses;
+    /// such cells share the empty-provider bucket.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub provider: String,
     /// False when a real provider's API key is absent in the study's env.
     pub available: bool,
 }

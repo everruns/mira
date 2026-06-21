@@ -21,7 +21,11 @@
 //!
 //! Keep stdout clean: only protocol JSON goes there. Logging belongs on stderr.
 
-use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+use std::sync::Arc;
+
+use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader, Stdout};
+use tokio::sync::Mutex;
+use tokio::task::JoinSet;
 
 use crate::eval::Eval;
 use crate::protocol::{
@@ -81,9 +85,17 @@ impl Study {
 
     /// Serve this study over newline-delimited JSON on stdin/stdout until EOF.
     /// The host drives the loop; this returns when stdin closes.
+    ///
+    /// Requests are dispatched **concurrently**: each `run` is handled on its own
+    /// task so a host can keep many cells in flight at once. Writes are serialized
+    /// through a shared stdout mutex (one whole line per lock), so responses and
+    /// `event`/`log` notifications never interleave mid-line. The host bounds how
+    /// many runs are in flight (see [`crate::exec`]).
     pub async fn serve(self) -> std::io::Result<()> {
         let mut lines = BufReader::new(tokio::io::stdin()).lines();
-        let mut stdout = tokio::io::stdout();
+        let stdout = Arc::new(Mutex::new(tokio::io::stdout()));
+        let me = Arc::new(self);
+        let mut tasks: JoinSet<()> = JoinSet::new();
 
         while let Some(line) = lines.next_line().await? {
             if line.trim().is_empty() {
@@ -93,18 +105,25 @@ impl Study {
                 Ok(req) => req,
                 Err(e) => {
                     // Can't correlate a malformed line to an id; report and move on.
-                    write_line(&mut stdout, &log_notification(format!("bad request: {e}"))).await?;
+                    write_line(&stdout, &log_notification(format!("bad request: {e}"))).await?;
                     continue;
                 }
             };
 
-            let response = self.dispatch(&request, &mut stdout).await;
-            write_line(&mut stdout, &response).await?;
+            let me = me.clone();
+            let stdout = stdout.clone();
+            tasks.spawn(async move {
+                let response = me.dispatch(&request, &stdout).await;
+                let _ = write_line(&stdout, &response).await;
+            });
         }
+
+        // Drain in-flight runs before returning so no response is lost on EOF.
+        while tasks.join_next().await.is_some() {}
         Ok(())
     }
 
-    async fn dispatch(&self, request: &Request, stdout: &mut tokio::io::Stdout) -> Response {
+    async fn dispatch(&self, request: &Request, stdout: &Arc<Mutex<Stdout>>) -> Response {
         match request.method.as_str() {
             "initialize" => Response::ok(
                 request.id,
@@ -164,6 +183,7 @@ impl Study {
                     .iter()
                     .map(|m| ModelInfo {
                         label: m.label.clone(),
+                        provider: m.provider.clone(),
                         available: m.available,
                     })
                     .collect(),
@@ -259,12 +279,15 @@ fn event_notification(eval: &str, sample: &str, model: &str, kind: &str) -> Noti
     }
 }
 
+/// Serialize `value` as one line and write it under the shared stdout lock, so
+/// concurrent tasks never interleave partial lines.
 async fn write_line<T: serde::Serialize>(
-    stdout: &mut tokio::io::Stdout,
+    stdout: &Arc<Mutex<Stdout>>,
     value: &T,
 ) -> std::io::Result<()> {
     let mut buf = serde_json::to_vec(value).unwrap_or_default();
     buf.push(b'\n');
+    let mut stdout = stdout.lock().await;
     stdout.write_all(&buf).await?;
     stdout.flush().await
 }

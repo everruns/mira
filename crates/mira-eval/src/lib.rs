@@ -44,6 +44,7 @@
 
 pub mod dataset;
 pub mod eval;
+pub mod exec;
 pub mod host;
 pub mod model;
 pub mod protocol;
@@ -86,7 +87,8 @@ pub use mira_macros::eval;
 
 pub use dataset::{Dataset, Sample};
 pub use eval::{Case, Eval};
-pub use host::Host;
+pub use exec::{Concurrency, run_cells};
+pub use host::{Host, HostHandle};
 pub use model::ModelSpec;
 // `register_eval!` is exported at the crate root via `#[macro_export]`.
 pub use registry::registered_evals;
@@ -342,6 +344,23 @@ pub fn cell_key(eval: &str, sample: &str, model: &str, params: &Metadata) -> Str
     format!("{base}[{suffix}]")
 }
 
+/// Heuristic: does this error message look like a provider rate-limit / quota /
+/// overload signal? The core is provider-agnostic, so detection is a substring
+/// match over the common phrasings (HTTP 429, "rate limit", "overloaded",
+/// "quota", …). The host's adaptive scheduler uses this to back off and retry a
+/// cell instead of failing it (see [`exec`]).
+pub fn is_rate_limited(message: &str) -> bool {
+    let m = message.to_ascii_lowercase();
+    m.contains("429")
+        || m.contains("rate limit")
+        || m.contains("rate-limit")
+        || m.contains("ratelimit")
+        || m.contains("too many requests")
+        || m.contains("overloaded")
+        || m.contains("quota")
+        || m.contains("try again later")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -381,5 +400,15 @@ mod tests {
     fn transcript_helpers() {
         assert!(Transcript::response("hi").succeeded());
         assert!(!Transcript::failed("boom").succeeded());
+    }
+
+    #[test]
+    fn detects_rate_limit_signals() {
+        assert!(is_rate_limited("HTTP 429 Too Many Requests"));
+        assert!(is_rate_limited("anthropic: overloaded_error"));
+        assert!(is_rate_limited("Rate limit exceeded, try again later"));
+        assert!(is_rate_limited("insufficient_quota"));
+        assert!(!is_rate_limited("invalid api key"));
+        assert!(!is_rate_limited("connection refused"));
     }
 }
