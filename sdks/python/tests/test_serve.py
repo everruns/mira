@@ -53,6 +53,7 @@ def test_unknown_method_errors_without_crashing():
     msgs = _drive(_study(), [json.dumps({"id": 1, "method": "nope"}),
                              json.dumps({"id": 2, "method": "list"})])
     assert "unknown method" in msgs[0]["error"]["message"]
+    assert msgs[0]["error"]["code"] == -32601  # method not found, classifiable
     assert "result" in msgs[1]  # loop kept going
 
 

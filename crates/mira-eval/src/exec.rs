@@ -25,7 +25,7 @@ use std::time::{Duration, Instant};
 use tokio::task::JoinSet;
 
 use crate::Params;
-use crate::protocol::{RunResult, TranscriptSummary};
+use crate::protocol::{RpcError, RunResult, TranscriptSummary};
 
 /// Consecutive successes a provider needs before its limit grows by one.
 const GROW_THRESHOLD: usize = 3;
@@ -215,11 +215,11 @@ impl Limiter {
     }
 }
 
-/// Whether a cell's outcome looks rate-limited — either a transport/RPC error or
-/// a transcript error carrying a known rate-limit phrase.
-fn outcome_rate_limited(res: &Result<RunResult, String>) -> bool {
+/// Whether a cell's outcome looks rate-limited — either an [`RpcError`] whose
+/// message carries a known rate-limit phrase, or a transcript error with one.
+fn outcome_rate_limited(res: &Result<RunResult, RpcError>) -> bool {
     match res {
-        Err(e) => crate::is_rate_limited(e),
+        Err(e) => crate::is_rate_limited(&e.message),
         Ok(r) => r
             .transcript
             .error
@@ -228,14 +228,16 @@ fn outcome_rate_limited(res: &Result<RunResult, String>) -> bool {
     }
 }
 
-/// Whether a cell's outcome should be retried: a rate limit (transport or
-/// transcript), or any other *infrastructure* error the study reported
-/// (`error_kind = Infra` — budget, outage, timeout). Not the model's fault
-/// either way, so re-running may succeed. A plain transport error that isn't
-/// rate-limited is left alone (it may be a persistent bug, not transient infra).
-fn outcome_retryable(res: &Result<RunResult, String>) -> bool {
+/// Whether a cell's outcome should be retried. For a protocol-level [`RpcError`]:
+/// its structured `retryable` flag (set by the study/host for transient infra),
+/// or a rate-limit phrase in the message. For a completed run: an
+/// *infrastructure* transcript error (`error_kind = Infra` — budget, outage,
+/// timeout) or a rate-limited transcript error. Not the model's fault either way,
+/// so re-running may succeed. A non-retryable RPC error (bad params, unknown
+/// method) is left alone — re-running won't help.
+fn outcome_retryable(res: &Result<RunResult, RpcError>) -> bool {
     match res {
-        Err(e) => crate::is_rate_limited(e),
+        Err(e) => e.retryable || crate::is_rate_limited(&e.message),
         Ok(r) => {
             r.transcript.error_kind == crate::ErrorKind::Infra
                 || r.transcript
@@ -246,11 +248,11 @@ fn outcome_retryable(res: &Result<RunResult, String>) -> bool {
     }
 }
 
-/// Synthesize a failed result for a cell whose run errored at the transport level
+/// Synthesize a failed result for a cell whose run errored at the protocol level
 /// (so one cell's failure is recorded, not fatal to the whole matrix). A
-/// rate-limited transport error is infrastructure, not the model's fault.
-fn failed_result(cell: &CellSpec, error: String) -> RunResult {
-    let infra = crate::is_rate_limited(&error);
+/// retryable or rate-limited RPC error is infrastructure, not the model's fault.
+fn failed_result(cell: &CellSpec, error: RpcError) -> RunResult {
+    let infra = error.retryable || crate::is_rate_limited(&error.message);
     RunResult {
         eval: cell.eval.clone(),
         sample: cell.sample.clone(),
@@ -260,7 +262,7 @@ fn failed_result(cell: &CellSpec, error: String) -> RunResult {
         aggregate: 0.0,
         scores: Vec::new(),
         transcript: TranscriptSummary {
-            error: Some(error),
+            error: Some(error.message),
             error_kind: if infra {
                 crate::ErrorKind::Infra
             } else {
@@ -286,11 +288,11 @@ pub async fn run_cells<F, Fut>(
     mut on_done: impl FnMut(&CellSpec, RunResult),
 ) where
     F: Fn(CellSpec) -> Fut,
-    Fut: Future<Output = Result<RunResult, String>> + Send + 'static,
+    Fut: Future<Output = Result<RunResult, RpcError>> + Send + 'static,
 {
     let mut limiter = Limiter::new(cfg);
     let mut pending: VecDeque<(CellSpec, u32)> = cells.into_iter().map(|c| (c, 0)).collect();
-    let mut tasks: JoinSet<Result<RunResult, String>> = JoinSet::new();
+    let mut tasks: JoinSet<Result<RunResult, RpcError>> = JoinSet::new();
     // Side table so a finished (or panicked) task can be attributed back to its
     // cell: a JoinError carries only the task id, not the cell.
     let mut inflight: HashMap<tokio::task::Id, (CellSpec, u32)> = HashMap::new();
@@ -338,7 +340,11 @@ pub async fn run_cells<F, Fut>(
             }
             Err(join_err) => {
                 let (cell, attempts) = inflight.remove(&join_err.id()).expect("task id tracked");
-                (cell, attempts, Err(format!("task panicked: {join_err}")))
+                (
+                    cell,
+                    attempts,
+                    Err(RpcError::new(format!("task panicked: {join_err}"))),
+                )
             }
         };
 
@@ -511,7 +517,7 @@ mod tests {
                     let mut n = a.lock().await;
                     *n += 1;
                     if *n == 1 {
-                        Err("HTTP 429 rate limit".to_string())
+                        Err(RpcError::new("HTTP 429 rate limit"))
                     } else {
                         Ok(ok_result(&c))
                     }
@@ -558,6 +564,66 @@ mod tests {
         assert_eq!(*attempts.lock().await, 2); // re-queued once
         assert_eq!(results.len(), 1);
         assert!(results[0].passed);
+    }
+
+    /// A protocol-level `RpcError` flagged `retryable` is re-queued even when its
+    /// message carries no rate-limit phrase — classification comes from the
+    /// structured flag, not string-matching. The give-up path also records it as
+    /// an infra error.
+    #[tokio::test]
+    async fn retries_retryable_rpc_error_then_succeeds() {
+        let cfg = Concurrency::new(2);
+        let attempts = Arc::new(Mutex::new(0usize));
+        let a = attempts.clone();
+        let mut results = Vec::new();
+        run_cells(
+            vec![cell("sim", "x")],
+            &cfg,
+            move |c| {
+                let a = a.clone();
+                async move {
+                    let mut n = a.lock().await;
+                    *n += 1;
+                    if *n == 1 {
+                        Err(RpcError::new("provider outage").retryable())
+                    } else {
+                        Ok(ok_result(&c))
+                    }
+                }
+            },
+            |_, r| results.push(r),
+        )
+        .await;
+        assert_eq!(*attempts.lock().await, 2); // re-queued once
+        assert_eq!(results.len(), 1);
+        assert!(results[0].passed);
+    }
+
+    /// A non-retryable `RpcError` (e.g. bad params) is not re-queued; it fails the
+    /// cell once and is recorded as a subject error.
+    #[tokio::test]
+    async fn non_retryable_rpc_error_is_not_requeued() {
+        let cfg = Concurrency::new(2);
+        let count = Arc::new(AtomicUsize::new(0));
+        let c2 = count.clone();
+        let mut results = Vec::new();
+        run_cells(
+            vec![cell("sim", "x")],
+            &cfg,
+            move |_| {
+                let c2 = c2.clone();
+                async move {
+                    c2.fetch_add(1, Ordering::SeqCst);
+                    Err(RpcError::new("bad run params"))
+                }
+            },
+            |_, r| results.push(r),
+        )
+        .await;
+        assert_eq!(count.load(Ordering::SeqCst), 1); // no retry
+        assert_eq!(results.len(), 1);
+        assert!(!results[0].passed);
+        assert_eq!(results[0].transcript.error_kind, crate::ErrorKind::Subject);
     }
 
     #[tokio::test]
@@ -611,7 +677,7 @@ mod tests {
                 let c2 = c2.clone();
                 async move {
                     c2.fetch_add(1, Ordering::SeqCst);
-                    Err("429 too many requests".to_string())
+                    Err(RpcError::new("429 too many requests"))
                 }
             },
             |_, r| results.push(r),

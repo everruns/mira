@@ -66,10 +66,23 @@ A line is classified by its fields:
 
 ```json
 { "id": 1, "result": { "...": "..." } }
-{ "id": 1, "error": { "message": "no such eval: greet" } }
+{ "id": 1, "error": { "code": -32602, "message": "no such eval: greet", "retryable": false } }
 ```
 
 Exactly one of `result` or `error` is present. `id` echoes the request.
+
+The `error` object is JSON-RPC-shaped so a protocol-level failure can be
+classified without parsing the human message:
+
+| Field | Type | Notes |
+|-------|------|-------|
+| `code` | integer | Failure class (JSON-RPC convention): `-32602` invalid params, `-32601` method not found, `-32603` internal. `0` = unclassified. Optional, defaults `0`. |
+| `message` | string | Human-readable description. The only required field. |
+| `retryable` | boolean | Hint that retrying the identical request may succeed (a transient infra fault, not the caller's mistake). The host re-attempts retryable cells up to `--max-retries`. Optional, defaults `false`. |
+| `data` | any | Optional structured payload for programmatic handling. Omitted when absent. |
+
+All fields beyond `message` are optional and defaulted (added in `1.5`), so a
+`1.4`-era peer that sends bare `{ "message": "…" }` still parses.
 
 ### Notification (study → host)
 
@@ -351,13 +364,15 @@ invocation.
 
 ## Versioning
 
-The protocol uses `MAJOR.MINOR` (`PROTOCOL_VERSION`, currently `1.4`), all minors
+The protocol uses `MAJOR.MINOR` (`PROTOCOL_VERSION`, currently `1.5`), all minors
 additive over `1.0`: `1.1` added the optional `ModelInfo.provider` field and the
 `execute`/`score` methods plus their capabilities; `1.2` added the optional
 `transcript.metrics` map; `1.3` added the optional `transcript.error_kind`
 (subject vs. infrastructure); `1.4` widened `metadata` values from strings to
-open-ended JSON. A `1.0` study (or any study implementing only
-`run`) interoperates with a `1.4` host.
+open-ended JSON; `1.5` promoted the error object from `{ message }` to the
+JSON-RPC-shaped `{ code, message, retryable, data }` (all new fields
+optional/defaulted). A `1.0` study (or any study implementing only
+`run`) interoperates with a `1.5` host.
 
 - A **MINOR** bump is **additive**: new optional fields, new notification kinds,
   new capability tokens. A newer peer must keep talking to an older one.

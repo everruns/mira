@@ -82,7 +82,10 @@ class Response:
 
 @dataclass
 class RpcError:
+    code: int = 0
+    data: Any = None
     message: str = ""
+    retryable: bool = False
     __required__ = ("message",)
 
 @dataclass

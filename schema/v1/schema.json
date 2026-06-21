@@ -257,9 +257,25 @@
       "type": "object"
     },
     "RpcError": {
+      "description": "A structured, JSON-RPC-shaped protocol-level error.\n\nDistinct from a transcript's `error`/`error_kind`, which classify a *subject*\nfailure (the model under test got it wrong). An [`RpcError`] is the failure of\nthe RPC itself — bad params, an unknown method, a study-side crash, a provider\noutage surfaced at the transport. `code` and `retryable` let the host classify\nand retry the request **without parsing the human `message`**, and `data`\ncarries optional structured context.\n\nAll fields beyond `message` are optional and defaulted, so a `1.4`-era peer\nthat sends bare `{ \"message\": \"…\" }` still parses (forward/backward compat).",
       "properties": {
+        "code": {
+          "default": 0,
+          "description": "Numeric class of the failure (JSON-RPC convention; see [`codes`]). `0`\nwhen unclassified. Defaulted so older peers that omit it still parse.",
+          "format": "int32",
+          "type": "integer"
+        },
+        "data": {
+          "description": "Optional structured payload for programmatic handling (JSON-RPC `data`).\nOmitted from the wire when absent."
+        },
         "message": {
+          "description": "Human-readable description. The only required field.",
           "type": "string"
+        },
+        "retryable": {
+          "default": false,
+          "description": "Hint that retrying the identical request may succeed — a *transient\ninfrastructure* fault (provider outage, timeout, rate limit), not the\ncaller's mistake. Defaulted `false` so older peers parse and unknown\nfailures aren't retried blindly.",
+          "type": "boolean"
         }
       },
       "required": [
@@ -632,6 +648,6 @@
       "$ref": "#/$defs/Notification"
     }
   ],
-  "description": "Wire schema for the Mira host<->study protocol (newline-delimited JSON over stdio). Protocol version 1.4. Generated from mira::protocol by `mira-schema-gen` (`just schema`); do not edit by hand.",
+  "description": "Wire schema for the Mira host<->study protocol (newline-delimited JSON over stdio). Protocol version 1.5. Generated from mira::protocol by `mira-schema-gen` (`just schema`); do not edit by hand.",
   "title": "Mira Eval Protocol"
 }

@@ -50,8 +50,11 @@ use crate::{Metadata, Params, Score, Timing, Transcript, Usage};
 /// `transcript.error_kind` (subject vs. infrastructure) so the host can retry
 /// infra-errored cells; `1.4` widened `metadata` values from strings to
 /// open-ended JSON (a newer peer may now send a number/bool/object/array where
-/// an older one only sent strings).
-pub const PROTOCOL_VERSION: &str = "1.4";
+/// an older one only sent strings); `1.5` promoted [`RpcError`] from
+/// `{ message }` to the JSON-RPC-shaped `{ code, message, retryable, data }` (all
+/// new fields optional/defaulted), so a protocol-level failure can be classified
+/// and retried without parsing the human message.
+pub const PROTOCOL_VERSION: &str = "1.5";
 
 /// The oldest protocol version this build can still talk to.
 pub const MIN_PROTOCOL_VERSION: &str = "1.0";
@@ -99,22 +102,105 @@ impl Response {
             error: None,
         }
     }
+    /// A non-retryable error response carrying a plain message (code
+    /// [`codes::INTERNAL_ERROR`]). Use [`Response::err_with`] to attach a
+    /// specific code, the `retryable` hint, or structured `data`.
     pub fn err(id: u64, message: impl Into<String>) -> Self {
+        Self::err_with(id, RpcError::new(message))
+    }
+
+    /// An error response carrying a fully-formed [`RpcError`].
+    pub fn err_with(id: u64, error: RpcError) -> Self {
         Self {
             id,
             result: None,
-            error: Some(RpcError {
-                message: message.into(),
-            }),
+            error: Some(error),
         }
     }
 }
 
+/// A structured, JSON-RPC-shaped protocol-level error.
+///
+/// Distinct from a transcript's `error`/`error_kind`, which classify a *subject*
+/// failure (the model under test got it wrong). An [`RpcError`] is the failure of
+/// the RPC itself — bad params, an unknown method, a study-side crash, a provider
+/// outage surfaced at the transport. `code` and `retryable` let the host classify
+/// and retry the request **without parsing the human `message`**, and `data`
+/// carries optional structured context.
+///
+/// All fields beyond `message` are optional and defaulted, so a `1.4`-era peer
+/// that sends bare `{ "message": "…" }` still parses (forward/backward compat).
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub struct RpcError {
+    /// Numeric class of the failure (JSON-RPC convention; see [`codes`]). `0`
+    /// when unclassified. Defaulted so older peers that omit it still parse.
+    #[serde(default)]
+    pub code: i32,
+    /// Human-readable description. The only required field.
     pub message: String,
+    /// Hint that retrying the identical request may succeed — a *transient
+    /// infrastructure* fault (provider outage, timeout, rate limit), not the
+    /// caller's mistake. Defaulted `false` so older peers parse and unknown
+    /// failures aren't retried blindly.
+    #[serde(default)]
+    pub retryable: bool,
+    /// Optional structured payload for programmatic handling (JSON-RPC `data`).
+    /// Omitted from the wire when absent.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub data: Option<serde_json::Value>,
 }
+
+/// JSON-RPC error codes used by [`RpcError::code`]. The negative range mirrors
+/// the JSON-RPC 2.0 reserved codes; `0` means unclassified.
+pub mod codes {
+    /// Invalid method parameters (e.g. a malformed `RunParams`, an unknown
+    /// eval/sample/model). The caller's mistake — not retryable.
+    pub const INVALID_PARAMS: i32 = -32602;
+    /// Method not found / unsupported.
+    pub const METHOD_NOT_FOUND: i32 = -32601;
+    /// Internal study-side error. The default for [`super::RpcError::new`].
+    pub const INTERNAL_ERROR: i32 = -32603;
+}
+
+impl RpcError {
+    /// A non-retryable internal error ([`codes::INTERNAL_ERROR`]).
+    pub fn new(message: impl Into<String>) -> Self {
+        Self {
+            code: codes::INTERNAL_ERROR,
+            message: message.into(),
+            retryable: false,
+            data: None,
+        }
+    }
+
+    /// Set the error [`code`](RpcError::code).
+    pub fn with_code(mut self, code: i32) -> Self {
+        self.code = code;
+        self
+    }
+
+    /// Mark this error as [`retryable`](RpcError::retryable) — a transient infra
+    /// fault the host may re-attempt.
+    pub fn retryable(mut self) -> Self {
+        self.retryable = true;
+        self
+    }
+
+    /// Attach a structured [`data`](RpcError::data) payload.
+    pub fn with_data(mut self, data: serde_json::Value) -> Self {
+        self.data = Some(data);
+        self
+    }
+}
+
+impl std::fmt::Display for RpcError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.message)
+    }
+}
+
+impl std::error::Error for RpcError {}
 
 /// study → host, fire-and-forget progress (no `id`). Carries live events (a
 /// turn started, a tool was called, tokens spent) so the host can render
@@ -439,6 +525,36 @@ mod tests {
         assert!(!line.contains("\"id\""));
         // A notification must not parse as a Response (no id).
         assert!(serde_json::from_str::<Response>(&line).is_err());
+    }
+
+    #[test]
+    fn rpc_error_is_classifiable_and_roundtrips() {
+        let err = RpcError::new("provider 503")
+            .with_code(codes::INTERNAL_ERROR)
+            .retryable()
+            .with_data(serde_json::json!({ "provider": "anthropic" }));
+        let line = serde_json::to_string(&err).unwrap();
+        let back: RpcError = serde_json::from_str(&line).unwrap();
+        assert!(back.retryable);
+        assert_eq!(back.code, codes::INTERNAL_ERROR);
+        assert_eq!(
+            back.data,
+            Some(serde_json::json!({ "provider": "anthropic" }))
+        );
+        // Default constructor is non-retryable and carries no data.
+        let plain = RpcError::new("nope");
+        assert!(!plain.retryable);
+        assert!(!serde_json::to_string(&plain).unwrap().contains("data"));
+    }
+
+    #[test]
+    fn rpc_error_backward_compatible_with_bare_message() {
+        // A 1.4-era peer sends only `message`; the new optional fields default.
+        let back: RpcError = serde_json::from_str(r#"{"message":"no such eval"}"#).unwrap();
+        assert_eq!(back.message, "no such eval");
+        assert_eq!(back.code, 0);
+        assert!(!back.retryable);
+        assert!(back.data.is_none());
     }
 
     #[test]
