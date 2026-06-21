@@ -50,6 +50,11 @@ check:
 schema:
     cargo run -q -p mira-schema-gen
 
+# Python SDK: wire types in sync with the schema + the test suite.
+test-py:
+    python3 sdks/python/codegen.py --check
+    cd sdks/python && python3 -m pytest -q
+
 # Build the API docs with warnings denied (as CI does).
 doc:
     RUSTDOCFLAGS="-D warnings" cargo doc --no-deps --all-features

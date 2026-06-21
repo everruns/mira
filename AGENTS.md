@@ -31,6 +31,7 @@ change there.
 |------|-------------|
 | architecture | Core model, crate architecture, execution model, metrics, migration |
 | docs | Public-docs structure, diagram (SVG) convention, sync rules |
+| sdks | Native non-Rust study SDKs: schema-driven wire types, layout, drift guard |
 | release-process | Versioning, crates.io publishing flow |
 
 ### Documentation
@@ -54,6 +55,9 @@ crates/mira-everruns RuntimeSubject over the published everruns-runtime.
 crates/mira-judge    LlmJudge scorers (OpenAI completions/responses, Claude).
 crates/mira-schema-gen  non-published tool: generates schema/ from protocol types.
 examples/            runnable, offline example studies (one folder each).
+sdks/                native, non-Rust study SDKs over the protocol (e.g.
+                     sdks/python). Wire types generated from schema/, not bound
+                     to the core. See specs/sdks.md.
 ```
 
 The core is **provider-agnostic**: `ModelSpec` carries `(provider, model)`

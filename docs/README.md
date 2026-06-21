@@ -17,6 +17,8 @@ in [`specs/`](../specs). Conventions for this directory are in
 - [Scorers](scorers.md) — built-ins, budgets, combinators, closures, LLM-judge.
 - [Metrics](metrics.md) — tokens/cost/latency and custom numeric metrics.
 - [Subjects](subjects.md) — in-process, CLI/polyglot, and runtime sessions.
+- [Python SDK](../sdks/python) — author a study in Python (native library,
+  protocol over stdio, no Rust dependency).
 
 ## Extending
 
