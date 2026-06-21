@@ -12,6 +12,8 @@
 //! a fresh run with its own id/timestamps — exactly what you want when comparing
 //! the same suite over time.
 
+use std::collections::BTreeMap;
+
 use serde::{Deserialize, Serialize};
 
 use crate::protocol::RunResult;
@@ -38,8 +40,74 @@ pub struct RunMeta {
     pub started_unix: u64,
     /// Unix seconds when this run finished.
     pub finished_unix: u64,
+    /// Where and on what this run was produced — git checkout, OS/arch, host,
+    /// CPU/memory, host version, and any configured labels. Captured by the host
+    /// (enabled by default; see `[environment]` in `mira.toml`) so saved runs
+    /// carry the context needed to interpret and compare them later. `None` when
+    /// capture was disabled or unavailable. This module only *carries* the data;
+    /// the host collects it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub environment: Option<Environment>,
     /// Rolled-up result summary (the same shape the report JSON carries).
     pub summary: RunSummary,
+}
+
+/// Environment a run was produced in: enough context to interpret a result and
+/// compare it against others (which commit, which box, which host version).
+///
+/// Every field is best-effort and optional — capture must never fail a run, so a
+/// field that can't be determined is simply omitted. Collected by the host, not
+/// the core; this type is the serialized record written into [`RunMeta`].
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+pub struct Environment {
+    /// Git checkout state of the working tree the run was launched from.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub git: Option<GitInfo>,
+    /// Target OS (`std::env::consts::OS`), e.g. `"linux"`, `"macos"`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub os: Option<String>,
+    /// CPU architecture (`std::env::consts::ARCH`), e.g. `"x86_64"`, `"aarch64"`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub arch: Option<String>,
+    /// Machine hostname.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub hostname: Option<String>,
+    /// Logical CPU count available to the process.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cpus: Option<usize>,
+    /// Total physical memory in mebibytes, when discoverable (Linux).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mem_total_mib: Option<u64>,
+    /// Version of the `mira` host binary that produced the run.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mira_version: Option<String>,
+    /// Free-form labels: configured in `mira.toml` plus any detected CI context.
+    /// Open vocabulary, like the metadata maps elsewhere — keep keys stable so
+    /// they can be filtered/grouped across runs.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub labels: BTreeMap<String, String>,
+}
+
+impl Environment {
+    /// True when nothing at all was captured — used to store `None` rather than
+    /// an empty record.
+    pub fn is_empty(&self) -> bool {
+        *self == Environment::default()
+    }
+}
+
+/// Git checkout state at run time. `commit` is the resolved `HEAD`; `dirty`
+/// flags an uncommitted working tree, so a result tied to a clean commit can be
+/// told apart from one run against local edits.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+pub struct GitInfo {
+    /// Full `HEAD` commit SHA.
+    pub commit: String,
+    /// Current branch (symbolic ref), when on one (not detached HEAD).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub branch: Option<String>,
+    /// True if the working tree had uncommitted changes at capture time.
+    pub dirty: bool,
 }
 
 /// Rolled-up counts and totals over a run's results. The single source of truth

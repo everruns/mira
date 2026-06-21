@@ -9,9 +9,14 @@
 //! ```text
 //! report.json   canonical machine-readable record (summary + per-case)
 //! report.html   self-contained transcript viewer
-//! meta.json     run identity: id, study, start/finish timestamps, summary
+//! meta.json     run identity: id, study, timestamps, environment, summary
 //! ```
+//!
+//! The `[environment]` section controls whether (and with what labels) the run's
+//! environment — git checkout, box, host version — is captured into `meta.json`.
+//! Capture is on by default; see [`EnvironmentConfig`].
 
+use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
 use serde::Deserialize;
@@ -28,6 +33,8 @@ pub const DEFAULT_RESULTS_DIR: &str = "./results";
 pub struct Config {
     #[serde(default)]
     pub results: ResultsConfig,
+    #[serde(default)]
+    pub environment: EnvironmentConfig,
     /// Directory containing the `mira.toml` this was loaded from, used to
     /// resolve relative paths. `None` for a default/parsed-in-memory config, in
     /// which case relative paths are returned verbatim (cwd-relative).
@@ -40,6 +47,31 @@ pub struct Config {
 pub struct ResultsConfig {
     /// Base directory for per-run folders. Defaults to [`DEFAULT_RESULTS_DIR`].
     pub dir: Option<String>,
+}
+
+/// `[environment]` — what context to record in a saved run's `meta.json`.
+///
+/// Capture is **on by default**: a saved run is far more useful when it carries
+/// the commit and box it came from. Set `enabled = false` to opt out, or add
+/// `[environment.labels]` to stamp every run with static context (team, region,
+/// suite tier, …) for later filtering.
+#[derive(Debug, Deserialize)]
+#[serde(default)]
+pub struct EnvironmentConfig {
+    /// Capture environment metadata into `meta.json`. Default `true`.
+    pub enabled: bool,
+    /// Static labels merged into every captured environment. Override
+    /// auto-detected CI labels on key collision.
+    pub labels: BTreeMap<String, String>,
+}
+
+impl Default for EnvironmentConfig {
+    fn default() -> Self {
+        EnvironmentConfig {
+            enabled: true,
+            labels: BTreeMap::new(),
+        }
+    }
 }
 
 impl Config {
@@ -154,6 +186,34 @@ mod tests {
     }
 
     #[test]
+    fn environment_capture_on_by_default() {
+        // Absent section and empty file both default to enabled with no labels.
+        let cfg = Config::default();
+        assert!(cfg.environment.enabled);
+        assert!(cfg.environment.labels.is_empty());
+        assert!(Config::parse("").unwrap().environment.enabled);
+        assert!(
+            Config::parse("[results]\ndir = \"x\"\n")
+                .unwrap()
+                .environment
+                .enabled
+        );
+    }
+
+    #[test]
+    fn environment_config_parses_disable_and_labels() {
+        let cfg = Config::parse(
+            "[environment]\nenabled = false\n\n[environment.labels]\nteam = \"search\"\n",
+        )
+        .unwrap();
+        assert!(!cfg.environment.enabled);
+        assert_eq!(
+            cfg.environment.labels.get("team").map(String::as_str),
+            Some("search")
+        );
+    }
+
+    #[test]
     fn empty_config_uses_default() {
         let cfg = Config::default();
         assert_eq!(cfg.results_dir(), DEFAULT_RESULTS_DIR);
@@ -173,6 +233,7 @@ mod tests {
                 dir: Some("./results".into()),
             },
             base: Some(PathBuf::from("/proj")),
+            ..Default::default()
         };
         assert_eq!(cfg.results_dir(), "/proj/results");
 
@@ -182,6 +243,7 @@ mod tests {
                 dir: Some("/var/evals".into()),
             },
             base: Some(PathBuf::from("/proj")),
+            ..Default::default()
         };
         assert_eq!(abs.results_dir(), "/var/evals");
     }
@@ -214,6 +276,7 @@ mod tests {
             study_version: None,
             started_unix: 100,
             finished_unix: 200,
+            environment: None,
             summary: RunSummary::default(),
         };
         let run_dir = save_run(dir.path().to_str().unwrap(), &meta, &[]).unwrap();

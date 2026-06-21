@@ -5,3 +5,14 @@
 # Where `mira run --save` / `mira score --save` archive runs. Each run lands in
 # `<dir>/<run_id>/` (report.json, report.html, meta.json). Defaults to ./results.
 dir = "./results"
+
+[environment]
+# Record the run's environment (git commit/branch/dirty, OS/arch/host/CPU/memory,
+# mira version, CI labels) into meta.json. On by default and best-effort.
+enabled = true
+
+# Static labels stamped on every saved run, for later filtering/grouping.
+# Override auto-detected CI labels on key collision.
+# [environment.labels]
+# team = "search"
+# region = "us-east-1"

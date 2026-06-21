@@ -8,6 +8,15 @@ adheres to [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- **Environment metadata in saved runs** — `meta.json` now records the context a
+  run came from in an `environment` block: git checkout (`HEAD` commit, branch,
+  `dirty` flag), the box (`os`, `arch`, `hostname`, `cpus`, `mem_total_mib`), the
+  `mira` host version, and free-form `labels` (auto-detected CI context plus any
+  you configure). So a result can be told apart and compared across machines,
+  commits, and CI runs (`mira::run::Environment`). Capture is **on by default**
+  and best-effort — it never fails a run. Configure under `[environment]` in
+  `mira.toml`: `enabled = false` to opt out, or `[environment.labels]` to stamp
+  static labels (team, region, …) on every run.
 - **Saved run archive** (`mira run --save` / `mira score --save`) — archives a
   run into a timestamped, self-contained folder so runs accumulate in a stable
   place and can be compared over time. Each run lands in
