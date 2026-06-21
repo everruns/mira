@@ -48,16 +48,38 @@ Rationale:
 study makes its own model calls (keys live in the study), so the host shares only
 the scorer *vocabulary*, never an implementation.
 
-## 3. Wire types are generated from the schema
+## 3. The protocol layer is generated from the schema
 
-The one real cost of native SDKs — each re-declaring the wire shapes — is removed
-by generating them from the canonical **JSON Schema** under `schema/v<major>/`
-(itself generated from `mira::protocol` by `mira-schema-gen`). Each SDK ships a
-small codegen that reads `schema/v1/schema.json` and emits its typed wire layer,
-plus a `--check` mode that fails on drift — the per-language dual of the Rust
-schema `--check`. So there is a single source of truth (the Rust types →
-schema), and three drift guards (Rust, and one per SDK) keep every language in
-lockstep with the wire.
+The one real cost of native SDKs — each re-declaring the protocol — is removed by
+generating it from the canonical artifacts under `schema/v<major>/` (themselves
+generated from `mira::protocol` by `mira-schema-gen`). Each SDK ships a small
+codegen with a `--check` drift mode — the per-language dual of the Rust schema
+`--check` — that emits, and guards:
+
+- **wire types** from `schema.json` — the typed payload layer; and
+- **protocol metadata** from `meta.json` — the `PROTOCOL_VERSION`, the method
+  list, and the capability tokens.
+
+So the version string and method/capability vocabulary are *not* hardcoded in the
+SDK (which silently drifts on a minor bump); they are generated, and the serve
+loop derives `PROTOCOL_VERSION` from them.
+
+**What the drift guards cover, and what they don't.** Three guards
+(`mira-schema-gen --check`, plus one `codegen --check` per SDK, in the `Check`
+gate) keep the *generated* layer in lockstep with the wire. On top of that, each
+SDK adds tests that bind its *hand-written* layer to the generated metadata:
+
+| Drift | Guard |
+|-------|-------|
+| Field/type shape | `codegen --check` (generated wire types) ✅ |
+| Protocol version string | generated `_meta`, derived by the serve loop ✅ |
+| New method unhandled | test: `meta` methods ⊆ the serve loop's handled set ✅ |
+| Capability typo / unknown token | test: advertised capabilities ⊆ `meta` tokens ✅ |
+| Emitted messages malformed | conformance test validates them against `schema.json` ✅ |
+| **Scoring semantics** (verdict/aggregate/NA) | **not** codegen-able — covered only by behaviour tests + the cross-language golden (`greet` vs `greet-python`) ⚠️ |
+
+The last row is the residual: an SDK mirrors `crate::runner`'s scoring by hand,
+so a change to those rules is caught by tests, not by a generated `--check`.
 
 Forward/backward compatibility rides the protocol's existing contract (ignore
 unknown fields, default missing fields, capability negotiation), so an SDK and an
@@ -68,9 +90,11 @@ older/newer host interoperate without lockstep on *versions* — only on the
 
 ```
 sdks/<lang>/        one native SDK per language
-  schema codegen    reads ../../schema/v1/schema.json → generated wire types
-  <package>         the library: wire types (generated) + authoring API + serve loop
-  tests             schema-conformance (validate emitted messages) + behaviour
+  schema codegen    reads ../../schema/v1/{schema.json,meta.json} → generated
+                    wire types + protocol metadata (version/methods/capabilities)
+  <package>         the library: generated protocol layer + authoring API + serve loop
+  tests             schema-conformance (validate emitted messages) + metadata
+                    coverage (methods/capabilities/version) + behaviour
 ```
 
 - The runtime library has **zero third-party dependencies** where the language

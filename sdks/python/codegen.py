@@ -1,13 +1,18 @@
 #!/usr/bin/env python3
-"""Generate mira/_wire.py from the canonical protocol JSON Schema.
+"""Generate the protocol layer (mira/_wire.py, mira/_meta.py) from schema/v1/.
 
-The wire types are *derived* from schema/v<major>/schema.json — the same
-language-neutral contract the Rust host is generated from (mira-schema-gen) —
-so the Python SDK never hand-mirrors the Rust structs and can't drift from the
-wire format. Mirrors the Rust `--check` drift guard.
+The protocol layer is *derived* from the language-neutral contract the Rust host
+is generated from (mira-schema-gen):
 
-    python3 codegen.py            # rewrite mira/_wire.py
-    python3 codegen.py --check    # exit 1 if mira/_wire.py is stale (CI)
+- `_wire.py` — the wire types, from `schema/v1/schema.json`.
+- `_meta.py` — the protocol version, method list, and capability tokens, from
+  `schema/v1/meta.json`.
+
+So the SDK never hand-mirrors the Rust types, the protocol version, or the method
+set, and can't drift from the wire. Mirrors the Rust `--check` drift guard.
+
+    python3 codegen.py            # rewrite the generated files
+    python3 codegen.py --check    # exit 1 if any is stale (CI)
 """
 from __future__ import annotations
 
@@ -18,7 +23,9 @@ from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
 SCHEMA = HERE / "../../schema/v1/schema.json"
-OUT = HERE / "mira" / "_wire.py"
+META = HERE / "../../schema/v1/meta.json"
+OUT_WIRE = HERE / "mira" / "_wire.py"
+OUT_META = HERE / "mira" / "_meta.py"
 
 SCALAR = {"string": "str", "integer": "int", "number": "float", "boolean": "bool"}
 SCALAR_DEFAULT = {"str": '""', "int": "0", "float": "0.0", "bool": "False"}
@@ -112,9 +119,8 @@ def emit_dataclass(defs: dict, name: str, schema: dict) -> str:
     return "\n".join(lines) + "\n"
 
 
-def render(schema_doc: dict) -> str:
+def render_wire(schema_doc: dict) -> str:
     defs = schema_doc["$defs"]
-    version = schema_doc.get("description", "")
     out = [
         '"""Wire types for the Mira eval protocol — GENERATED, do not edit.',
         "",
@@ -137,22 +143,54 @@ def render(schema_doc: dict) -> str:
     return "\n".join(out).rstrip() + "\n"
 
 
+def _str_tuple(items: list) -> str:
+    body = ", ".join(json.dumps(i) for i in items)
+    return f"({body},)" if len(items) == 1 else f"({body})"
+
+
+def render_meta(meta_doc: dict) -> str:
+    """The protocol version, methods, and capability tokens — so the SDK derives
+    them from meta.json instead of hardcoding (which drifts on a minor bump)."""
+    return "\n".join([
+        '"""Protocol version, methods, and capability tokens — GENERATED, do not edit.',
+        "",
+        "Regenerate with `python3 codegen.py` from schema/v1/meta.json. CI runs",
+        "`codegen.py --check` to fail on drift.",
+        '"""',
+        "",
+        f"PROTOCOL_VERSION = {json.dumps(meta_doc['version'])}",
+        f"MIN_PROTOCOL_VERSION = {json.dumps(meta_doc['min_version'])}",
+        "",
+        f"METHODS = {_str_tuple(meta_doc['methods'])}",
+        f"CAPABILITIES = {_str_tuple(meta_doc['capabilities'])}",
+    ]) + "\n"
+
+
+def artifacts() -> list:
+    """The (path, body) pairs that make up the generated protocol layer."""
+    return [
+        (OUT_WIRE, render_wire(json.loads(SCHEMA.read_text()))),
+        (OUT_META, render_meta(json.loads(META.read_text()))),
+    ]
+
+
 def main() -> int:
-    schema_doc = json.loads(SCHEMA.read_text())
-    generated = render(schema_doc)
     check = "--check" in sys.argv[1:]
+    stale = []
+    for path, body in artifacts():
+        if check:
+            if (path.read_text() if path.exists() else "") != body:
+                stale.append(path.relative_to(HERE))
+        else:
+            path.write_text(body)
+            print(f"wrote {path.relative_to(HERE)}")
     if check:
-        current = OUT.read_text() if OUT.exists() else ""
-        if current != generated:
-            print(
-                f"{OUT.relative_to(HERE)} is stale; run `python3 codegen.py`",
-                file=sys.stderr,
-            )
+        if stale:
+            print(f"stale (run `python3 codegen.py`): {', '.join(map(str, stale))}",
+                  file=sys.stderr)
             return 1
-        print("wire types up to date")
+        print("protocol layer up to date")
         return 0
-    OUT.write_text(generated)
-    print(f"wrote {OUT.relative_to(HERE)} ({len(schema_doc['$defs'])} types)")
     return 0
 
 
