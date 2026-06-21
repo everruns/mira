@@ -7,11 +7,11 @@
 //! mira --bin multimodal run
 //! ```
 //!
-//! Multimodal *input* is study-side and needs no protocol feature. Multimodal
-//! *output* (`Transcript::output`) is staged behind `protocol-unstable` — see
-//! `specs/architecture.md`.
+//! Multimodal *input* is study-side and needs no protocol feature. The subject
+//! also returns multimodal *output* (`Transcript::output`) — typed [`Part`]s on
+//! the committed wire as of protocol `1.11` — graded by `produced_modality`.
 
-use mira::scorer::{contains, succeeded};
+use mira::scorer::{contains, produced_modality, succeeded};
 use mira::subject::subject_fn;
 use mira::{Eval, Part, Sample, Transcript, eval};
 
@@ -34,13 +34,18 @@ fn multimodal() -> Eval {
             let parts = sample.prompt_parts();
             let kinds = mira::content::modalities(&parts).join(", ");
             let media = parts.iter().find_map(Part::media_type).unwrap_or("none");
-            Transcript::response(format!(
+            let text = format!(
                 "Received {} parts ({kinds}); the image is {media}.",
                 parts.len()
-            ))
+            );
+            // Return a multimodal response: the canonical text plus a thumbnail
+            // the model "produced". `final_response` stays the text projection.
+            Transcript::response(text.clone())
+                .with_output([Part::text(text), Part::image_uri("image/png", PIXEL_PNG)])
         }))
         .scorer(succeeded())
         .scorer(contains("image/png"))
+        .scorer(produced_modality("image"))
         .build()
 }
 

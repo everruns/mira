@@ -267,6 +267,11 @@
           },
           "type": "array"
         },
+        "capability_params": {
+          "additionalProperties": true,
+          "description": "Structured **config** for capabilities, keyed by capability token — the\ndata a bare [`capabilities`](Self::capabilities) string can't carry (which\nevent kinds the study emits, the input/output modalities it supports, a\nconcurrency hint, …). Open-vocabulary like `metadata`, so new keys need no\nversion bump; a host reads it additively, falling back to today's\nbehaviour when a token is absent.",
+          "type": "object"
+        },
         "evals": {
           "format": "uint",
           "minimum": 0,
@@ -404,6 +409,109 @@
         "method"
       ],
       "type": "object"
+    },
+    "Part": {
+      "description": "One piece of multimodal content. The discriminant serializes as a `kind`\ntag (`text` / `image` / `audio` / `file` / `json`), so a part is a single\nself-describing JSON object. Media variants reference their bytes through a\n[`Source`] (exactly one of `uri` / `data`).",
+      "oneOf": [
+        {
+          "description": "Plain text — the same content `final_response` / `input` carry, but as a\npart so it can sit alongside media in one ordered list.",
+          "properties": {
+            "kind": {
+              "const": "text",
+              "type": "string"
+            },
+            "text": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "text"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "An image.",
+          "properties": {
+            "kind": {
+              "const": "image",
+              "type": "string"
+            },
+            "media_type": {
+              "type": "string"
+            },
+            "source": {
+              "$ref": "#/$defs/Source"
+            }
+          },
+          "required": [
+            "kind",
+            "media_type",
+            "source"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "Audio.",
+          "properties": {
+            "kind": {
+              "const": "audio",
+              "type": "string"
+            },
+            "media_type": {
+              "type": "string"
+            },
+            "source": {
+              "$ref": "#/$defs/Source"
+            }
+          },
+          "required": [
+            "kind",
+            "media_type",
+            "source"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "An arbitrary file (a document, an archive, …), with an optional display\n`name`.",
+          "properties": {
+            "kind": {
+              "const": "file",
+              "type": "string"
+            },
+            "media_type": {
+              "type": "string"
+            },
+            "name": {
+              "type": "string"
+            },
+            "source": {
+              "$ref": "#/$defs/Source"
+            }
+          },
+          "required": [
+            "kind",
+            "media_type",
+            "source"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "A structured JSON value — for tool-style / structured outputs that aren't\nfree text and aren't a media blob.",
+          "properties": {
+            "json": true,
+            "kind": {
+              "const": "json",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "json"
+          ],
+          "type": "object"
+        }
+      ]
     },
     "Request": {
       "description": "host → study.",
@@ -701,6 +809,37 @@
       ],
       "type": "object"
     },
+    "Source": {
+      "description": "Where a media [`Part`]'s bytes come from — **exactly one** of a referenced\n`uri` (URL or `data:` URI) or inline base64 `data`.\n\nModelled as an enum, not two `Option`s, so the \"exactly one\" invariant is\nenforced by the type: a media part with *neither* source fails to\ndeserialize (rather than silently becoming ambiguous), and *both* is\nunrepresentable. Serializes externally-tagged: `{\"uri\":\"…\"}` / `{\"data\":\"…\"}`.",
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "description": "A URL or `data:` URI the consumer fetches/decodes.",
+          "properties": {
+            "uri": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "uri"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "Inline base64-encoded bytes.",
+          "properties": {
+            "data": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "data"
+          ],
+          "type": "object"
+        }
+      ]
+    },
     "Timing": {
       "description": "Wall-clock timing for a run. Subjects that can measure it populate these;\nthe rest leave them at their defaults.",
       "properties": {
@@ -771,6 +910,13 @@
           "description": "Extensible **numeric** metrics a subject measured that the core doesn't\nmodel as a typed field (recall@k, energy_joules, p95 latency, …).\n\nDesign: `Usage`/`Timing` stay typed because shared budget scorers depend\non their exact shape; everything else is an *open vocabulary* keyed by\nname so a subject can report a *new metric key* and grade it with\n[`metric_within`]/[`metric_at_least`] without a new protocol version (the\n`metrics` map itself is a versioned, additive part of the wire). Use this\n(not `metadata`) for anything you want to compare numerically — values\nstay `f64`, surface in the JSON/HTML reports, and feed generic scorers.\n\n[`metric_within`]: crate::scorer::metric_within\n[`metric_at_least`]: crate::scorer::metric_at_least",
           "type": "object"
         },
+        "output": {
+          "description": "Multimodal output — the response as an ordered list of typed [`Part`]s\n(text, image, audio, file, structured JSON) for subjects whose result\nisn't plain text. `final_response` stays the canonical *text* projection\n(a text-only scorer keeps working); `output` carries the modalities text\ncan't. Empty for the common text-only case.",
+          "items": {
+            "$ref": "#/$defs/Part"
+          },
+          "type": "array"
+        },
         "timing": {
           "$ref": "#/$defs/Timing",
           "description": "Wall-clock timing (duration, time-to-first-token)."
@@ -833,6 +979,13 @@
           },
           "description": "Custom open-vocabulary numeric metrics (see `Transcript::metrics`).",
           "type": "object"
+        },
+        "output": {
+          "description": "The run's multimodal output parts (see\n[`Transcript::output`](crate::Transcript::output)), carried in the\nlightweight summary so results/checkpoints retain the non-text modalities,\nnot just `final_response`. Empty for the common text-only case.",
+          "items": {
+            "$ref": "#/$defs/Part"
+          },
+          "type": "array"
         },
         "timing": {
           "$ref": "#/$defs/Timing"
@@ -911,6 +1064,6 @@
       "$ref": "#/$defs/Notification"
     }
   ],
-  "description": "Wire schema for the Mira host<->study protocol (newline-delimited JSON over stdio). Protocol version 1.10. Generated from mira::protocol by `mira-schema-gen` (`just schema`); do not edit by hand.",
+  "description": "Wire schema for the Mira host<->study protocol (newline-delimited JSON over stdio). Protocol version 1.11. Generated from mira::protocol by `mira-schema-gen` (`just schema`); do not edit by hand.",
   "title": "Mira Eval Protocol"
 }

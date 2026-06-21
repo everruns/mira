@@ -37,8 +37,17 @@ def ref_name(schema: dict) -> str | None:
 
 
 def is_object_def(defs: dict, name: str) -> bool:
-    """A $def we emit as a dataclass (vs. ErrorKind, emitted as a Literal)."""
+    """A $def we emit as a dataclass (vs. a `oneOf` union: a const enum like
+    ErrorKind -> Literal, or an object union like Part/Source -> dict alias)."""
     return "oneOf" not in defs.get(name, {})
+
+
+def is_const_enum(schema: dict) -> bool:
+    """A `oneOf` whose members are all bare `const`s (e.g. ErrorKind) -> Literal.
+    The other `oneOf` shape is a union of *objects* (a tagged union like Part, or
+    an externally-tagged enum like Source) -> emitted as a permissive dict alias,
+    since the codec passes non-dataclass JSON objects through unchanged."""
+    return all("const" in m for m in schema["oneOf"])
 
 
 def py_type(defs: dict, schema) -> str:
@@ -94,6 +103,17 @@ def emit_literal(name: str, schema: dict) -> str:
     return f"{name} = Literal[{vals}]\n"
 
 
+def emit_object_union(name: str, schema: dict) -> str:
+    """A `oneOf` of objects (Part's `kind`-tagged union, Source's externally-
+    tagged enum). Each variant is a self-describing JSON object, so the SDK
+    carries it as a plain dict — the codec serializes/deserializes it unchanged.
+    The canonical shape lives in schema/v1/schema.json."""
+    kinds = [m.get("properties", {}).get("kind", {}).get("const") for m in schema["oneOf"]]
+    tags = ", ".join(k for k in kinds if k)
+    note = f"  # tagged union: kind in ({tags})" if tags else "  # union of objects"
+    return f"{name} = Dict[str, Any]{note}\n"
+
+
 def emit_dataclass(defs: dict, name: str, schema: dict) -> str:
     props = schema.get("properties", {})
     required = set(schema.get("required", []))
@@ -138,8 +158,10 @@ def render_wire(schema_doc: dict) -> str:
         schema = defs[name]
         if is_object_def(defs, name):
             out.append(emit_dataclass(defs, name, schema))
-        else:
+        elif is_const_enum(schema):
             out.append(emit_literal(name, schema))
+        else:
+            out.append(emit_object_union(name, schema))
     return "\n".join(out).rstrip() + "\n"
 
 

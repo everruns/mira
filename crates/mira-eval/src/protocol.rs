@@ -82,8 +82,10 @@ use crate::{Metadata, Params, Score, Timing, Transcript, Usage};
 /// cursor-paginated sample listing — the optional `EvalInfo.next_cursor` plus the
 /// `list_samples` method and the `paginate` capability — so a study can advertise
 /// thousands of (or lazily generated) samples without enumerating them all in one
-/// `list`.
-pub const PROTOCOL_VERSION: &str = "1.10";
+/// `list`; `1.11` promoted multimodal output (`TranscriptSummary.output`, typed
+/// `Part`s) and structured `InitializeResult.capability_params` from the
+/// `protocol-unstable` staging ground onto the committed wire.
+pub const PROTOCOL_VERSION: &str = "1.11";
 
 /// The oldest protocol version this build can still talk to.
 pub const MIN_PROTOCOL_VERSION: &str = "1.0";
@@ -350,20 +352,16 @@ pub struct InitializeResult {
     /// an older study that omits it is treated as base-only.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub capabilities: Vec<String>,
-    /// EXPERIMENTAL (gated behind `protocol-unstable`): structured **config** for
-    /// capabilities, keyed by capability token — the data a bare
-    /// [`capabilities`](Self::capabilities) string can't carry (which event
-    /// kinds the study emits, the input/output modalities it supports, a
+    /// Structured **config** for capabilities, keyed by capability token — the
+    /// data a bare [`capabilities`](Self::capabilities) string can't carry (which
+    /// event kinds the study emits, the input/output modalities it supports, a
     /// concurrency hint, …). Open-vocabulary like `metadata`, so new keys need no
     /// version bump; a host reads it additively, falling back to today's
-    /// behaviour when a token is absent. Staged off the committed schema until a
-    /// real consumer justifies promotion (architecture §14.5).
-    #[cfg(feature = "protocol-unstable")]
+    /// behaviour when a token is absent.
     #[serde(default, skip_serializing_if = "Metadata::is_empty")]
     pub capability_params: Metadata,
 }
 
-#[cfg(feature = "protocol-unstable")]
 impl InitializeResult {
     /// The structured config a study advertised for `capability`, if any (see
     /// [`capability_params`](Self::capability_params)).
@@ -642,12 +640,10 @@ pub struct TranscriptSummary {
     /// infra-errored cells. Defaulted/omitted for the common subject case.
     #[serde(default, skip_serializing_if = "crate::ErrorKind::is_subject")]
     pub error_kind: crate::ErrorKind,
-    /// EXPERIMENTAL (gated behind `protocol-unstable`): the run's multimodal
-    /// output parts (see [`Transcript::output`](crate::Transcript::output)),
-    /// carried in the lightweight summary so results/checkpoints retain the
-    /// non-text modalities, not just `final_response`. Staged off the committed
-    /// schema until promotion.
-    #[cfg(feature = "protocol-unstable")]
+    /// The run's multimodal output parts (see
+    /// [`Transcript::output`](crate::Transcript::output)), carried in the
+    /// lightweight summary so results/checkpoints retain the non-text modalities,
+    /// not just `final_response`. Empty for the common text-only case.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub output: Vec<crate::Part>,
     /// EXPERIMENTAL (gated behind `protocol-unstable`): reserved staging slot for
@@ -677,11 +673,10 @@ impl TranscriptSummary {
             metadata: t.metadata.clone(),
             error: t.error.clone(),
             error_kind: t.error_kind,
+            output: t.output.clone(),
             // No source on the core `Transcript` yet — left unset until promoted.
             #[cfg(feature = "protocol-unstable")]
             experimental: None,
-            #[cfg(feature = "protocol-unstable")]
-            output: t.output.clone(),
         }
     }
 }

@@ -217,10 +217,8 @@ impl Study {
                         capabilities::CANCEL.into(),
                         capabilities::PAGINATE.into(),
                     ],
-                    // EXPERIMENTAL: structured config for the advertised
-                    // capabilities (event kinds, supported modalities). Gated —
-                    // see InitializeResult::capability_params.
-                    #[cfg(feature = "protocol-unstable")]
+                    // Structured config for the advertised capabilities (event
+                    // kinds, supported modalities) — see capability_params.
                     capability_params: advertised_capability_params(),
                 }),
             ),
@@ -549,10 +547,9 @@ fn json<T: serde::Serialize>(value: &T) -> serde_json::Value {
     serde_json::to_value(value).unwrap_or(serde_json::Value::Null)
 }
 
-/// EXPERIMENTAL: the structured capability config advertised in `initialize` —
-/// the `event` kinds this study emits and the content modalities it understands.
-/// Keyed by capability token (see [`InitializeResult::capability_params`]).
-#[cfg(feature = "protocol-unstable")]
+/// The structured capability config advertised in `initialize` — the `event`
+/// kinds this study emits and the content modalities it understands. Keyed by
+/// capability token (see [`InitializeResult::capability_params`]).
 fn advertised_capability_params() -> crate::Metadata {
     let modalities = serde_json::json!(["text", "image", "audio", "file", "json"]);
     crate::Metadata::from([
@@ -617,7 +614,6 @@ mod tests {
         )
     }
 
-    #[cfg(feature = "protocol-unstable")]
     #[test]
     fn initialize_advertises_capability_params() {
         let init = advertised_capability_params();
@@ -640,7 +636,7 @@ mod tests {
         );
         assert!(info.capability_param("events").unwrap()["kinds"][0] == "started");
         assert!(info.capability_param("absent").is_none());
-        // Round-trips on the wire when the feature is on.
+        // Round-trips on the committed wire.
         let back: InitializeResult =
             serde_json::from_str(&serde_json::to_string(&info).unwrap()).unwrap();
         assert_eq!(back.capability_params, info.capability_params);

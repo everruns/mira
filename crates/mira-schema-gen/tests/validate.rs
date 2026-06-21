@@ -91,7 +91,6 @@ fn payloads_validate_against_their_defs() {
         evals: 1,
         study_version: Some("0.1.0".into()),
         capabilities: vec!["axes".into(), "execute".into(), "score".into()],
-        #[cfg(feature = "protocol-unstable")]
         capability_params: Default::default(),
     };
     assert_valid_against_def("InitializeResult", &to_value(&init));
@@ -240,5 +239,21 @@ fn unstable_field_absent_from_stable_schema() {
         props.get("experimental").is_none(),
         "experimental field leaked into the stable schema; the generator must \
          build mira-eval without `protocol-unstable`",
+    );
+    // Promoted in 1.11: multimodal `output` and structured `capability_params`
+    // are now part of the committed wire (no longer staged).
+    assert!(
+        props.get("output").is_some(),
+        "multimodal `output` should be promoted onto the stable schema",
+    );
+    assert!(
+        schema["$defs"]["InitializeResult"]["properties"]
+            .get("capability_params")
+            .is_some(),
+        "`capability_params` should be promoted onto the stable schema",
+    );
+    assert!(
+        schema["$defs"].get("Part").is_some() && schema["$defs"].get("Source").is_some(),
+        "Part/Source content defs should be present once output is promoted",
     );
 }

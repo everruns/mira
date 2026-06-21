@@ -20,6 +20,17 @@ adheres to [Semantic Versioning](https://semver.org/).
   per-direction id spaces, two-way negotiation) as the design of record. See
   [`docs/protocol.md`](docs/protocol.md#reverse-requests-studyhost) and
   [`specs/architecture.md`](specs/architecture.md).
+- **Multimodal output + capability params promoted to the wire** (protocol `1.11`)
+  — the multimodal `output` (typed `Part`s on `Transcript` / `TranscriptSummary`,
+  graded by `scorer::produced_modality`) and structured
+  `InitializeResult.capability_params` that shipped staged behind
+  `protocol-unstable` are now part of the **committed** contract: `schema/v1/`
+  publishes `output`, `capability_params`, and the `Part` / `Source` content
+  defs, and the Python SDK mirrors them (codegen renders the `Part`/`Source`
+  object unions as pass-through `kind`-tagged dicts). `final_response` stays the
+  canonical text projection, and both fields are optional/defaulted, so `1.0`–
+  `1.10` peers still interoperate. `TranscriptSummary.experimental` remains the
+  reserved `protocol-unstable` staging slot for the next structural addition.
 - **Run cancellation** (`cancel`, protocol `1.8`) — a host can now abort one
   in-flight `run`/`execute`/`score` by its request `id` without tearing down the
   connection (previously the only lever was closing stdin, which ended *every*
@@ -84,10 +95,9 @@ adheres to [Semantic Versioning](https://semver.org/).
   fuses them into one ordered list for a subject, and `Sample::modalities()`
   reports the kinds — no protocol change (a `Sample` isn't a wire type). New
   runnable example `examples/multimodal/`. **Multimodal outputs**
-  (`Transcript::output`, the `produced_modality` scorer) are **staged behind the
-  `protocol-unstable` feature** — `Transcript` is a wire type, so they stay off
-  the committed schema until promoted (see `specs/architecture.md` §14).
-  `final_response` remains the canonical text projection throughout.
+  (`Transcript::output`, the `produced_modality` scorer) first shipped staged
+  behind `protocol-unstable` and were **promoted to the wire in `1.11`** (see the
+  entry above). `final_response` remains the canonical text projection throughout.
 - **Interactive / multi-turn evals** — an `Eval` may carry a `.responder(..)` (a
   simulated user, `Fn(&[Message]) -> Option<Vec<Part>>`). The runner then drives
   a turn exchange — invoking the subject once per turn with the running
@@ -99,8 +109,8 @@ adheres to [Semantic Versioning](https://semver.org/).
   (`token → JSON`, read via `capability_param(token)`) lets a study advertise
   *config* a bare capability token can't carry (event kinds, supported
   input/output modalities, concurrency hints). Open-vocabulary like `metadata`.
-  **Staged behind `protocol-unstable`** (a new typed wire field with no stable
-  consumer yet); see `specs/architecture.md` §14.5.
+  First shipped staged behind `protocol-unstable`, **promoted to the wire in
+  `1.11`** (see the entry above); see `specs/architecture.md` §14.5.
 - **Typed, correlated progress notifications** (protocol `1.9`) — `event` and
   `log` notifications now have typed, schematized payloads (`EventParams`,
   `LogParams`, published in `schema/v1/`) instead of an ad-hoc JSON bag. Each
