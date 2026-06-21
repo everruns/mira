@@ -26,7 +26,13 @@ This skill implements the Pre-PR checklist from AGENTS.md. When the user says "s
 
 ### Phase 2: Test Coverage
 
-Review the changes on this branch (use `git diff origin/main...HEAD` and `git log origin/main..HEAD`) and ensure comprehensive test coverage:
+First refresh your view of `main` so the comparison is accurate:
+
+```bash
+git fetch origin main
+```
+
+Then review the changes on this branch (use `git diff origin/main...HEAD` and `git log origin/main..HEAD`) and ensure comprehensive test coverage:
 
 1. **Identify all changed code paths** — every new/modified type, trait, scorer, subject, macro, CLI command
 2. **Verify existing tests cover the changes** — run `just test` and check for failures

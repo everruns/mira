@@ -35,7 +35,7 @@ cargo install mira-cli --locked     # …or build the CLI from source
 ```
 
 The CLI works on macOS (arm64/x86_64) and Linux (x86_64). If Homebrew enforces
-tap-trust checks, run `brew trust --tap everruns/tap` once first. For the
+tap trust checks, run `brew trust --tap everruns/tap` once first. For the
 everruns runtime subject, add the integration crate: `cargo add mira-everruns`.
 
 ## Authoring an eval study
