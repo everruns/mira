@@ -200,37 +200,8 @@ fn cell(results: &[RunResult], eval: &str, model: &str) -> String {
 /// per-case usage/timing (each `RunResult.transcript`) plus rolled-up totals,
 /// so the HTML viewer and trend aggregation consume one stable shape.
 pub fn results_json(results: &[RunResult]) -> serde_json::Value {
-    let scored = results.iter().filter(|r| !r.skipped && !is_na(r)).count();
-    let passed = results
-        .iter()
-        .filter(|r| !r.skipped && !is_na(r) && r.passed)
-        .count();
-    let na = results.iter().filter(|r| !r.skipped && is_na(r)).count();
-    let skipped = results.iter().filter(|r| r.skipped).count();
-    // Usage/timing totals cover every cell that actually ran (including N/A ones,
-    // which may have burned tokens before failing); only never-run skips drop out.
-    let mut total_tokens = 0u64;
-    let mut total_cost = 0.0f64;
-    let mut total_tool_calls = 0usize;
-    let mut total_ms = 0u64;
-    for r in results.iter().filter(|r| !r.skipped) {
-        total_tokens += r.transcript.usage.total_tokens();
-        total_cost += r.transcript.usage.cost_usd;
-        total_tool_calls += r.transcript.tool_calls_count;
-        total_ms += r.transcript.timing.duration_ms;
-    }
     serde_json::json!({
-        "summary": {
-            "scored": scored,
-            "passed": passed,
-            "failed": scored - passed,
-            "na": na,
-            "skipped": skipped,
-            "total_tokens": total_tokens,
-            "total_cost_usd": total_cost,
-            "total_tool_calls": total_tool_calls,
-            "total_duration_ms": total_ms,
-        },
+        "summary": crate::run::RunSummary::of(results),
         "cases": results,
     })
 }
