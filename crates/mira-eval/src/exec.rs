@@ -24,8 +24,8 @@ use std::time::{Duration, Instant};
 
 use tokio::task::JoinSet;
 
-use crate::Params;
 use crate::protocol::{RpcError, RunResult, TranscriptSummary};
+use crate::{Params, Trial};
 
 /// Consecutive successes a provider needs before its limit grows by one.
 const GROW_THRESHOLD: usize = 3;
@@ -43,10 +43,19 @@ pub struct CellSpec {
     /// such cells together (e.g. a foreign study that omits provider in `list`).
     pub provider: String,
     pub params: Params,
+    /// Which trial of this cell to run (index, count, seed). [`Trial::single`]
+    /// for an unrepeated cell — its key then has no `#index` suffix.
+    pub trial: Trial,
 }
 
 impl CellSpec {
+    /// Trial-aware cell identity (a `#index` suffix when the cell is repeated).
     pub fn key(&self) -> String {
+        format!("{}{}", self.logical_key(), self.trial.key_suffix())
+    }
+
+    /// Cell identity shared by all trials of this cell (no `#index` suffix).
+    pub fn logical_key(&self) -> String {
         crate::cell_key(&self.eval, &self.sample, &self.model, &self.params)
     }
 }
@@ -258,6 +267,9 @@ fn failed_result(cell: &CellSpec, error: RpcError) -> RunResult {
         sample: cell.sample.clone(),
         model: cell.model.clone(),
         params: cell.params.clone(),
+        trial: cell.trial.index,
+        trials: cell.trial.count,
+        seed: cell.trial.seed,
         passed: false,
         aggregate: 0.0,
         scores: Vec::new(),
@@ -382,6 +394,7 @@ mod tests {
             model: format!("{provider}/m"),
             provider: provider.into(),
             params: Params::new(),
+            trial: Trial::single(),
         }
     }
 
@@ -391,6 +404,9 @@ mod tests {
             sample: cell.sample.clone(),
             model: cell.model.clone(),
             params: cell.params.clone(),
+            trial: cell.trial.index,
+            trials: cell.trial.count,
+            seed: cell.trial.seed,
             passed: true,
             aggregate: 1.0,
             scores: Vec::new(),

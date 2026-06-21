@@ -79,6 +79,7 @@ pub fn build_meta() -> serde_json::Value {
             protocol::capabilities::USAGE,
             protocol::capabilities::EXECUTE,
             protocol::capabilities::SCORE,
+            protocol::capabilities::TRIALS,
         ],
     })
 }

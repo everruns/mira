@@ -38,6 +38,7 @@ mod config;
 mod env;
 
 use mira::Host;
+use mira::Trial;
 use mira::exec::{self, CellSpec, Concurrency};
 use mira::protocol::{
     ExecuteResult, InitializeResult, ListResult, RunResult, TranscriptSummary, capabilities,
@@ -128,6 +129,15 @@ struct RunArgs {
     /// Restrict the matrix to these model labels (comma-separated).
     #[arg(long)]
     models: Option<String>,
+    /// Run each cell this many times (trials/repetitions) for pass@k / variance.
+    /// Overrides the eval's declared trials. The host groups the repetitions and
+    /// reports pass-rate, pass@k, and score standard deviation per cell.
+    #[arg(long)]
+    trials: Option<usize>,
+    /// Base seed for reproducible trials: trial `t` runs with seed `seed + t`.
+    /// Overrides the eval's declared seed; the subject reads it via `cx.seed()`.
+    #[arg(long)]
+    seed: Option<u64>,
     /// Write a report file (see --format).
     #[arg(long)]
     out: Option<String>,
@@ -454,7 +464,13 @@ async fn run(
                 let handle = handle.clone();
                 async move {
                     handle
-                        .run(&cell.eval, &cell.sample, &cell.model, &cell.params)
+                        .run(
+                            &cell.eval,
+                            &cell.sample,
+                            &cell.model,
+                            &cell.params,
+                            cell.trial,
+                        )
                         .await
                 }
             },
@@ -598,7 +614,13 @@ async fn execute_only(
             continue;
         }
         let result = host
-            .execute(&cell.eval, &cell.sample, &cell.model, &cell.params)
+            .execute(
+                &cell.eval,
+                &cell.sample,
+                &cell.model,
+                &cell.params,
+                cell.trial,
+            )
             .await?;
         std::fs::write(&path, serde_json::to_string_pretty(&result)?)?;
         wrote += 1;
@@ -667,6 +689,9 @@ fn skipped_result(a: &ExecuteResult) -> RunResult {
         sample: a.sample.clone(),
         model: a.model.clone(),
         params: a.params.clone(),
+        trial: a.trial,
+        trials: a.trials,
+        seed: a.seed,
         passed: false,
         aggregate: 0.0,
         scores: Vec::new(),
@@ -756,6 +781,11 @@ fn plan_grid(
     let mut plan = Vec::new();
     for eval in &listing.evals {
         let combos = axis_combinations(eval);
+        // Trials: --trials overrides the eval's declared count (0/1 → single).
+        // Seed base: --seed overrides the eval's declared seed; trial t uses
+        // `base + t` so the repetition set replays deterministically.
+        let trials = args.trials.unwrap_or(eval.trials).max(1);
+        let seed_base = args.seed.or(eval.seed);
         for sample in &eval.samples {
             if let Some(tag) = &args.tag
                 && !sample.tags.contains(tag)
@@ -770,18 +800,29 @@ fn plan_grid(
                 }
                 for params in &combos {
                     let key = mira::cell_key(&eval.name, &sample.id, &model.label, params);
+                    // Filter on the logical key, so `--filter` keeps or drops all
+                    // trials of a cell together (a stable group to aggregate).
                     if let Some(f) = &args.filter
                         && !key.contains(f.as_str())
                     {
                         continue;
                     }
-                    plan.push(CellSpec {
-                        eval: eval.name.clone(),
-                        sample: sample.id.clone(),
-                        model: model.label.clone(),
-                        provider: model.provider.clone(),
-                        params: params.clone(),
-                    });
+                    for index in 0..trials {
+                        plan.push(CellSpec {
+                            eval: eval.name.clone(),
+                            sample: sample.id.clone(),
+                            model: model.label.clone(),
+                            provider: model.provider.clone(),
+                            params: params.clone(),
+                            trial: Trial {
+                                index,
+                                count: trials,
+                                // wrapping_add so a huge --seed can't panic
+                                // (debug) or differ by build mode (release).
+                                seed: seed_base.map(|s| s.wrapping_add(index as u64)),
+                            },
+                        });
+                    }
                 }
             }
         }
@@ -796,7 +837,16 @@ fn print_listing(listing: &ListResult) {
         } else {
             format!(" — {}", eval.description)
         };
-        println!("{}{desc}  (max_turns={})", eval.name, eval.max_turns);
+        let trials = if eval.trials > 1 {
+            let seed = eval.seed.map(|s| format!(", seed={s}")).unwrap_or_default();
+            format!(", trials={}{seed}", eval.trials)
+        } else {
+            String::new()
+        };
+        println!(
+            "{}{desc}  (max_turns={}{trials})",
+            eval.name, eval.max_turns
+        );
         println!(
             "  samples: {}",
             eval.samples

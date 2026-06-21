@@ -28,6 +28,7 @@ cargo run -p mira-cli -- --cmd "python3 examples/greet-python/study.py" run
 | [`cli_subject`](cli_subject) | Rust | The polyglot subject path — driving an external program ([`subject.sh`](cli_subject/subject.sh)). |
 | [`metrics`](metrics) | Rust | Operational budgets: tokens, cost, latency, TTFT, exact/ordered tool use. |
 | [`matrix`](matrix) | Rust | A multi-axis matrix: models × a custom `effort` axis (cross-product). |
+| [`trials`](trials) | Rust | Trials/repetitions + seed: a seed-driven flaky agent run N times for pass@k / pass-rate / variance. Intentionally flaky, so some trials fail. |
 | [`swe_bench`](swe_bench) | Rust | A SWE-bench-style bug-fix eval with a `FAIL_TO_PASS` gate scorer. |
 | [`llmsim`](llmsim) | Rust | Driving a real `everruns-runtime` session against the offline `LlmSim` driver. |
 | [`llm_judge`](llm_judge) | Rust | Provider-backed LLM-as-judge (`mira-judge`); the judge is N/A without a key, so it stays green offline. |

@@ -53,8 +53,12 @@ use crate::{Metadata, Params, Score, Timing, Transcript, Usage};
 /// an older one only sent strings); `1.5` promoted [`RpcError`] from
 /// `{ message }` to the JSON-RPC-shaped `{ code, message, retryable, data }` (all
 /// new fields optional/defaulted), so a protocol-level failure can be classified
-/// and retried without parsing the human message.
-pub const PROTOCOL_VERSION: &str = "1.5";
+/// and retried without parsing the human message; `1.6` added trials/repetitions —
+/// the optional `trial`/`trials`/`seed` fields on `RunParams`/`ScoreParams`/
+/// `RunResult`/`ExecuteResult` and the optional `EvalInfo.trials`/`EvalInfo.seed`,
+/// so a cell can be run N times (seeded for reproducibility) and the host
+/// aggregates pass@k / pass-rate / variance over the repetitions.
+pub const PROTOCOL_VERSION: &str = "1.6";
 
 /// The oldest protocol version this build can still talk to.
 pub const MIN_PROTOCOL_VERSION: &str = "1.0";
@@ -247,6 +251,11 @@ pub mod capabilities {
     /// Study answers `score` (run scorers over a supplied transcript) for
     /// deferred scoring and re-scoring of stored transcripts.
     pub const SCORE: &str = "score";
+    /// Study honours the `trial`/`seed` run params — it threads the seed into the
+    /// subject so repetitions are reproducible. Trials run regardless (the host
+    /// drives the repetition); this advertises that seeding actually takes
+    /// effect, not just that the cell is re-run.
+    pub const TRIALS: &str = "trials";
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -299,8 +308,30 @@ pub struct EvalInfo {
     /// protocol's forward-compatibility contract (see docs/protocol.md).
     #[serde(default)]
     pub max_turns: usize,
+    /// How many times each cell of this eval should be run (trials/repetitions),
+    /// for pass@k / variance over a stochastic subject. `0`/`1` mean a single
+    /// run (no trial dimension). The host may override with `--trials`. Defaulted
+    /// so older/foreign studies that omit it still parse.
+    #[serde(default, skip_serializing_if = "is_single_trial")]
+    pub trials: usize,
+    /// Base seed the study declared for reproducible trials (trial `t` uses
+    /// `seed + t`). The host threads it into runs unless `--seed` overrides.
+    /// Defaulted/omitted when the study left seeding to the subject.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub seed: Option<u64>,
     #[serde(default, skip_serializing_if = "Metadata::is_empty")]
     pub metadata: Metadata,
+}
+
+/// Serde skip helper: a trial count of `0` or `1` is a single, unrepeated run, so
+/// it's omitted on the wire (the common case stays clean).
+fn is_single_trial(n: &usize) -> bool {
+    *n <= 1
+}
+
+/// Serde skip helper for the 0-based `trial` index (omitted for the first/only).
+fn is_zero(n: &usize) -> bool {
+    *n == 0
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -321,6 +352,29 @@ pub struct RunParams {
     /// matrix; defaulted so older hosts/servers interoperate.
     #[serde(default, skip_serializing_if = "Params::is_empty")]
     pub params: Params,
+    /// 0-based trial index when this cell is being repeated; `0` for a single
+    /// run. Defaulted so older hosts/studies interoperate.
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub trial: usize,
+    /// Total trials planned for this cell (`0`/`1` = single run). Lets the study
+    /// echo the cell's trial identity back so its key matches the host's plan.
+    #[serde(default, skip_serializing_if = "is_single_trial")]
+    pub trials: usize,
+    /// Per-trial seed for reproducibility, when the host set one. The study
+    /// threads it to the subject (see [`crate::Trial::seed`]).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub seed: Option<u64>,
+}
+
+impl RunParams {
+    /// The [`Trial`](crate::Trial) this run addresses.
+    pub fn trial(&self) -> crate::Trial {
+        crate::Trial {
+            index: self.trial,
+            count: self.trials.max(1),
+            seed: self.seed,
+        }
+    }
 }
 
 /// Lightweight transcript carried in results and checkpoints (the raw event
@@ -394,6 +448,16 @@ pub struct ExecuteResult {
     /// Extra matrix-axis values for this cell (empty for a model-only matrix).
     #[serde(default, skip_serializing_if = "Params::is_empty")]
     pub params: Params,
+    /// 0-based trial index when this cell is repeated (see [`RunParams::trial`]).
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub trial: usize,
+    /// Total trials for this cell (`0`/`1` = single run). Part of the cell key
+    /// when `> 1`, so trial artifacts stay distinct.
+    #[serde(default, skip_serializing_if = "is_single_trial")]
+    pub trials: usize,
+    /// Per-trial seed this transcript was produced with, when set.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub seed: Option<u64>,
     /// The complete transcript, unlike the summary carried in [`RunResult`].
     pub transcript: Transcript,
     /// True when the cell was not executed (e.g. model unavailable).
@@ -402,9 +466,13 @@ pub struct ExecuteResult {
 }
 
 impl ExecuteResult {
-    /// Stable cell identity (see [`RunResult::key`]).
+    /// Stable cell identity (see [`RunResult::key`]), trial-aware.
     pub fn key(&self) -> String {
-        crate::cell_key(&self.eval, &self.sample, &self.model, &self.params)
+        format!(
+            "{}{}",
+            crate::cell_key(&self.eval, &self.sample, &self.model, &self.params),
+            crate::trial_suffix(self.trial, self.trials),
+        )
     }
 }
 
@@ -419,6 +487,16 @@ pub struct ScoreParams {
     pub model: String,
     #[serde(default, skip_serializing_if = "Params::is_empty")]
     pub params: Params,
+    /// 0-based trial index for the cell this transcript came from (echoed into
+    /// the resulting [`RunResult`] so it keeps its trial identity on re-score).
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub trial: usize,
+    /// Total trials for this cell (`0`/`1` = single run).
+    #[serde(default, skip_serializing_if = "is_single_trial")]
+    pub trials: usize,
+    /// Per-trial seed this transcript was produced with, when set.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub seed: Option<u64>,
     pub transcript: Transcript,
 }
 
@@ -432,6 +510,17 @@ pub struct RunResult {
     /// Extra matrix-axis values for this cell (empty for a model-only matrix).
     #[serde(default, skip_serializing_if = "Params::is_empty")]
     pub params: Params,
+    /// 0-based trial index when this cell is repeated (see [`RunParams::trial`]).
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub trial: usize,
+    /// Total trials for this cell (`0`/`1` = single run). Part of the cell key
+    /// when `> 1`; the host groups results by their *logical* key (without the
+    /// trial suffix) to aggregate pass@k / variance (see [`crate::aggregate`]).
+    #[serde(default, skip_serializing_if = "is_single_trial")]
+    pub trials: usize,
+    /// Per-trial seed this result was produced with, when set.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub seed: Option<u64>,
     pub passed: bool,
     pub aggregate: f64,
     pub scores: Vec<Score>,
@@ -442,9 +531,20 @@ pub struct RunResult {
 }
 
 impl RunResult {
-    /// Stable cell identity: `eval/sample@model` (with an `[k=v,…]` suffix when
-    /// extra axes vary). Used for selection, dedupe, and checkpoint resume.
+    /// Stable cell identity: `eval/sample@model` (with an `[k=v,…]` axis suffix
+    /// and a `#trial` suffix when this cell is repeated). Used for selection,
+    /// dedupe, and checkpoint resume.
     pub fn key(&self) -> String {
+        format!(
+            "{}{}",
+            self.logical_key(),
+            crate::trial_suffix(self.trial, self.trials)
+        )
+    }
+
+    /// The cell identity **without** the `#trial` suffix — the key all trials of
+    /// one cell share, so [`crate::aggregate`] can group them.
+    pub fn logical_key(&self) -> String {
         crate::cell_key(&self.eval, &self.sample, &self.model, &self.params)
     }
 }
@@ -564,6 +664,9 @@ mod tests {
             sample: "hi".into(),
             model: "sim".into(),
             params: Default::default(),
+            trial: 0,
+            trials: 0,
+            seed: None,
             passed: true,
             aggregate: 1.0,
             scores: vec![],
@@ -574,7 +677,95 @@ mod tests {
 
         let mut params = Params::new();
         params.insert("effort".into(), "high".into());
-        let r2 = RunResult { params, ..r };
+        let r2 = RunResult {
+            params,
+            ..r.clone()
+        };
         assert_eq!(r2.key(), "greet/hi@sim[effort=high]");
+    }
+
+    #[test]
+    fn run_result_trial_key_and_logical_key() {
+        // A repeated cell (trials > 1) carries a `#index` suffix in its key, but
+        // all trials share one logical key so the host can group them.
+        let r = RunResult {
+            eval: "greet".into(),
+            sample: "hi".into(),
+            model: "sim".into(),
+            params: Default::default(),
+            trial: 2,
+            trials: 5,
+            seed: Some(42),
+            passed: true,
+            aggregate: 1.0,
+            scores: vec![],
+            transcript: TranscriptSummary::default(),
+            skipped: false,
+        };
+        assert_eq!(r.key(), "greet/hi@sim#2");
+        assert_eq!(r.logical_key(), "greet/hi@sim");
+
+        // A single-trial cell (trials <= 1) keeps the plain key — backward compat.
+        let single = RunResult {
+            trial: 0,
+            trials: 1,
+            ..r.clone()
+        };
+        assert_eq!(single.key(), "greet/hi@sim");
+    }
+
+    #[test]
+    fn pre_trials_payloads_parse_as_single_trial() {
+        // A pre-trials study (pre-1.6) omits trial/trials/seed entirely. The host must parse
+        // such a RunResult and treat it as a single, unrepeated cell (plain key).
+        let line = r#"{"eval":"greet","sample":"hi","model":"sim","passed":true,
+            "aggregate":1.0,"scores":[],
+            "transcript":{"final_response":"hi","iterations":1,"tool_calls_count":0,
+            "usage":{"input_tokens":1,"output_tokens":1,"cost_usd":0.0}}}"#;
+        let r: RunResult = serde_json::from_str(line).unwrap();
+        assert_eq!(r.trial, 0);
+        assert_eq!(r.trials, 0);
+        assert_eq!(r.seed, None);
+        assert_eq!(r.key(), "greet/hi@sim"); // no `#trial` suffix
+        assert_eq!(r.logical_key(), "greet/hi@sim");
+
+        // Likewise an EvalInfo from a pre-1.5 study omits trials/seed.
+        let line = r#"{"name":"greet","samples":[{"id":"hi"}],"scorers":["s"],
+            "models":[{"label":"sim","available":true}]}"#;
+        let e: EvalInfo = serde_json::from_str(line).unwrap();
+        assert_eq!(e.trials, 0); // host clamps 0 → 1 (single run)
+        assert_eq!(e.seed, None);
+    }
+
+    #[test]
+    fn trial_fields_omitted_on_wire_for_single_run() {
+        // The common single-trial case adds nothing to the wire: no trial/trials/
+        // seed keys when unrepeated and unseeded.
+        let p = RunParams {
+            eval: "e".into(),
+            sample: "s".into(),
+            model: "m".into(),
+            params: Default::default(),
+            trial: 0,
+            trials: 1,
+            seed: None,
+        };
+        let line = serde_json::to_string(&p).unwrap();
+        assert!(!line.contains("trial"));
+        assert!(!line.contains("seed"));
+
+        // A real trial serializes its fields and round-trips.
+        let p2 = RunParams {
+            trial: 3,
+            trials: 8,
+            seed: Some(7),
+            ..p
+        };
+        let line2 = serde_json::to_string(&p2).unwrap();
+        let back: RunParams = serde_json::from_str(&line2).unwrap();
+        assert_eq!(back.trial, 3);
+        assert_eq!(back.trials, 8);
+        assert_eq!(back.seed, Some(7));
+        assert_eq!(back.trial().count, 8);
     }
 }

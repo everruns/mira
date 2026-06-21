@@ -9,22 +9,25 @@
 
 use crate::eval::Eval;
 use crate::model::ModelSpec;
-use crate::{Params, RunCx, Sample, Score, Transcript, cell_key};
+use crate::{Params, RunCx, Sample, Score, Transcript, Trial, cell_key, trial_suffix};
 
 /// Execute a single matrix cell's subject, returning the full [`Transcript`]
 /// **without scoring**. The first half of [`run_cell`]; used directly by the
 /// protocol `execute` method so a long-running subject can be run once and
-/// scored later from its stored transcript.
+/// scored later from its stored transcript. `trial` carries this run's
+/// repetition index and seed (see [`Trial`]).
 pub async fn execute_cell(
     eval: &Eval,
     sample: &Sample,
     model: &ModelSpec,
     params: &Params,
+    trial: Trial,
 ) -> Transcript {
     let cx = RunCx {
         model: model.clone(),
         max_turns: eval.max_turns,
         params: params.clone(),
+        trial,
     };
     eval.subject.run(sample, &cx).await
 }
@@ -69,8 +72,9 @@ pub async fn run_cell(
     sample: &Sample,
     model: &ModelSpec,
     params: &Params,
+    trial: Trial,
 ) -> CaseOutcome {
-    let transcript = execute_cell(eval, sample, model, params).await;
+    let transcript = execute_cell(eval, sample, model, params, trial).await;
     let scores = score_transcript(eval, sample, &transcript).await;
 
     let passed = verdict(&scores);
@@ -81,6 +85,7 @@ pub async fn run_cell(
         sample_id: sample.id.clone(),
         model: model.label.clone(),
         params: params.clone(),
+        trial,
         scores,
         passed,
         aggregate,
@@ -110,6 +115,8 @@ pub struct CaseOutcome {
     pub model: String,
     /// Extra matrix-axis values for this cell (empty for a model-only matrix).
     pub params: Params,
+    /// This run's trial (repetition index, count, and seed).
+    pub trial: Trial,
     pub scores: Vec<Score>,
     pub passed: bool,
     pub aggregate: f64,
@@ -117,7 +124,17 @@ pub struct CaseOutcome {
 }
 
 impl CaseOutcome {
+    /// Trial-aware cell identity (a `#index` suffix when the cell is repeated).
     pub fn key(&self) -> String {
+        format!(
+            "{}{}",
+            self.logical_key(),
+            trial_suffix(self.trial.index, self.trial.count)
+        )
+    }
+
+    /// Cell identity shared by all trials of this cell (no `#index` suffix).
+    pub fn logical_key(&self) -> String {
         cell_key(&self.eval, &self.sample_id, &self.model, &self.params)
     }
 }
@@ -213,6 +230,7 @@ impl Runner {
 
         for eval in &self.evals {
             let combos = eval.axis_combinations();
+            let trials = eval.trials.max(1);
             for model in &eval.models {
                 for sample in &eval.dataset.samples {
                     for params in &combos {
@@ -224,9 +242,21 @@ impl Runner {
                             report.skipped.push(format!("{key} (unavailable)"));
                             continue;
                         }
-                        report
-                            .outcomes
-                            .push(run_cell(eval, sample, model, params).await);
+                        // Repeat the cell `trials` times (1 = a single run),
+                        // seeding each trial deterministically when a base seed
+                        // is set, so the repetitions are reproducible.
+                        for index in 0..trials {
+                            let trial = Trial {
+                                index,
+                                count: trials,
+                                // wrapping_add: a huge base seed must not panic
+                                // (debug) or differ by build mode (release).
+                                seed: eval.seed.map(|s| s.wrapping_add(index as u64)),
+                            };
+                            report
+                                .outcomes
+                                .push(run_cell(eval, sample, model, params, trial).await);
+                        }
                     }
                 }
             }
@@ -340,6 +370,50 @@ mod tests {
         assert_eq!(out.scores[0].scorer, "infra");
         assert!(!out.passed); // N/A ⇒ not passed …
         assert_eq!(out.aggregate, 0.0); // … and excluded from the aggregate
+    }
+
+    #[tokio::test]
+    async fn trials_repeat_the_cell_with_seeded_reproducibility() {
+        // A "stochastic" subject that just echoes its seed, so we can assert each
+        // trial ran with a distinct, deterministic seed (base + index).
+        let eval = Eval::new("e")
+            .case("a", "x")
+            .trials(3)
+            .seed(100)
+            .subject(subject_fn(|_, cx| async move {
+                Transcript::response(format!("seed={:?}", cx.seed()))
+            }))
+            .scorer(contains("seed="))
+            .build();
+        let report = Runner::new().add(eval).run().await;
+        assert_eq!(report.total(), 3, "one outcome per trial");
+
+        // Trials share a logical key but carry distinct trial keys + seeds.
+        let mut keys: Vec<String> = report.outcomes.iter().map(|o| o.key()).collect();
+        keys.sort();
+        assert_eq!(keys, vec!["e/a@sim#0", "e/a@sim#1", "e/a@sim#2"]);
+        for o in &report.outcomes {
+            assert_eq!(o.logical_key(), "e/a@sim");
+            let expected = 100 + o.trial.index as u64;
+            assert_eq!(o.trial.seed, Some(expected));
+            assert!(o.transcript.final_response.contains(&expected.to_string()));
+        }
+    }
+
+    #[tokio::test]
+    async fn single_trial_keeps_plain_key() {
+        // The default (trials = 1) adds no trial dimension or `#index` suffix.
+        let eval = Eval::new("e")
+            .case("a", "x")
+            .subject(subject_fn(|_, cx| async move {
+                assert_eq!(cx.seed(), None);
+                Transcript::response("x")
+            }))
+            .scorer(contains("x"))
+            .build();
+        let report = Runner::new().add(eval).run().await;
+        assert_eq!(report.total(), 1);
+        assert_eq!(report.outcomes[0].key(), "e/a@sim");
     }
 
     #[tokio::test]

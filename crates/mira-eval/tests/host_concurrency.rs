@@ -46,7 +46,14 @@ async fn host_handles_many_concurrent_runs() {
     for _ in 0..16 {
         let h = handle.clone();
         tasks.push(tokio::spawn(async move {
-            h.run("greet", "hi", "sim", &Default::default()).await
+            h.run(
+                "greet",
+                "hi",
+                "sim",
+                &Default::default(),
+                mira::Trial::single(),
+            )
+            .await
         }));
     }
     for task in tasks {

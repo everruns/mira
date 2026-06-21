@@ -14,6 +14,7 @@ members = [
     "examples/cli_subject",
     "examples/metrics",
     "examples/matrix",
+    "examples/trials",
     "examples/swe_bench",
     "examples/llmsim",
     "examples/llm_judge",

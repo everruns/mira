@@ -106,31 +106,33 @@ study.
 **Params**
 
 ```json
-{ "protocol_version": "1.4", "host": "mira-cli" }
+{ "protocol_version": "1.6", "host": "mira-cli" }
 ```
 
 **Result**
 
 ```json
 {
-  "protocol_version": "1.4",
+  "protocol_version": "1.6",
   "study": "my-evals",
   "evals": 3,
   "study_version": "0.1.0",
-  "capabilities": ["axes", "events", "usage", "execute", "score"]
+  "capabilities": ["axes", "events", "usage", "execute", "score", "trials"]
 }
 ```
 
 The study replies with the `protocol_version` it implements. Compatibility is
 by **major**: a host refuses a study whose major differs from its own; a
 differing minor is additive and tolerated (see [Versioning](#versioning)). The
-current version is **`1.4`**.
+current version is **`1.6`**.
 
 `capabilities` lets a host feature-detect additively instead of sniffing
 versions. Defined tokens: `axes` (study advertises extra axes and honours
 `run.params`), `events` (emits `event` notifications), `usage` (reports
-token/cost/timing), `execute` (answers `execute`), `score` (answers `score`).
-`study_version` and `capabilities` are optional and default to empty. A `1.0`
+token/cost/timing), `execute` (answers `execute`), `score` (answers `score`),
+`trials` (threads the `seed` run param into the subject, so repetitions are
+reproducible). `study_version` and `capabilities` are optional and default to
+empty. A `1.0`
 study that only implements `run` interoperates unchanged — the host simply
 won't see the `execute`/`score` capabilities.
 
@@ -156,6 +158,8 @@ anything.
       ],
       "axes": [ { "name": "effort", "values": ["low", "high"] } ],
       "max_turns": 12,
+      "trials": 8,
+      "seed": 42,
       "metadata": { "suite": "smoke" }
     }
   ]
@@ -176,6 +180,12 @@ anything.
   links, structured context). Values may be a string, number, bool, or a nested
   object/array — widened from string-only values in `1.4`. (Axis `params`, by
   contrast, stay `string → string`: they form part of a cell's identity.)
+- `trials` (optional, default 1) is how many times each cell should be **repeated**
+  for pass@k / pass-rate / variance over a stochastic subject. Unlike an axis,
+  trials don't form new cells — they're re-runs of one cell, grouped back by the
+  host. `seed` (optional) is the study's base seed: trial `t` runs with `seed + t`,
+  so the repetition set replays deterministically. The host may override both with
+  `--trials` / `--seed`. See [`run`](#run) for how a trial is addressed.
 
 ### `run`
 
@@ -186,11 +196,21 @@ response.
 **Params**
 
 ```json
-{ "eval": "greet", "sample": "hi", "model": "sim", "params": { "effort": "high" } }
+{ "eval": "greet", "sample": "hi", "model": "sim", "params": { "effort": "high" },
+  "trial": 2, "trials": 8, "seed": 44 }
 ```
 
 `params` (optional, default empty) carries the chosen value per extra axis, as
 advertised in `list.axes`.
+
+`trial`/`trials`/`seed` (all optional, default `0`/`1`/none) address one
+**repetition** of the cell: `trial` is the 0-based index, `trials` the planned
+count, and `seed` the per-trial seed the study threads into the subject. A
+repeated cell's identity gains a `#trial` suffix (`greet/hi@sim[effort=high]#2`);
+a single-trial cell keeps its plain key. The study **echoes** these back in the
+result so its key matches the host's plan. The host groups results by the
+*logical* key (without the `#trial` suffix) to aggregate pass@k / pass-rate /
+variance.
 
 **Result**
 
@@ -222,6 +242,7 @@ advertised in `list.axes`.
 | Field | Type | Notes |
 |-------|------|-------|
 | `params` | object | Echoes the cell's axis values (optional, default empty). |
+| `trial` / `trials` / `seed` | int / int / int | Echo the cell's trial identity (optional; omitted for a single, unseeded run). |
 | `passed` | bool | True iff every scorer passed (and at least one ran). |
 | `aggregate` | number | Mean of score `value`s, `0.0..=1.0`. |
 | `scores` | array | One [`Score`](#score) per scorer. |
@@ -245,7 +266,7 @@ long-running subject is executed once and its transcript persisted as an
 execution artifact, to be scored — or re-scored — later. Advertised by the
 `execute` capability.
 
-**Params** — identical to `run` (`{ eval, sample, model, params }`).
+**Params** — identical to `run` (`{ eval, sample, model, params, trial, trials, seed }`).
 
 **Result**
 
@@ -270,6 +291,7 @@ execution artifact, to be scored — or re-scored — later. Advertised by the
 | Field | Type | Notes |
 |-------|------|-------|
 | `transcript` | object | The **full** transcript, including raw `events` and `files`. |
+| `trial` / `trials` / `seed` | int / int / int | Echo the cell's trial identity (optional), so a per-trial artifact stays distinct. |
 | `skipped` | bool | True when the cell was not executed (e.g. unavailable model). |
 
 ### `score`
@@ -289,9 +311,15 @@ scorer change). Advertised by the `score` capability.
   "sample": "hi",
   "model": "sim",
   "params": {},
+  "trial": 2,
+  "trials": 8,
+  "seed": 44,
   "transcript": { "final_response": "Hi! The answer is 42.", "...": "..." }
 }
 ```
+
+The `trial`/`trials`/`seed` fields (optional) are echoed into the resulting
+`RunResult` so a re-scored trial keeps its identity.
 
 **Result** — a [`RunResult`](#run), identical in shape to the `run` response
 (scores + lightweight transcript summary).
@@ -364,15 +392,17 @@ invocation.
 
 ## Versioning
 
-The protocol uses `MAJOR.MINOR` (`PROTOCOL_VERSION`, currently `1.5`), all minors
+The protocol uses `MAJOR.MINOR` (`PROTOCOL_VERSION`, currently `1.6`), all minors
 additive over `1.0`: `1.1` added the optional `ModelInfo.provider` field and the
 `execute`/`score` methods plus their capabilities; `1.2` added the optional
 `transcript.metrics` map; `1.3` added the optional `transcript.error_kind`
 (subject vs. infrastructure); `1.4` widened `metadata` values from strings to
 open-ended JSON; `1.5` promoted the error object from `{ message }` to the
 JSON-RPC-shaped `{ code, message, retryable, data }` (all new fields
-optional/defaulted). A `1.0` study (or any study implementing only
-`run`) interoperates with a `1.5` host.
+optional/defaulted); `1.6` added trials/repetitions — the optional
+`trial`/`trials`/`seed` fields on the run/execute/score payloads, `EvalInfo.trials`
++ `EvalInfo.seed`, and the `trials` capability. A `1.0` study (or any study
+implementing only `run`) interoperates with a `1.6` host.
 
 - A **MINOR** bump is **additive**: new optional fields, new notification kinds,
   new capability tokens. A newer peer must keep talking to an older one.

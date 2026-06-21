@@ -66,11 +66,21 @@ fn params_suffix(params: &crate::Params) -> String {
     )
 }
 
+/// The full per-row key suffix: axis params (`[k=v,…]`) then the `#trial` index
+/// when this cell was repeated, so every trial's row is individually identifiable.
+fn case_suffix(r: &RunResult) -> String {
+    format!(
+        "{}{}",
+        params_suffix(&r.params),
+        crate::trial_suffix(r.trial, r.trials)
+    )
+}
+
 /// Print a per-case list, a model×eval matrix, and totals to stdout.
 pub fn print_results(results: &[RunResult]) {
     println!("\n── cases ──");
     for r in results {
-        let suffix = params_suffix(&r.params);
+        let suffix = case_suffix(r);
         if r.skipped {
             println!("  [SKIP] {}/{}@{}{suffix}", r.eval, r.sample, r.model);
             continue;
@@ -122,6 +132,7 @@ pub fn print_results(results: &[RunResult]) {
     }
 
     print_matrix(results);
+    print_trials(results);
 
     let scored: Vec<_> = results.iter().filter(|r| !r.skipped && !is_na(r)).collect();
     let passed = scored.iter().filter(|r| r.passed).count();
@@ -178,6 +189,38 @@ fn print_matrix(results: &[RunResult]) {
     }
 }
 
+/// When any cell was repeated (trials > 1), print a per-cell aggregation: trials
+/// passed/scored, pass-rate, the pass@k spread, and the score's standard
+/// deviation (the reproducibility signal). Silent when nothing was repeated.
+fn print_trials(results: &[RunResult]) {
+    let aggs: Vec<_> = crate::aggregate::aggregate_trials(results)
+        .into_iter()
+        .filter(|a| a.repeated())
+        .collect();
+    if aggs.is_empty() {
+        return;
+    }
+    println!("\n── trials (pass@k over repetitions) ──");
+    let key_w = aggs.iter().map(|a| a.key.len()).max().unwrap_or(4).max(4);
+    for a in &aggs {
+        // pass@1 and pass@n bracket the spread; n is the scored trial count.
+        let n = a.scored;
+        let mut parts = vec![
+            format!("{}/{} pass", a.passed, a.scored),
+            format!("rate {:.0}%", a.pass_rate * 100.0),
+            format!("pass@1 {:.2}", a.pass_at_k(1)),
+        ];
+        if n > 1 {
+            parts.push(format!("pass@{n} {:.2}", a.pass_at_k(n)));
+        }
+        parts.push(format!("σ {:.3}", a.std_dev));
+        if a.na > 0 || a.skipped > 0 {
+            parts.push(format!("({} n/a, {} skip)", a.na, a.skipped));
+        }
+        println!("  {:key_w$}  {}", a.key, parts.join(" · "), key_w = key_w);
+    }
+}
+
 /// The `passed/scored` cell for one (eval, model), or `—` if absent. Skipped and
 /// all-N/A cells are excluded from the denominator (see [`is_na`]).
 fn cell(results: &[RunResult], eval: &str, model: &str) -> String {
@@ -198,12 +241,25 @@ fn cell(results: &[RunResult], eval: &str, model: &str) -> String {
 
 /// Canonical machine-readable JSON record over the collected results. Carries
 /// per-case usage/timing (each `RunResult.transcript`) plus rolled-up totals,
-/// so the HTML viewer and trend aggregation consume one stable shape.
+/// so the HTML viewer and trend aggregation consume one stable shape. When any
+/// cell was repeated (trials > 1), a `trials` array of per-cell
+/// [`TrialAggregate`](crate::aggregate::TrialAggregate)s (pass@k / pass-rate /
+/// variance) is added.
 pub fn results_json(results: &[RunResult]) -> serde_json::Value {
-    serde_json::json!({
+    let mut record = serde_json::json!({
         "summary": crate::run::RunSummary::of(results),
         "cases": results,
-    })
+    });
+    if crate::aggregate::has_trials(results) {
+        let trials = crate::aggregate::aggregate_trials(results)
+            .into_iter()
+            .filter(|a| a.repeated())
+            .collect::<Vec<_>>();
+        // Fail loudly: a TrialAggregate is plain owned data, so serialization
+        // can't fail — turning it into `null` would only mask a real bug.
+        record["trials"] = serde_json::to_value(trials).expect("trial aggregates serialize");
+    }
+    record
 }
 
 /// True when a cell ran but every score was N/A — nothing could be evaluated
@@ -242,7 +298,7 @@ pub fn junit_xml(results: &[RunResult]) -> String {
             xml_escape(&r.eval),
             xml_escape(&r.sample),
             xml_escape(&r.model),
-            xml_escape(&params_suffix(&r.params)),
+            xml_escape(&case_suffix(r)),
         ));
         if is_skipped(r) {
             out.push_str("\n    <skipped/>\n  ");
@@ -425,7 +481,7 @@ pub fn html(results: &[RunResult]) -> String {
             html_escape(&r.eval),
             html_escape(&r.sample),
             html_escape(&r.model),
-            html_escape(&params_suffix(&r.params)),
+            html_escape(&case_suffix(r)),
         ));
         let t = &r.transcript;
         out.push_str(&format!(
@@ -551,6 +607,9 @@ mod tests {
             sample: sample.into(),
             model: model.into(),
             params: Default::default(),
+            trial: 0,
+            trials: 0,
+            seed: None,
             passed,
             aggregate: if passed { 1.0 } else { 0.0 },
             scores: if passed {
@@ -664,6 +723,35 @@ mod tests {
         assert!(!h.contains("http-equiv"));
         assert!(!h.contains("<link"));
         assert!(!h.contains("src=\"http"));
+    }
+
+    #[test]
+    fn trials_aggregate_in_json_and_labels() {
+        // Three trials of one cell, 2/3 passing.
+        let mut results = Vec::new();
+        for t in 0..3 {
+            let mut r = result("flaky", "a", "sim", t != 0, false);
+            r.trial = t;
+            r.trials = 3;
+            results.push(r);
+        }
+        let v = results_json(&results);
+        let trials = v["trials"].as_array().expect("trials array present");
+        assert_eq!(trials.len(), 1);
+        assert_eq!(trials[0]["key"], "flaky/a@sim");
+        assert_eq!(trials[0]["passed"], 2);
+        assert_eq!(trials[0]["scored"], 3);
+
+        // A single-trial run adds no `trials` block.
+        let single = vec![result("greet", "hi", "sim", true, false)];
+        assert!(results_json(&single).get("trials").is_none());
+
+        // Per-trial rows are individually addressable via the `#index` suffix.
+        let xml = junit_xml(&results);
+        assert!(xml.contains("name=\"a@sim#0\""));
+        assert!(xml.contains("name=\"a@sim#2\""));
+        let h = html(&results);
+        assert!(h.contains("flaky/a@sim#1"));
     }
 
     #[test]

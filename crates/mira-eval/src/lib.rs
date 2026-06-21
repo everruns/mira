@@ -42,6 +42,7 @@
 #![allow(clippy::type_complexity)]
 #![forbid(unsafe_code)]
 
+pub mod aggregate;
 pub mod dataset;
 pub mod eval;
 pub mod exec;
@@ -86,6 +87,7 @@ pub use inventory;
 #[cfg(feature = "macros")]
 pub use mira_macros::eval;
 
+pub use aggregate::{TrialAggregate, aggregate_trials};
 pub use dataset::{Dataset, Sample};
 pub use eval::{Case, Eval};
 pub use exec::{Concurrency, run_cells};
@@ -118,6 +120,68 @@ pub type Metadata = BTreeMap<String, serde_json::Value>;
 /// cell key ([`cell_key`]) and the selection grammar, so they stay scalar and
 /// stable rather than open-ended.
 pub type Params = BTreeMap<String, String>;
+
+/// One trial's reproducibility context: which repetition this cell run is
+/// (`index` of `count`) and the seed handed to the subject, if any.
+///
+/// **Trials are repetitions of the *same* logical cell** — unlike an [axis], they
+/// don't form new cells, they're re-runs grouped back together so the host can
+/// compute pass@k, pass-rate, and score variance (see [`crate::aggregate`]).
+/// A `seed` makes a trial reproducible: a subject seeds its RNG / sampling
+/// temperature from it so the same `(cell, seed)` replays identically.
+///
+/// The single, unrepeated run is [`Trial::single`] (`count == 1`); it carries no
+/// trial dimension, so it adds no `#index` suffix to the cell key.
+///
+/// [axis]: crate::eval::Axis
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Trial {
+    /// 0-based repetition index within this cell's trials.
+    pub index: usize,
+    /// Total repetitions planned for this cell. `1` means no trial dimension.
+    pub count: usize,
+    /// Per-trial seed for reproducibility, when the run set one.
+    pub seed: Option<u64>,
+}
+
+impl Default for Trial {
+    fn default() -> Self {
+        Self::single()
+    }
+}
+
+impl Trial {
+    /// The single, unrepeated run: index 0 of 1, no seed.
+    pub fn single() -> Self {
+        Self {
+            index: 0,
+            count: 1,
+            seed: None,
+        }
+    }
+
+    /// True when this cell runs more than once (the trial dimension is active).
+    pub fn is_repeated(&self) -> bool {
+        self.count > 1
+    }
+
+    /// The `#index` suffix this trial contributes to a cell key, or empty when
+    /// the cell isn't repeated — so single-trial runs keep their plain keys.
+    pub fn key_suffix(&self) -> String {
+        trial_suffix(self.index, self.count)
+    }
+}
+
+/// The `#index` key suffix for a `(trial, trials)` pair: present only when the
+/// cell is repeated (`trials > 1`), so a single-trial cell keeps the plain
+/// `eval/sample@model[…]` key. Host and study compute it identically.
+pub fn trial_suffix(trial: usize, trials: usize) -> String {
+    if trials > 1 {
+        format!("#{trial}")
+    } else {
+        String::new()
+    }
+}
 
 /// Render an open-ended [`Metadata`] value for display (reports, CLI): a JSON
 /// string yields its raw contents (no surrounding quotes); anything else yields
@@ -470,21 +534,35 @@ pub struct RunCx {
     /// e.g. `{"effort": "high"}`. Empty for a model-only matrix. A subject reads
     /// these to vary its behaviour per cell.
     pub params: Params,
+    /// This run's trial within its cell: which repetition (`index` of `count`)
+    /// and the optional seed. A stochastic subject seeds its RNG / sampling from
+    /// [`Trial::seed`] so the run is reproducible. [`Trial::single`] for an
+    /// unrepeated cell.
+    pub trial: Trial,
 }
 
 impl RunCx {
-    /// A context for `model` with default limits and no extra axis params.
+    /// A context for `model` with default limits, no extra axis params, and a
+    /// single (unrepeated, unseeded) trial.
     pub fn new(model: ModelSpec) -> Self {
         Self {
             model,
             max_turns: 12,
             params: Params::new(),
+            trial: Trial::single(),
         }
     }
 
     /// The value of an extra matrix axis for this cell, if set.
     pub fn param(&self, name: &str) -> Option<&str> {
         self.params.get(name).map(String::as_str)
+    }
+
+    /// This run's seed, if the host set one (a convenience for
+    /// `self.trial.seed`). Seed a subject's RNG / sampling from this for
+    /// reproducible trials.
+    pub fn seed(&self) -> Option<u64> {
+        self.trial.seed
     }
 }
 
