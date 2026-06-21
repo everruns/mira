@@ -18,6 +18,11 @@ adheres to [Semantic Versioning](https://semver.org/).
   else `./results`. Foundation for listing/diffing past runs (see
   `specs/architecture.md` §12).
 - `just install` recipe to build and install the local `mira` CLI binary.
+- **`mira help --full`** — an AI-friendly extended help screen: high-level
+  overview, the full flag set, worked examples, and contact links (repository,
+  issues, docs). Bare `mira` and `mira --help` now point to it in a footer so an
+  agent can self-orient. The default tagline was reworded — the CLI is the
+  *host*, not just a runner.
 - `CONTRIBUTING.md` guidance for the `main` branch-protection gate: require a PR
   and the `CI / Check` status check so a red CI run can no longer be merged.
 - **Infrastructure errors → N/A, not failures.** A run now distinguishes a

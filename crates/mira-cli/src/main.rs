@@ -30,7 +30,7 @@ use std::path::Path;
 use std::str::FromStr;
 use std::sync::Arc;
 
-use clap::{Args, Parser, Subcommand};
+use clap::{Args, CommandFactory, Parser, Subcommand};
 use indicatif::{ProgressBar, ProgressDrawTarget, ProgressStyle};
 use tokio::process::Command;
 
@@ -45,13 +45,36 @@ use mira::report::{self, Format};
 use mira::run::{RUN_META_FORMAT, RunMeta, RunSummary, new_run_id_at};
 use mira::session::{self, Session, now_unix};
 
+/// Repository, issue tracker, and docs — surfaced in `mira help --full` and the
+/// `--help` footer so an agent (or human) can always find their way home.
+const REPO_URL: &str = "https://github.com/everruns/mira";
+const ISSUES_URL: &str = "https://github.com/everruns/mira/issues";
+const DOCS_URL: &str = "https://github.com/everruns/mira/tree/main/docs";
+const API_DOCS_URL: &str = "https://docs.rs/mira-eval";
+
+/// Short tagline for `-h`/`--help`. The CLI is the *host*: it plans the run,
+/// drives subjects over the protocol, scores, and reports — not just a runner.
+const ABOUT: &str = "Run code-first evals for agents and tools across a model matrix — \
+the Mira host CLI.";
+
+/// Footer on every `--help`/no-args screen. The one breadcrumb an agent needs to
+/// discover the long-form guide.
+const HELP_HINT: &str = "Tip: run `mira help --full` for an overview, every flag, examples, \
+and links (repo, issues, docs).";
+
 #[derive(Parser)]
-#[command(name = "mira", version, about = "Host runner for code-defined evals")]
+#[command(
+    name = "mira",
+    version,
+    about = ABOUT,
+    after_help = HELP_HINT,
+    disable_help_subcommand = true,
+)]
 struct Cli {
     #[command(flatten)]
     target: Target,
     #[command(subcommand)]
-    cmd: Cmd,
+    cmd: Option<Cmd>,
 }
 
 /// How to launch the eval study process.
@@ -82,6 +105,16 @@ enum Cmd {
     Run(RunArgs),
     /// Score (or re-score) previously captured execution artifacts.
     Score(ScoreArgs),
+    /// Show help. Add `--full` for an overview, every flag, examples, and links.
+    Help(HelpArgs),
+}
+
+#[derive(Args)]
+struct HelpArgs {
+    /// Render the full guide: high-level overview, all flags, examples, and
+    /// contact links — written so an agent can self-orient in one read.
+    #[arg(long)]
+    full: bool,
 }
 
 #[derive(Args)]
@@ -159,6 +192,25 @@ struct ScoreArgs {
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let cli = Cli::parse();
 
+    // Help paths need no study process — handle them before spawning anything.
+    // Bare `mira` (no subcommand) prints help too, so an agent landing here sees
+    // the `mira help --full` breadcrumb instead of an opaque error.
+    match &cli.cmd {
+        None => {
+            Cli::command().print_help()?;
+            return Ok(());
+        }
+        Some(Cmd::Help(args)) => {
+            if args.full {
+                print_full_help()?;
+            } else {
+                Cli::command().print_help()?;
+            }
+            return Ok(());
+        }
+        _ => {}
+    }
+
     // One progress bar, shared with the event handler so study `log` lines print
     // cleanly above the bar (via `suspend`) instead of corrupting it. It starts
     // hidden; `run` gives it a length and a draw target once the plan is known.
@@ -184,14 +236,76 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let listing = host.list().await?;
 
     match cli.cmd {
-        Cmd::List => {
+        Some(Cmd::List) => {
             print_listing(&listing);
             host.shutdown().await?;
             Ok(())
         }
-        Cmd::Run(args) => run(host, info, listing, args, progress).await,
-        Cmd::Score(args) => score(host, info, args).await,
+        Some(Cmd::Run(args)) => run(host, info, listing, args, progress).await,
+        Some(Cmd::Score(args)) => score(host, info, args).await,
+        // Help/no-args returned earlier, before the host was spawned.
+        None | Some(Cmd::Help(_)) => unreachable!("handled before host spawn"),
     }
+}
+
+/// `mira help --full`: the self-orienting guide. High-level description, the full
+/// flag set (clap's own rendering, so it never drifts from the parser), worked
+/// examples, and contact links — one read to get an agent productive.
+fn print_full_help() -> std::io::Result<()> {
+    use std::io::Write;
+
+    let overview = "\
+OVERVIEW
+  Mira is a Rust-first, code-first evaluation framework for agents and tools —
+  built for multi-turn, tool-using, long-running trajectories.
+
+  You write evals as code (in Rust, or any language that speaks the protocol);
+  this binary is the HOST. It owns the run end to end: it launches your eval
+  program (the `study`), enumerates what it advertises, plans the grid
+  (selection x model matrix x axes), executes each cell over the protocol,
+  scores the results, then aggregates, reports, and checkpoints. Execution and
+  scoring can be split for long runs (`run --execute-only` then `score`).
+
+  Point it at any study: `--bin NAME`, `--example NAME`, an arbitrary
+  `--cmd \"...\"` (e.g. a Python study), or `--package` / `--manifest-path`.";
+
+    let examples = "\
+EXAMPLES
+  mira --bin greet list                 # what the study advertises
+  mira --bin greet run                  # run the whole matrix
+  mira --bin greet run greet            # selective (substring), like cargo test
+  mira --bin greet run --tag smoke      # only samples carrying a tag
+  mira --bin greet run --models sim --format junit --out results.xml
+  mira --bin greet run --format html --out report.html   # self-contained viewer
+  mira --bin greet run --checkpoint ck.json              # resumable long runs
+  mira --bin greet run --save                            # archive run under ./results/<run_id>/
+  mira --bin greet run --execute-only --artifacts art/   # capture transcripts
+  mira --bin greet score --artifacts art/                # score (or re-score) them
+  mira --cmd \"python study.py\" run     # drive a non-Rust (polyglot) study";
+
+    let links = format!(
+        "\
+LINKS
+  Repository:  {REPO_URL}
+  Issues:      {ISSUES_URL}
+  Docs:        {DOCS_URL}
+  API docs:    {API_DOCS_URL}"
+    );
+
+    // The full flag set, straight from the parser so it never drifts. Strip the
+    // about header and after_help footer — we frame those ourselves here.
+    let flags = Cli::command()
+        .about(None)
+        .after_help(None)
+        .render_long_help();
+
+    let mut out = std::io::stdout().lock();
+    writeln!(out, "{ABOUT}\n")?;
+    writeln!(out, "{overview}\n")?;
+    write!(out, "{flags}")?;
+    writeln!(out, "\n{examples}\n")?;
+    writeln!(out, "{links}")?;
+    Ok(())
 }
 
 /// Build the study launch command from the target flags.
