@@ -23,15 +23,17 @@ use tokio::sync::{Mutex, oneshot};
 use crate::Params;
 use crate::protocol::{
     ExecuteResult, InitializeResult, ListResult, Notification, PROTOCOL_VERSION, Request, Response,
-    RunParams, RunResult, ScoreParams,
+    RpcError, RunParams, RunResult, ScoreParams,
 };
 
 /// Callback invoked for each progress notification (e.g. to render a live log).
 type EventCb = Arc<dyn Fn(&Notification) + Send + Sync>;
 
-/// One in-flight request's slot: the reader fulfils it by `id`.
+/// One in-flight request's slot: the reader fulfils it by `id`. The error is the
+/// structured [`RpcError`] so callers (and the executor) can classify/retry a
+/// protocol-level failure without parsing the message.
 type Pending =
-    Arc<std::sync::Mutex<HashMap<u64, oneshot::Sender<Result<serde_json::Value, String>>>>>;
+    Arc<std::sync::Mutex<HashMap<u64, oneshot::Sender<Result<serde_json::Value, RpcError>>>>>;
 
 /// A cheaply-cloneable client over the study's framed stdio channel. Every method
 /// takes `&self`, so clones can issue requests concurrently — responses are
@@ -44,28 +46,29 @@ pub struct HostHandle {
 }
 
 impl HostHandle {
-    pub async fn initialize(&self, host_name: &str) -> Result<InitializeResult, String> {
+    pub async fn initialize(&self, host_name: &str) -> Result<InitializeResult, RpcError> {
         let value = self
             .request(
                 "initialize",
                 serde_json::json!({ "protocol_version": PROTOCOL_VERSION, "host": host_name }),
             )
             .await?;
-        let info: InitializeResult = serde_json::from_value(value).map_err(|e| e.to_string())?;
+        let info: InitializeResult =
+            serde_json::from_value(value).map_err(|e| RpcError::new(e.to_string()))?;
         // Forward/backward compatibility: a mismatched *major* is a hard
         // incompatibility; a differing minor is additive and tolerated.
         if !crate::protocol::version_compatible(&info.protocol_version) {
-            return Err(format!(
+            return Err(RpcError::new(format!(
                 "incompatible protocol: study speaks {}, host speaks {} (major mismatch)",
                 info.protocol_version, PROTOCOL_VERSION
-            ));
+            )));
         }
         Ok(info)
     }
 
-    pub async fn list(&self) -> Result<ListResult, String> {
+    pub async fn list(&self) -> Result<ListResult, RpcError> {
         let value = self.request("list", serde_json::Value::Null).await?;
-        serde_json::from_value(value).map_err(|e| e.to_string())
+        serde_json::from_value(value).map_err(|e| RpcError::new(e.to_string()))
     }
 
     /// Run one matrix cell. `params` carries the chosen value per extra axis
@@ -76,7 +79,7 @@ impl HostHandle {
         sample: &str,
         model: &str,
         params: &Params,
-    ) -> Result<RunResult, String> {
+    ) -> Result<RunResult, RpcError> {
         let params = RunParams {
             eval: eval.into(),
             sample: sample.into(),
@@ -86,7 +89,7 @@ impl HostHandle {
         let value = self
             .request("run", serde_json::to_value(params).unwrap())
             .await?;
-        serde_json::from_value(value).map_err(|e| e.to_string())
+        serde_json::from_value(value).map_err(|e| RpcError::new(e.to_string()))
     }
 
     /// Execute one cell's subject without scoring, returning the full transcript
@@ -98,7 +101,7 @@ impl HostHandle {
         sample: &str,
         model: &str,
         params: &Params,
-    ) -> Result<ExecuteResult, String> {
+    ) -> Result<ExecuteResult, RpcError> {
         let params = RunParams {
             eval: eval.into(),
             sample: sample.into(),
@@ -108,13 +111,13 @@ impl HostHandle {
         let value = self
             .request("execute", serde_json::to_value(params).unwrap())
             .await?;
-        serde_json::from_value(value).map_err(|e| e.to_string())
+        serde_json::from_value(value).map_err(|e| RpcError::new(e.to_string()))
     }
 
     /// Score a previously-captured transcript without re-executing the subject
     /// (deferred scoring / re-scoring). Requires the study to advertise the
     /// `score` capability. Safe to call concurrently from clones.
-    pub async fn score(&self, captured: &ExecuteResult) -> Result<RunResult, String> {
+    pub async fn score(&self, captured: &ExecuteResult) -> Result<RunResult, RpcError> {
         let params = ScoreParams {
             eval: captured.eval.clone(),
             sample: captured.sample.clone(),
@@ -125,7 +128,7 @@ impl HostHandle {
         let value = self
             .request("score", serde_json::to_value(params).unwrap())
             .await?;
-        serde_json::from_value(value).map_err(|e| e.to_string())
+        serde_json::from_value(value).map_err(|e| RpcError::new(e.to_string()))
     }
 
     /// Send one request and await its correlated response. Concurrency-safe: the
@@ -135,7 +138,7 @@ impl HostHandle {
         &self,
         method: &str,
         params: serde_json::Value,
-    ) -> Result<serde_json::Value, String> {
+    ) -> Result<serde_json::Value, RpcError> {
         let id = self.next_id.fetch_add(1, Ordering::SeqCst) + 1;
         let (tx, rx) = oneshot::channel();
         self.pending
@@ -148,7 +151,7 @@ impl HostHandle {
             method: method.into(),
             params,
         };
-        let mut line = serde_json::to_vec(&request).map_err(|e| e.to_string())?;
+        let mut line = serde_json::to_vec(&request).map_err(|e| RpcError::new(e.to_string()))?;
         line.push(b'\n');
         // If the write fails, drop the pending slot too — otherwise the entry
         // leaks and the reader holds a sender for a request that never completes.
@@ -162,7 +165,7 @@ impl HostHandle {
                 .lock()
                 .expect("pending mutex poisoned")
                 .remove(&id);
-            return Err(e.to_string());
+            return Err(RpcError::new(e.to_string()));
         }
 
         match rx.await {
@@ -173,7 +176,7 @@ impl HostHandle {
                     .lock()
                     .expect("pending mutex poisoned")
                     .remove(&id);
-                Err("study closed the connection".into())
+                Err(RpcError::new("study closed the connection"))
             }
         }
     }
@@ -234,11 +237,11 @@ impl Host {
         self.handle.clone()
     }
 
-    pub async fn initialize(&self, host_name: &str) -> Result<InitializeResult, String> {
+    pub async fn initialize(&self, host_name: &str) -> Result<InitializeResult, RpcError> {
         self.handle.initialize(host_name).await
     }
 
-    pub async fn list(&self) -> Result<ListResult, String> {
+    pub async fn list(&self) -> Result<ListResult, RpcError> {
         self.handle.list().await
     }
 
@@ -250,7 +253,7 @@ impl Host {
         sample: &str,
         model: &str,
         params: &Params,
-    ) -> Result<RunResult, String> {
+    ) -> Result<RunResult, RpcError> {
         self.handle.run(eval, sample, model, params).await
     }
 
@@ -262,13 +265,13 @@ impl Host {
         sample: &str,
         model: &str,
         params: &Params,
-    ) -> Result<ExecuteResult, String> {
+    ) -> Result<ExecuteResult, RpcError> {
         self.handle.execute(eval, sample, model, params).await
     }
 
     /// Score a captured transcript without re-executing (sequential convenience;
     /// see [`HostHandle::score`]).
-    pub async fn score(&self, captured: &ExecuteResult) -> Result<RunResult, String> {
+    pub async fn score(&self, captured: &ExecuteResult) -> Result<RunResult, RpcError> {
         self.handle.score(captured).await
     }
 
@@ -299,8 +302,8 @@ async fn reader_loop(
         if let Ok(response) = serde_json::from_str::<Response>(&line) {
             let result = match (response.result, response.error) {
                 (Some(result), _) => Ok(result),
-                (None, Some(err)) => Err(err.message),
-                (None, None) => Err("empty response".into()),
+                (None, Some(err)) => Err(err),
+                (None, None) => Err(RpcError::new("empty response")),
             };
             if let Some(tx) = pending
                 .lock()
@@ -319,6 +322,6 @@ async fn reader_loop(
     // EOF: nothing more will arrive, so unblock every outstanding waiter.
     let mut pending = pending.lock().expect("pending mutex poisoned");
     for (_, tx) in pending.drain() {
-        let _ = tx.send(Err("study closed the connection".into()));
+        let _ = tx.send(Err(RpcError::new("study closed the connection")));
     }
 }

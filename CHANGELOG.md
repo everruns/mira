@@ -8,6 +8,16 @@ adheres to [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- **Structured RPC errors** (protocol `1.5`) — the response `error` object is
+  promoted from `{ message }` to the JSON-RPC-shaped
+  `{ code, message, retryable, data }`. A protocol-level failure can now be
+  *classified* (a `code`) and *retried* (a `retryable` hint) without parsing the
+  human message: the host re-attempts retryable RPC errors just like infra-errored
+  transcripts, and the study tags bad params / unknown methods with the standard
+  JSON-RPC codes. All new fields are optional and defaulted, so a `1.4`-era peer
+  that sends bare `{ "message": "…" }` still parses. The host request path carries
+  the structured `RpcError` end-to-end (`mira::protocol::RpcError`, `codes`).
+
 - **Python SDK** (`sdks/python`) — a native, pure-stdlib library for authoring
   Mira eval studies in Python (no Rust dependency). Speaks the protocol over
   stdio; its wire types are **generated from `schema/v1/`** (the same contract

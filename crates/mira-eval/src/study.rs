@@ -30,8 +30,8 @@ use tokio::task::JoinSet;
 use crate::eval::Eval;
 use crate::protocol::{
     AxisInfo, EvalInfo, ExecuteResult, InitializeResult, ListResult, ModelInfo, Notification,
-    PROTOCOL_VERSION, Request, Response, RunParams, RunResult, SampleInfo, ScoreParams,
-    TranscriptSummary, capabilities,
+    PROTOCOL_VERSION, Request, Response, RpcError, RunParams, RunResult, SampleInfo, ScoreParams,
+    TranscriptSummary, capabilities, codes,
 };
 use crate::registry::registered_evals;
 use crate::runner::{aggregate_value, execute_cell, run_cell, score_transcript, verdict};
@@ -146,7 +146,13 @@ impl Study {
             "run" => {
                 let params: RunParams = match serde_json::from_value(request.params.clone()) {
                     Ok(p) => p,
-                    Err(e) => return Response::err(request.id, format!("bad run params: {e}")),
+                    Err(e) => {
+                        return Response::err_with(
+                            request.id,
+                            RpcError::new(format!("bad run params: {e}"))
+                                .with_code(codes::INVALID_PARAMS),
+                        );
+                    }
                 };
                 // Progress so the host can render a live spinner / log.
                 let _ = write_line(
@@ -162,7 +168,13 @@ impl Study {
             "execute" => {
                 let params: RunParams = match serde_json::from_value(request.params.clone()) {
                     Ok(p) => p,
-                    Err(e) => return Response::err(request.id, format!("bad execute params: {e}")),
+                    Err(e) => {
+                        return Response::err_with(
+                            request.id,
+                            RpcError::new(format!("bad execute params: {e}"))
+                                .with_code(codes::INVALID_PARAMS),
+                        );
+                    }
                 };
                 let _ = write_line(
                     stdout,
@@ -177,14 +189,24 @@ impl Study {
             "score" => {
                 let params: ScoreParams = match serde_json::from_value(request.params.clone()) {
                     Ok(p) => p,
-                    Err(e) => return Response::err(request.id, format!("bad score params: {e}")),
+                    Err(e) => {
+                        return Response::err_with(
+                            request.id,
+                            RpcError::new(format!("bad score params: {e}"))
+                                .with_code(codes::INVALID_PARAMS),
+                        );
+                    }
                 };
                 match self.score(&params).await {
                     Ok(result) => Response::ok(request.id, json(&result)),
                     Err(e) => Response::err(request.id, e),
                 }
             }
-            other => Response::err(request.id, format!("unknown method: {other}")),
+            other => Response::err_with(
+                request.id,
+                RpcError::new(format!("unknown method: {other}"))
+                    .with_code(codes::METHOD_NOT_FOUND),
+            ),
         }
     }
 

@@ -27,7 +27,13 @@ from ._wire import (
 )
 from .scorers import Scorer, make_score
 
-PROTOCOL_VERSION = "1.4"
+PROTOCOL_VERSION = "1.5"
+
+# JSON-RPC error codes for the structured `error` object (mirrors the Rust
+# `protocol::codes`). All caller mistakes here are non-retryable.
+_CODE_METHOD_NOT_FOUND = -32601
+_CODE_INVALID_PARAMS = -32602
+_CODE_INTERNAL_ERROR = -32603
 
 
 # ----- authoring types --------------------------------------------------------
@@ -222,6 +228,22 @@ def log(msg: str) -> None:
     print(msg, file=sys.stderr, flush=True)
 
 
+def _rpc_error(exc: Exception) -> dict:
+    """Build a JSON-RPC-shaped `error` object, classifying the failure so the host
+    can distinguish a caller mistake from an internal one (mirrors the Rust side).
+    All these are non-retryable, so `retryable` is left at its default `false`."""
+    message = str(exc)
+    if message.startswith("unknown method"):
+        code = _CODE_METHOD_NOT_FOUND
+    elif isinstance(exc, (KeyError, ValueError)):
+        # Unknown eval/sample/model or a malformed request — the caller's mistake.
+        code = _CODE_INVALID_PARAMS
+        message = message.strip("'") if isinstance(exc, KeyError) else message
+    else:
+        code = _CODE_INTERNAL_ERROR
+    return {"code": code, "message": message}
+
+
 def serve(study: Study, stdin=None, stdout=None) -> None:
     """Drive `study` over newline-delimited JSON. One object per line in; one
     Response/Notification per line out. Loops until stdin EOF."""
@@ -246,5 +268,5 @@ def serve(study: Study, stdin=None, stdout=None) -> None:
             result = study.handle(msg.get("method"), msg.get("params") or {})
             emit({"id": rid, "result": result})
         except Exception as exc:  # report, don't crash the loop
-            emit({"id": rid, "error": {"message": str(exc)}})
+            emit({"id": rid, "error": _rpc_error(exc)})
     log(f"{study.name}: stdin closed, exiting")
