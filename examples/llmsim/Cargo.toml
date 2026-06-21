@@ -1,0 +1,22 @@
+[package]
+name = "mira-example-llmsim"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+homepage.workspace = true
+description = "Mira example: drive a real everruns-runtime session via RuntimeSubject"
+publish = false
+
+[[bin]]
+name = "llmsim"
+path = "src/main.rs"
+
+[dependencies]
+mira-eval.workspace = true
+mira-everruns.workspace = true
+everruns-core.workspace = true
+everruns-runtime.workspace = true
+tokio.workspace = true

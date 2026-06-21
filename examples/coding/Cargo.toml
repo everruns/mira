@@ -1,0 +1,19 @@
+[package]
+name = "mira-example-coding"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+homepage.workspace = true
+description = "Mira example: a coding-agent eval with file/tool/cost scorers"
+publish = false
+
+[[bin]]
+name = "coding"
+path = "src/main.rs"
+
+[dependencies]
+mira-eval.workspace = true
+tokio.workspace = true

@@ -1,0 +1,29 @@
+[package]
+name = "mira-cli"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+homepage.workspace = true
+keywords.workspace = true
+categories.workspace = true
+documentation = "https://docs.rs/mira-cli"
+description = "The `mira` host CLI: run code-defined evals across a model matrix"
+readme = "README.md"
+
+# Installs as the `mira` binary even though the crates.io package is `mira-cli`.
+# `doc = false`: the binary's docs would collide with the `mira` library's at
+# target/doc/mira; the CLI is documented in its README and `--help`.
+[[bin]]
+name = "mira"
+path = "src/main.rs"
+doc = false
+
+[dependencies]
+mira-eval.workspace = true
+tokio.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+clap.workspace = true

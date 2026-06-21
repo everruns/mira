@@ -1,0 +1,19 @@
+[package]
+name = "mira-example-greet"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+homepage.workspace = true
+description = "Mira example: a minimal in-process eval with the #[eval] attribute"
+publish = false
+
+[[bin]]
+name = "greet"
+path = "src/main.rs"
+
+[dependencies]
+mira-eval.workspace = true
+tokio.workspace = true
