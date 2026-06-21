@@ -57,7 +57,7 @@ A line is classified by its fields:
 | Field | Type | Notes |
 |-------|------|-------|
 | `id` | integer | Monotonic, unique per request. Correlates the response. |
-| `method` | string | One of `initialize`, `list`, `run`. |
+| `method` | string | One of `initialize`, `list`, `run`, `execute`, `score`. |
 | `params` | object | Method-specific; may be absent for parameterless methods. |
 
 ### Response (study → host)
@@ -91,31 +91,33 @@ study.
 **Params**
 
 ```json
-{ "protocol_version": "1.0", "host": "mira-cli" }
+{ "protocol_version": "1.1", "host": "mira-cli" }
 ```
 
 **Result**
 
 ```json
 {
-  "protocol_version": "1.0",
+  "protocol_version": "1.1",
   "study": "my-evals",
   "evals": 3,
   "study_version": "0.1.0",
-  "capabilities": ["axes", "events", "usage"]
+  "capabilities": ["axes", "events", "usage", "execute", "score"]
 }
 ```
 
 The study replies with the `protocol_version` it implements. Compatibility is
 by **major**: a host refuses a study whose major differs from its own; a
 differing minor is additive and tolerated (see [Versioning](#versioning)). The
-current version is **`1.0`**.
+current version is **`1.1`**.
 
 `capabilities` lets a host feature-detect additively instead of sniffing
 versions. Defined tokens: `axes` (study advertises extra axes and honours
 `run.params`), `events` (emits `event` notifications), `usage` (reports
-token/cost/timing). `study_version` and `capabilities` are optional and
-default to empty.
+token/cost/timing), `execute` (answers `execute`), `score` (answers `score`).
+`study_version` and `capabilities` are optional and default to empty. A `1.0`
+study that only implements `run` interoperates unchanged — the host simply
+won't see the `execute`/`score` capabilities.
 
 ### `list`
 
@@ -213,6 +215,66 @@ The `transcript.usage` object may also carry `cache_read_tokens` and
 and `time_to_first_token_ms` (omitted when unmeasured). All are optional and
 defaulted — older studies that omit them still validate.
 
+### `execute`
+
+Runs one cell's subject **without scoring** and returns the **full** transcript
+(raw `events` and captured `files` included, unlike `run`, which returns a
+lightweight summary). This is the run-now-score-later half of `run`: a
+long-running subject is executed once and its transcript persisted as an
+execution artifact, to be scored — or re-scored — later. Advertised by the
+`execute` capability.
+
+**Params** — identical to `run` (`{ eval, sample, model, params }`).
+
+**Result**
+
+```json
+{
+  "eval": "greet",
+  "sample": "hi",
+  "model": "sim",
+  "params": {},
+  "transcript": {
+    "final_response": "Hi! The answer is 42.",
+    "iterations": 1,
+    "tool_calls_count": 0,
+    "usage": { "input_tokens": 12, "output_tokens": 8 },
+    "events": [ "...full raw transcript..." ],
+    "files": {}
+  },
+  "skipped": false
+}
+```
+
+| Field | Type | Notes |
+|-------|------|-------|
+| `transcript` | object | The **full** transcript, including raw `events` and `files`. |
+| `skipped` | bool | True when the cell was not executed (e.g. unavailable model). |
+
+### `score`
+
+Runs an eval's scorers over a **supplied** transcript and returns the same
+`RunResult` as `run` — but without re-executing the subject. The transcript
+travels in the request, so the host can replay a stored `execute` artifact.
+Scoring depends only on the eval + sample, so the `model` label need not still
+exist. Re-issuing `score` over the same transcript is a re-score (e.g. after a
+scorer change). Advertised by the `score` capability.
+
+**Params**
+
+```json
+{
+  "eval": "greet",
+  "sample": "hi",
+  "model": "sim",
+  "params": {},
+  "transcript": { "final_response": "Hi! The answer is 42.", "...": "..." }
+}
+```
+
+**Result** — a [`RunResult`](#run), identical in shape to the `run` response
+(scores + lightweight transcript summary).
+
 #### Score
 
 ```json
@@ -268,8 +330,9 @@ invocation.
 ## Versioning
 
 The protocol uses `MAJOR.MINOR` (`PROTOCOL_VERSION`, currently `1.1`). The `1.1`
-minor added the optional `ModelInfo.provider` field (additive; a `1.0` study that
-omits it still interoperates).
+minor is additive over `1.0`: it added the optional `ModelInfo.provider` field
+and the `execute`/`score` methods plus their capabilities. A `1.0` study (or any
+study implementing only `run`) interoperates with a `1.1` host.
 
 - A **MINOR** bump is **additive**: new optional fields, new notification kinds,
   new capability tokens. A newer peer must keep talking to an older one.
@@ -285,7 +348,7 @@ Forward compatibility is a hard requirement on both sides:
    defaults (empty map/list, `0`, `null`), so an older study that omits them
    still validates against a newer host.
 3. **Feature-detect via `capabilities`**, not version sniffing, for optional
-   behaviour (`axes`, `events`, `usage`).
+   behaviour (`axes`, `events`, `usage`, `execute`, `score`).
 
 This is why a `0.x`-era study (no `axes`, no `timing`) and a `1.0` host
 interoperate: the host sees an empty `axes`/`capabilities` and a model-only
@@ -305,3 +368,8 @@ A minimal study is a stdio loop that:
 No Mira dependency is required — only the JSON shapes above. This is how
 non-Rust agents (a Python SWE-bench harness, a Node agent) plug in as
 first-class studies.
+
+To support deferred / re-scoring, a study may additionally implement `execute`
+(return the full transcript, no scoring) and `score` (score a supplied
+transcript), advertising the matching capabilities. These are optional: a study
+that implements only `run` is fully conforming.
