@@ -19,6 +19,7 @@ members = [
     "examples/llmsim",
     "examples/llm_judge",
     "examples/infra",
+    "examples/multimodal",
 ]
 
 [workspace.package]

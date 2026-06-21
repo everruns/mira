@@ -340,3 +340,71 @@ primarily through *open vocabularies* — `metrics` (numeric), `metadata`
 stages it behind `#[cfg(feature = "protocol-unstable")]`; the generator builds
 without it, so the committed schema describes only the stable protocol until the
 addition is promoted (and earns its minor bump).
+
+## 14. Multimodality, interactive evals, and capability parameters
+
+Three limitations of the v0.1 cut, addressed (or seamed) together because they
+share a root: the core types were *text-shaped* and *single-shot*.
+
+### 14.1 Content model (`Part`)
+
+`mira::content::Part` is a small, typed vocabulary for one piece of content —
+`Text`, `Image`, `Audio`, `File`, or `Json` (the structured-output escape
+hatch). Media is **referenced, not embedded**: a media part carries a
+`media_type` plus either a `uri` (URL or `data:` URI) or inline base64 `data`,
+never raw bytes — so a `Part` is plain JSON that rides the wire and JSONL
+datasets unchanged, and the core stays codec-free. The text fields
+(`Sample::input`, `Transcript::final_response`) remain the canonical text path;
+`Part` lists carry what text can't.
+
+### 14.2 Multimodal inputs — stable, off-wire
+
+A `Sample` gains `attachments: Vec<Part>` (images/audio/files/JSON alongside the
+text turns); `Sample::prompt_parts()` fuses text turns + attachments into one
+ordered `Part` list for a multimodal subject, and `Sample::modalities()` reports
+the distinct kinds. This needs **no protocol change**: `Sample` is not a wire
+type — the study owns the dataset and the host addresses samples by id — so the
+schema, `PROTOCOL_VERSION`, and the SDKs are untouched. Example:
+`examples/multimodal/`.
+
+### 14.3 Multimodal outputs — staged behind `protocol-unstable`
+
+`Transcript` (and its wire summary) gain `output: Vec<Part>` — the response as
+typed parts, with `final_response` kept as the canonical text projection so
+text-only scorers keep working. A modality scorer (`scorer::produced_modality`)
+grades it. Because `Transcript` *is* a wire type (it rides in `execute`/`score`),
+this lands behind `#[cfg(feature = "protocol-unstable")]` per §13 — exercised
+in-tree (`cargo test --features protocol-unstable`, `clippy --all-features`) but
+kept off the committed schema. **Promotion path:** drop the `cfg`s on
+`Transcript::output` / `TranscriptSummary::output` / `produced_modality`,
+regenerate `schema/`, mirror in the SDKs, and earn the minor bump — done as a
+single focused change once concurrent protocol work settles, so it doesn't race
+another version bump.
+
+### 14.4 Interactive / multi-turn evals — seam
+
+Today `Subject::run(&Sample, &RunCx) -> Transcript` runs to completion in one
+shot; multi-turn `Sample::input` is replayed, not *exchanged*. A simulated-user
+loop (the subject yields, an environment/user responds, repeat) is a defined
+seam, not yet built:
+
+- **Authoring** — a `Responder` on the `Eval` (a closure or a model-graded
+  "user") that, given the transcript so far, returns the next input `Part`s or
+  signals "done". The dataset already carries the opening turns.
+- **Execution** — a turn-exchange driver around the subject; `max_turns` (already
+  present) bounds it. In-process first; the protocol gains an additive
+  `interactive` capability and per-turn `event` notifications (the `events`
+  capability already streams turns) before a wire method is needed.
+- **Scoring** — unchanged: scorers grade the final `Transcript`, whose `events`
+  already capture the full exchange.
+
+### 14.5 Capability parameters — seam
+
+`capabilities: Vec<String>` carries bare tokens; it can't express *config* (which
+event kinds a study emits, supported input/output modalities, a concurrency
+hint). The additive extension is a sibling `capability_params` map
+(`token → JSON`) on `InitializeResult` — open-vocabulary like `metadata`, so new
+keys need no version bump — staged behind `protocol-unstable` until a first real
+consumer (e.g. modality advertisement for §14.3) justifies promotion. The host
+reads it the same way it reads `capabilities`: additively, defaulting to today's
+behaviour when absent.

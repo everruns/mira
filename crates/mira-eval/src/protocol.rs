@@ -444,6 +444,14 @@ pub struct TranscriptSummary {
     /// infra-errored cells. Defaulted/omitted for the common subject case.
     #[serde(default, skip_serializing_if = "crate::ErrorKind::is_subject")]
     pub error_kind: crate::ErrorKind,
+    /// EXPERIMENTAL (gated behind `protocol-unstable`): the run's multimodal
+    /// output parts (see [`Transcript::output`](crate::Transcript::output)),
+    /// carried in the lightweight summary so results/checkpoints retain the
+    /// non-text modalities, not just `final_response`. Staged off the committed
+    /// schema until promotion.
+    #[cfg(feature = "protocol-unstable")]
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub output: Vec<crate::Part>,
     /// EXPERIMENTAL (gated behind `protocol-unstable`): reserved staging slot for
     /// the next *structural* wire addition — the kind the open `metrics`/`metadata`
     /// maps can't express (those carry numeric/string key-values; a new typed
@@ -474,6 +482,8 @@ impl TranscriptSummary {
             // No source on the core `Transcript` yet — left unset until promoted.
             #[cfg(feature = "protocol-unstable")]
             experimental: None,
+            #[cfg(feature = "protocol-unstable")]
+            output: t.output.clone(),
         }
     }
 }

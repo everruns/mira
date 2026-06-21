@@ -43,6 +43,7 @@
 #![forbid(unsafe_code)]
 
 pub mod aggregate;
+pub mod content;
 pub mod dataset;
 pub mod eval;
 pub mod exec;
@@ -88,6 +89,7 @@ pub use inventory;
 pub use mira_macros::eval;
 
 pub use aggregate::{TrialAggregate, aggregate_trials};
+pub use content::Part;
 pub use dataset::{Dataset, Sample};
 pub use eval::{Case, Eval};
 pub use exec::{Concurrency, run_cells};
@@ -300,6 +302,20 @@ pub struct Transcript {
     /// [`metric_at_least`]: crate::scorer::metric_at_least
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub metrics: BTreeMap<String, f64>,
+    /// EXPERIMENTAL (gated behind `protocol-unstable`): multimodal output —
+    /// the response as an ordered list of typed [`Part`]s (text, image, audio,
+    /// file, structured JSON) for subjects whose result isn't plain text.
+    /// `final_response` stays the canonical *text* projection (a text-only
+    /// scorer keeps working); `output` carries the modalities text can't.
+    ///
+    /// Staged behind the feature because [`Transcript`] is a wire type (it
+    /// rides in `execute`/`score`): keeping the field off the committed schema
+    /// until the design settles avoids a premature `PROTOCOL_VERSION` bump.
+    /// Promotion path: drop the `cfg`, regenerate `schema/`, and earn a minor
+    /// bump. See `specs/architecture.md`.
+    #[cfg(feature = "protocol-unstable")]
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub output: Vec<Part>,
     /// Free-form metadata: observability links, run ids, etc.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub metadata: Metadata,
@@ -432,6 +448,25 @@ impl Transcript {
     /// Look up a custom numeric metric by name.
     pub fn metric(&self, name: &str) -> Option<f64> {
         self.metrics.get(name).copied()
+    }
+
+    /// Attach multimodal output parts, keeping `final_response` as the canonical
+    /// text projection. Builder-style: `Transcript::response(text).with_output(parts)`.
+    ///
+    /// EXPERIMENTAL — see [`Transcript::output`].
+    #[cfg(feature = "protocol-unstable")]
+    pub fn with_output(mut self, parts: impl IntoIterator<Item = Part>) -> Self {
+        self.output = parts.into_iter().collect();
+        self
+    }
+
+    /// The distinct output modalities present (`text`, `image`, …), in first-seen
+    /// order. Empty when no multimodal `output` was recorded.
+    ///
+    /// EXPERIMENTAL — see [`Transcript::output`].
+    #[cfg(feature = "protocol-unstable")]
+    pub fn output_modalities(&self) -> Vec<&'static str> {
+        content::modalities(&self.output)
     }
 }
 
@@ -698,6 +733,23 @@ mod tests {
         assert_eq!(t.metric("inf"), None);
         // What we kept must serialize as JSON (non-finite floats would error).
         serde_json::to_string(&t).expect("transcript with metrics serializes");
+    }
+
+    #[cfg(feature = "protocol-unstable")]
+    #[test]
+    fn multimodal_output_rides_alongside_text() {
+        let t = Transcript::response("a cat on a mat").with_output([
+            Part::text("a cat on a mat"),
+            Part::image_uri("image/png", "https://x/cat.png"),
+        ]);
+        // final_response stays the canonical text; output carries the modalities.
+        assert_eq!(t.final_response, "a cat on a mat");
+        assert_eq!(t.output_modalities(), vec!["text", "image"]);
+        // Round-trips, and the staged field is present when the feature is on.
+        let json = serde_json::to_string(&t).unwrap();
+        assert!(json.contains(r#""kind":"image""#));
+        let back: Transcript = serde_json::from_str(&json).unwrap();
+        assert_eq!(back.output, t.output);
     }
 
     #[test]

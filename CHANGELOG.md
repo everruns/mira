@@ -50,6 +50,7 @@ adheres to [Semantic Versioning](https://semver.org/).
   a version bump) fails CI until the SDK tracks it. Closes the version/method/
   capability drift gaps that wire-type codegen alone didn't cover; `specs/sdks.md`
   §3 now states exactly what the guards do and don't catch.
+<<<<<<< HEAD
 - **Per-sample and per-model metadata on the wire** (protocol `1.7`) — `list` now
   carries `samples[].metadata` (repo, difficulty, dataset split, …) and
   `models[].metadata` (agent, underlying model, effort, price, sandbox, …)
@@ -64,6 +65,19 @@ adheres to [Semantic Versioning](https://semver.org/).
   sample metadata, model metadata, then transcript metadata. The breakdown prints
   to the terminal and is folded into the JSON (`groups` block), Markdown, and HTML
   reports (and the saved-run bundle).
+- **Multimodal content** (`mira::content::Part`) — a typed vocabulary for non-text
+  content (`text` / `image` / `audio` / `file` / `json`); media is *referenced*
+  (`media_type` + `uri` or inline base64 `data`), so a part is plain JSON with no
+  codecs in the core. **Multimodal inputs** land stable: `Sample::attachments`
+  carries images/audio/files alongside the text turns, `Sample::prompt_parts()`
+  fuses them into one ordered list for a subject, and `Sample::modalities()`
+  reports the kinds — no protocol change (a `Sample` isn't a wire type). New
+  runnable example `examples/multimodal/`. **Multimodal outputs**
+  (`Transcript::output`, the `produced_modality` scorer) are **staged behind the
+  `protocol-unstable` feature** — `Transcript` is a wire type, so they stay off
+  the committed schema until promoted (see `specs/architecture.md` §14, which also
+  seams interactive/multi-turn evals and structured capability parameters).
+  `final_response` remains the canonical text projection throughout.
 - **Python SDK** (`sdks/python`) — a native, pure-stdlib library for authoring
   Mira eval studies in Python (no Rust dependency). Speaks the protocol over
   stdio; its wire types are **generated from `schema/v1/`** (the same contract

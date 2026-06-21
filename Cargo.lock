@@ -2106,6 +2106,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "mira-example-multimodal"
+version = "0.1.0"
+dependencies = [
+ "mira-eval",
+ "tokio",
+]
+
+[[package]]
 name = "mira-example-swe_bench"
 version = "0.1.0"
 dependencies = [
