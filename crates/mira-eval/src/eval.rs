@@ -9,7 +9,7 @@ use std::sync::Arc;
 use crate::model::ModelSpec;
 use crate::scorer::Scorer;
 use crate::subject::Subject;
-use crate::{Dataset, Metadata, Sample};
+use crate::{Dataset, Metadata, Params, Sample};
 
 /// A dataset row, in eval-authoring terms.
 pub type Case = Sample;
@@ -56,8 +56,8 @@ impl Eval {
     /// Every combination of axis values, as `params` maps, in cross-product
     /// order. Always yields at least one (empty) map, so a no-axis eval runs a
     /// single cell per `(sample, model)`.
-    pub fn axis_combinations(&self) -> Vec<Metadata> {
-        let mut combos = vec![Metadata::new()];
+    pub fn axis_combinations(&self) -> Vec<Params> {
+        let mut combos = vec![Params::new()];
         for axis in &self.axes {
             let mut next = Vec::new();
             for combo in &combos {
@@ -194,7 +194,9 @@ impl EvalBuilder {
     }
 
     /// Attach a metadata key/value (provenance, suite, observability links).
-    pub fn meta(mut self, key: impl Into<String>, value: impl Into<String>) -> Self {
+    /// The value is open-ended JSON, so `"smoke"`, `3`, or a nested object all
+    /// work.
+    pub fn meta(mut self, key: impl Into<String>, value: impl Into<serde_json::Value>) -> Self {
         self.metadata.insert(key.into(), value.into());
         self
     }

@@ -20,7 +20,7 @@ use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader, Lines};
 use tokio::process::{Child, ChildStdin, ChildStdout, Command};
 use tokio::sync::{Mutex, oneshot};
 
-use crate::Metadata;
+use crate::Params;
 use crate::protocol::{
     ExecuteResult, InitializeResult, ListResult, Notification, PROTOCOL_VERSION, Request, Response,
     RunParams, RunResult, ScoreParams,
@@ -75,7 +75,7 @@ impl HostHandle {
         eval: &str,
         sample: &str,
         model: &str,
-        params: &Metadata,
+        params: &Params,
     ) -> Result<RunResult, String> {
         let params = RunParams {
             eval: eval.into(),
@@ -97,7 +97,7 @@ impl HostHandle {
         eval: &str,
         sample: &str,
         model: &str,
-        params: &Metadata,
+        params: &Params,
     ) -> Result<ExecuteResult, String> {
         let params = RunParams {
             eval: eval.into(),
@@ -249,7 +249,7 @@ impl Host {
         eval: &str,
         sample: &str,
         model: &str,
-        params: &Metadata,
+        params: &Params,
     ) -> Result<RunResult, String> {
         self.handle.run(eval, sample, model, params).await
     }
@@ -261,7 +261,7 @@ impl Host {
         eval: &str,
         sample: &str,
         model: &str,
-        params: &Metadata,
+        params: &Params,
     ) -> Result<ExecuteResult, String> {
         self.handle.execute(eval, sample, model, params).await
     }

@@ -24,7 +24,7 @@ use std::time::{Duration, Instant};
 
 use tokio::task::JoinSet;
 
-use crate::Metadata;
+use crate::Params;
 use crate::protocol::{RunResult, TranscriptSummary};
 
 /// Consecutive successes a provider needs before its limit grows by one.
@@ -42,7 +42,7 @@ pub struct CellSpec {
     /// Provider id used for per-provider concurrency bucketing. Empty groups all
     /// such cells together (e.g. a foreign study that omits provider in `list`).
     pub provider: String,
-    pub params: Metadata,
+    pub params: Params,
 }
 
 impl CellSpec {
@@ -375,7 +375,7 @@ mod tests {
             sample: id.into(),
             model: format!("{provider}/m"),
             provider: provider.into(),
-            params: Metadata::new(),
+            params: Params::new(),
         }
     }
 

@@ -17,7 +17,7 @@ extend *data* by carrying it through the transcript and protocol.
 | Evaluate a new kind of system/agent | `Subject` trait (or `subject_fn` / `CliSubject`) | [subjects.md](subjects.md) |
 | Grade a transcript a new way | `Scorer` trait (or the `scorer(name, closure)` hatch) | [scorers.md](scorers.md) |
 | Judge with an LLM | `model_graded(rubric, judge)` — just a scorer | [scorers.md](scorers.md#llm-as-judge) |
-| Attach provenance / links / labels | `metadata` (string → string) | [authoring.md](authoring.md#metadata--observability) |
+| Attach provenance / links / labels | `metadata` (open-ended JSON) | [authoring.md](authoring.md#metadata--observability) |
 | Carry a custom **metric** | `Transcript.metrics` (numeric) + `metric_within`/`metric_at_least` | [metrics.md](metrics.md#adding-a-custom-metric) |
 | Stream structured run detail | `Transcript.events` (raw JSON) | [below](#events-the-structured-channel) |
 | Vary a cell on a non-model dimension | extra matrix **axes** (`.axis(name, values)`) | [authoring.md](authoring.md#extra-matrix-axes) |
@@ -56,13 +56,13 @@ pub struct Transcript {
     pub tool_calls: Vec<String>,          // tool names, in call order
     pub files: BTreeMap<String, String>,  // workspace after the run
     pub events: Vec<serde_json::Value>,   // free-form structured stream
-    pub metadata: Metadata,               // free-form string → string
+    pub metadata: Metadata,               // free-form, open-ended JSON
     pub error: Option<String>,
     pub error_kind: ErrorKind,            // Subject (default) | Infra (→ N/A, retried)
 }
 ```
 
-`Metadata` (a `BTreeMap<String, String>`) is also available on **evals**,
+`Metadata` (a `BTreeMap<String, serde_json::Value>`) is also available on **evals**,
 **samples**, and **models** — and it flows end-to-end into the JSON record and
 the HTML report (values that look like URLs render as links).
 
@@ -88,7 +88,7 @@ let recall_scorer = metric_at_least("retrieval_recall@5", 0.80);
 ```
 
 The metric then surfaces as a **pass/fail score** in every report and in the
-per-case **`metrics` block** of the JSON/HTML. `metadata` (string → string) stays
+per-case **`metrics` block** of the JSON/HTML. `metadata` (open-ended JSON) stays
 the channel for non-numeric provenance; `events` for non-scalar structured
 detail. See [metrics.md](metrics.md) for the full model.
 

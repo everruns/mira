@@ -72,8 +72,8 @@ impl Sample {
         self
     }
 
-    /// Attach a metadata key/value.
-    pub fn meta(mut self, key: impl Into<String>, value: impl Into<String>) -> Self {
+    /// Attach a metadata key/value. The value is open-ended JSON.
+    pub fn meta(mut self, key: impl Into<String>, value: impl Into<serde_json::Value>) -> Self {
         self.metadata.insert(key.into(), value.into());
         self
     }
