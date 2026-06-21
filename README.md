@@ -12,16 +12,33 @@ for multi-turn, tool-using, long-running agent trajectories.**
 [![MSRV](https://img.shields.io/badge/MSRV-1.85-blue.svg)](rust-toolchain.toml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
-Part of the [Everruns](https://everruns.com) ecosystem. Originated as the
-`proposals/mira` PoC in [everruns/everruns#2345](https://github.com/everruns/everruns/pull/2345).
+Part of the [Everruns](https://everruns.com) ecosystem.
 
 </div>
 
-Mira is a developer tool shaped like a test runner. You define evals in Rust (or
-any language that speaks the [protocol](docs/protocol.md)), and a generic host
-CLI runs them across a model matrix, scores the results, and reports — with
-selective runs, resumable checkpoints, operational-metric budgets, and CI-native
-output (including a self-contained HTML report).
+Mira is an evals toolkit. You define evals in Rust (or any language that speaks
+the [protocol](docs/protocol.md)), and a generic host CLI runs them across a
+model matrix, scores the results, and reports — with selective runs, resumable
+checkpoints, operational-metric budgets, and CI-native output (including a
+self-contained HTML report).
+
+> **Mira** — Ukrainian *міра*: measure, metric, standard. The thing an eval
+> framework is for.
+
+Three pieces and how they relate:
+
+<div align="center">
+
+<img src="docs/assets/mira-overview.svg" alt="The host runs a study; the study owns subjects and scorers; subjects evaluate models" width="640" />
+
+</div>
+
+- The **host** (`mira` CLI) owns the run: selection, the model matrix,
+  checkpoints, and reporting.
+- A **study** is your eval program. It owns the **subjects** (the things under
+  evaluation) and the **scorers**, and answers the host over the protocol.
+- A **subject** evaluates a model — in-process, an external binary, or a live
+  runtime session.
 
 ```text
 Eval = Dataset(Sample…) + Subject + [Scorer…]  ×  model matrix × axes
@@ -53,17 +70,16 @@ brew install everruns/tap/mira
 
 Works on macOS (arm64/x86_64) and Linux (x86_64). If your Homebrew enforces tap
 trust checks, trust the tap once first with `brew trust --tap everruns/tap`.
+
 Building from source instead? `cargo install mira-cli --locked`.
 
 ## Quick start
 
 Add the framework and write an eval study:
 
-```toml
-# Cargo.toml
-[dependencies]
-mira-eval = "0.1"
-tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
+```bash
+cargo add mira-eval
+cargo add tokio --features macros,rt-multi-thread
 ```
 
 ```rust
@@ -142,12 +158,12 @@ somewhere else. Mira is the one framework they can converge on:
 | [`crates/mira-macros`](crates/mira-macros) | `mira-macros` | The `#[eval]` attribute macro (re-exported as `mira::eval`). |
 | [`crates/mira-everruns`](crates/mira-everruns) | `mira-everruns` | `RuntimeSubject` over the published `everruns-runtime`. |
 | [`examples/`](examples) | per-example crates | Runnable, offline example studies (one self-contained folder each; Rust + a Python study). |
-| [`docs/`](docs) | — | Public docs: [getting started](docs/getting-started.md), [extensibility](docs/extensibility.md), and the [protocol reference](docs/protocol.md). |
-| [`specs/`](specs) | — | [Architecture](specs/architecture.md) and the [release process](specs/release-process.md). |
+| [`docs/`](docs) | — | Public docs: [how it works](docs/how-it-works.md), [getting started](docs/getting-started.md), [extensibility](docs/extensibility.md), and the [protocol reference](docs/protocol.md). |
 | [`Formula/`](Formula) | — | The Homebrew formula (mirrored to the tap on release). |
 
 ## Documentation
 
+- [How it works](docs/how-it-works.md) — the model and moving parts, end to end
 - [Getting started](docs/getting-started.md)
 - [Authoring evals](docs/authoring.md)
 - [Scorers](docs/scorers.md)
@@ -155,7 +171,6 @@ somewhere else. Mira is the one framework they can converge on:
 - [Subjects](docs/subjects.md)
 - [Extensibility](docs/extensibility.md) — the map of every extension seam
 - [The eval protocol](docs/protocol.md) — the wire format, ACP-style reference
-- [Architecture](specs/architecture.md)
 
 ## Ecosystem
 
