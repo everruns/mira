@@ -95,8 +95,8 @@ A change to behaviour updates its documentation in the same PR:
 
 - **User-facing change** → the relevant `docs/` guide.
 - **Wire-format change** → `docs/protocol.md`, which is **normative** and carries
-  the protocol version. The headline version, the `History` line, and the
-  per-method shapes must match `protocol::PROTOCOL_VERSION` and the Rust types.
+  the protocol version. The headline version and the per-method shapes must match
+  `protocol::PROTOCOL_VERSION` and the Rust types.
 - **Design decision** → the relevant file in `specs/`.
 - **Anything user-visible** → `CHANGELOG.md` under `## [Unreleased]`.
 
