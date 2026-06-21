@@ -91,14 +91,14 @@ study.
 **Params**
 
 ```json
-{ "protocol_version": "1.1", "host": "mira-cli" }
+{ "protocol_version": "1.2", "host": "mira-cli" }
 ```
 
 **Result**
 
 ```json
 {
-  "protocol_version": "1.1",
+  "protocol_version": "1.2",
   "study": "my-evals",
   "evals": 3,
   "study_version": "0.1.0",
@@ -109,7 +109,7 @@ study.
 The study replies with the `protocol_version` it implements. Compatibility is
 by **major**: a host refuses a study whose major differs from its own; a
 differing minor is additive and tolerated (see [Versioning](#versioning)). The
-current version is **`1.1`**.
+current version is **`1.2`**.
 
 `capabilities` lets a host feature-detect additively instead of sniffing
 versions. Defined tokens: `axes` (study advertises extra axes and honours
@@ -212,8 +212,11 @@ advertised in `list.axes`.
 
 The `transcript.usage` object may also carry `cache_read_tokens` and
 `reasoning_tokens` (default 0), and `transcript.timing` carries `duration_ms`
-and `time_to_first_token_ms` (omitted when unmeasured). All are optional and
-defaulted — older studies that omit them still validate.
+and `time_to_first_token_ms` (omitted when unmeasured). The optional
+`transcript.metrics` object is an open `string → number` map for custom metrics a
+study reports (e.g. `{"retrieval_recall@5": 0.83}`); hosts that don't recognise a
+key simply carry it through. All are optional and defaulted — older studies that
+omit them still validate.
 
 ### `execute`
 
@@ -329,10 +332,11 @@ invocation.
 
 ## Versioning
 
-The protocol uses `MAJOR.MINOR` (`PROTOCOL_VERSION`, currently `1.1`). The `1.1`
-minor is additive over `1.0`: it added the optional `ModelInfo.provider` field
-and the `execute`/`score` methods plus their capabilities. A `1.0` study (or any
-study implementing only `run`) interoperates with a `1.1` host.
+The protocol uses `MAJOR.MINOR` (`PROTOCOL_VERSION`, currently `1.2`), all minors
+additive over `1.0`: `1.1` added the optional `ModelInfo.provider` field and the
+`execute`/`score` methods plus their capabilities; `1.2` added the optional
+`transcript.metrics` map. A `1.0` study (or any study implementing only `run`)
+interoperates with a `1.2` host.
 
 - A **MINOR** bump is **additive**: new optional fields, new notification kinds,
   new capability tokens. A newer peer must keep talking to an older one.

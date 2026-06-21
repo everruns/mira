@@ -18,7 +18,7 @@ extend *data* by carrying it through the transcript and protocol.
 | Grade a transcript a new way | `Scorer` trait (or the `scorer(name, closure)` hatch) | [scorers.md](scorers.md) |
 | Judge with an LLM | `model_graded(rubric, judge)` — just a scorer | [scorers.md](scorers.md#llm-as-judge) |
 | Attach provenance / links / labels | `metadata` (string → string) | [authoring.md](authoring.md#metadata--observability) |
-| Carry a custom **metric** | `metadata` or `events` + a scorer that reads it | [below](#custom-metrics) |
+| Carry a custom **metric** | `Transcript.metrics` (numeric) + `metric_within`/`metric_at_least` | [metrics.md](metrics.md#adding-a-custom-metric) |
 | Stream structured run detail | `Transcript.events` (raw JSON) | [below](#events-the-structured-channel) |
 | Vary a cell on a non-model dimension | extra matrix **axes** (`.axis(name, values)`) | [authoring.md](authoring.md#extra-matrix-axes) |
 | Plug in a non-Rust study | implement the wire protocol in any language | [protocol.md](protocol.md#implementing-a-study-in-another-language) |
@@ -50,8 +50,9 @@ pub struct Transcript {
     pub final_response: String,
     pub iterations: usize,
     pub tool_calls_count: usize,
-    pub usage: Usage,                     // structured metrics: tokens + cost
-    pub timing: Timing,                   // structured metrics: duration, TTFT
+    pub usage: Usage,                     // typed metrics: tokens + cost
+    pub timing: Timing,                   // typed metrics: duration, TTFT
+    pub metrics: BTreeMap<String, f64>,   // open metrics: any numeric you measure
     pub tool_calls: Vec<String>,          // tool names, in call order
     pub files: BTreeMap<String, String>,  // workspace after the run
     pub events: Vec<serde_json::Value>,   // free-form structured stream
@@ -68,32 +69,27 @@ the HTML report (values that look like URLs render as links).
 
 Mira models two metric families as typed fields — `Usage` (input/output/cache/
 reasoning tokens, `cost_usd`) and `Timing` (`duration_ms`,
-`time_to_first_token_ms`) — and the budget scorers (`tokens_within`,
-`cost_within`, `latency_within`, …) grade them.
-
-For **your own metric**, emit it from the subject and grade it with a scorer.
-The transcript's `metadata` is the simplest channel:
+`time_to_first_token_ms`) — graded by the budget scorers (`tokens_within`,
+`cost_within`, `latency_within`, …). For **your own metric**, record it on the
+open `Transcript.metrics` map and grade it generically — no new type, and no new
+protocol version for a custom metric key (the map itself is an additive, versioned
+part of the wire):
 
 ```rust
 // In the subject: record whatever you measured (here, retrieval recall@k).
 let recall = hits_at_k as f64 / relevant_total as f64;
-let mut t = Transcript::response(response_text);
-t.metadata.insert("retrieval_recall".into(), format!("{recall:.3}"));
+let t = Transcript::response(response_text)
+    .with_metric("retrieval_recall@5", recall);
 
-// As a scorer: parse it back and turn it into a graded Score.
-use mira::{Score, scorer::scorer};
-let recall_scorer = scorer("retrieval_recall", |_sample, t| {
-    let recall: f64 = t.metadata
-        .get("retrieval_recall")
-        .and_then(|s| s.parse().ok())
-        .unwrap_or(0.0);
-    Score::graded("retrieval_recall", recall, 0.80, format!("recall={recall:.2}"))
-});
+// Grade it like any budget (higher-is-better here):
+use mira::scorer::metric_at_least;
+let recall_scorer = metric_at_least("retrieval_recall@5", 0.80);
 ```
 
-The metric then surfaces three ways: as a **pass/graded score** in every report,
-as **metadata** on the case in the JSON/HTML, and (if you also push it to
-`events`) as structured detail. For richer, non-scalar metrics, prefer `events`.
+The metric then surfaces as a **pass/fail score** in every report and in the
+per-case **`metrics` block** of the JSON/HTML. `metadata` (string → string) stays
+the channel for non-numeric provenance; `events` for non-scalar structured
+detail. See [metrics.md](metrics.md) for the full model.
 
 ### Events: the structured channel
 

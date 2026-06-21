@@ -42,9 +42,23 @@ adheres to [Semantic Versioning](https://semver.org/).
   - Library: `runner::execute_cell` / `runner::score_transcript` (with `run_cell`
     composing them), `Host::execute` / `Host::score`, and the `ExecuteResult` /
     `ScoreParams` protocol types.
-- Protocol bumped to `1.1` (additive over `1.0`): adds the optional
+- **Extensible metrics.** `Transcript.metrics` (`string → f64`) is an open
+  vocabulary for custom numeric metrics a subject reports beyond the typed
+  `Usage`/`Timing` (recall@k, energy_joules, p95 latency, …), with builder
+  helpers `with_metric` / `record_metric` / `metric`. New generic budget scorers
+  `metric_within(name, max)` and `metric_at_least(name, min)` grade them — adding
+  a custom metric *key* needs no new protocol version or core change. Non-finite
+  values (`NaN`/`±inf`) are dropped on record so reports stay serializable. The
+  map carries through the wire (`TranscriptSummary`) and surfaces in the JSON/HTML
+  reports.
+- **`docs/metrics.md`** — the metrics model (typed vs. open) and a walkthrough
+  for adding a custom metric; linked from the README, getting-started,
+  extensibility, and scorers docs. The `metrics` example now reports and grades a
+  custom `retrieval_recall@5` metric.
+- Protocol bumped additively over `1.0`: `1.1` adds the optional
   `ModelInfo.provider` field (concurrency bucketing) and the `execute`/`score`
-  methods + capabilities. A `1.0` study still interoperates.
+  methods + capabilities; `1.2` adds the optional `transcript.metrics` map. A
+  `1.0` study still interoperates; `MIN_PROTOCOL_VERSION` stays `1.0`.
 
 ## [0.1.0] - 2026-06-20
 

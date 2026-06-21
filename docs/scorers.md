@@ -50,6 +50,8 @@ matrix. `aggregate` on a cell is the mean of the values.
 | `turns_within(n)` | at most `n` reasoning iterations |
 | `latency_within(ms)` | wall-clock duration ≤ `ms` |
 | `ttft_within(ms)` | time-to-first-token ≤ `ms` (fails if unmeasured) |
+| `metric_within(name, max)` | custom metric `name` ≤ `max` (fails if unreported) |
+| `metric_at_least(name, min)` | custom metric `name` ≥ `min` (fails if unreported) |
 
 **Files**
 
@@ -90,6 +92,11 @@ Operational scorers read `Transcript.usage` (tokens incl. `cache_read` /
 and `RuntimeSubject` time the run automatically, and the JSONL event walker
 totals usage from a transcript stream. File-based scorers read `Transcript.files`
 (a `CliSubject` fills it with `.capture_files()`).
+
+`metric_within`/`metric_at_least` read the open `Transcript.metrics` map, so a
+subject can report any numeric metric the core doesn't model as a typed field
+(recall@k, energy_joules, p95 latency, …) and grade it without a new scorer type.
+See [Metrics](metrics.md) for the full model and how to add your own.
 
 ## Closures: the escape hatch
 

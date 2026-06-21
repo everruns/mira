@@ -418,6 +418,16 @@ pub fn html(results: &[RunResult]) -> String {
                 html_escape(&t.tool_calls.join(", "))
             ));
         }
+        if !t.metrics.is_empty() {
+            out.push_str("<p class=\"meta\"><b>metrics:</b> ");
+            let items: Vec<String> = t
+                .metrics
+                .iter()
+                .map(|(k, v)| format!("{}={}", html_escape(k), v))
+                .collect();
+            out.push_str(&items.join(", "));
+            out.push_str("</p>\n");
+        }
         if !t.metadata.is_empty() {
             out.push_str("<p class=\"meta\"><b>metadata:</b> ");
             let items: Vec<String> = t
