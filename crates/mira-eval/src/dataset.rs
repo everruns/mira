@@ -10,7 +10,7 @@ use std::path::Path;
 use serde::{Deserialize, Serialize};
 
 use crate::Metadata;
-use crate::content::{self, Part};
+use crate::content::Part;
 
 /// One dataset row: an input conversation plus optional target / metadata.
 ///
@@ -94,8 +94,19 @@ impl Sample {
 
     /// The distinct input modalities present (`text`, `image`, …), in first-seen
     /// order — `text` first when there are text turns, then attachment kinds.
+    /// Computed without cloning the (possibly large) attachment payloads.
     pub fn modalities(&self) -> Vec<&'static str> {
-        content::modalities(&self.prompt_parts())
+        let mut seen: Vec<&'static str> = Vec::new();
+        if !self.input.is_empty() {
+            seen.push("text");
+        }
+        for part in &self.attachments {
+            let k = part.kind();
+            if !seen.contains(&k) {
+                seen.push(k);
+            }
+        }
+        seen
     }
 
     /// Set the reference target.

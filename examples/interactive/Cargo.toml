@@ -1,0 +1,19 @@
+[package]
+name = "mira-example-interactive"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+homepage.workspace = true
+description = "Mira example: an interactive (multi-turn) eval driven by a simulated user"
+publish = false
+
+[[bin]]
+name = "interactive"
+path = "src/main.rs"
+
+[dependencies]
+mira-eval.workspace = true
+tokio.workspace = true

@@ -196,6 +196,11 @@ impl Study {
                         capabilities::TRIALS.into(),
                         capabilities::CANCEL.into(),
                     ],
+                    // EXPERIMENTAL: structured config for the advertised
+                    // capabilities (event kinds, supported modalities). Gated —
+                    // see InitializeResult::capability_params.
+                    #[cfg(feature = "protocol-unstable")]
+                    capability_params: advertised_capability_params(),
                 }),
             ),
             "list" => Response::ok(request.id, json(&self.list())),
@@ -472,6 +477,24 @@ fn json<T: serde::Serialize>(value: &T) -> serde_json::Value {
     serde_json::to_value(value).unwrap_or(serde_json::Value::Null)
 }
 
+/// EXPERIMENTAL: the structured capability config advertised in `initialize` —
+/// the `event` kinds this study emits and the content modalities it understands.
+/// Keyed by capability token (see [`InitializeResult::capability_params`]).
+#[cfg(feature = "protocol-unstable")]
+fn advertised_capability_params() -> crate::Metadata {
+    let modalities = serde_json::json!(["text", "image", "audio", "file", "json"]);
+    crate::Metadata::from([
+        (
+            capabilities::EVENTS.to_string(),
+            serde_json::json!({ "kinds": ["started"] }),
+        ),
+        (
+            "modalities".to_string(),
+            serde_json::json!({ "input": modalities, "output": modalities }),
+        ),
+    ])
+}
+
 fn log_notification(message: String) -> Notification {
     Notification {
         method: "log".into(),
@@ -523,6 +546,35 @@ mod tests {
                 .models([ModelSpec::sim().meta("agent", "demo")])
                 .build(),
         )
+    }
+
+    #[cfg(feature = "protocol-unstable")]
+    #[test]
+    fn initialize_advertises_capability_params() {
+        let init = advertised_capability_params();
+        let info = InitializeResult {
+            protocol_version: PROTOCOL_VERSION.into(),
+            study: "x".into(),
+            evals: 0,
+            study_version: None,
+            capabilities: vec![capabilities::EVENTS.into()],
+            capability_params: init,
+        };
+        // Structured config keyed by capability token, readable via the accessor.
+        let modalities = info.capability_param("modalities").unwrap();
+        assert!(
+            modalities["input"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|m| m == "image")
+        );
+        assert!(info.capability_param("events").unwrap()["kinds"][0] == "started");
+        assert!(info.capability_param("absent").is_none());
+        // Round-trips on the wire when the feature is on.
+        let back: InitializeResult =
+            serde_json::from_str(&serde_json::to_string(&info).unwrap()).unwrap();
+        assert_eq!(back.capability_params, info.capability_params);
     }
 
     #[test]

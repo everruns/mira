@@ -7,7 +7,8 @@
 //! [`run_cell`] is used by the protocol [`study`](crate::study), so in-process
 //! and over-the-wire runs score identically.
 
-use crate::eval::Eval;
+use crate::content::{Message, Part, Role};
+use crate::eval::{Eval, Responder};
 use crate::model::ModelSpec;
 use crate::{Params, RunCx, Sample, Score, Transcript, Trial, cell_key, trial_suffix};
 
@@ -16,6 +17,10 @@ use crate::{Params, RunCx, Sample, Score, Transcript, Trial, cell_key, trial_suf
 /// protocol `execute` method so a long-running subject can be run once and
 /// scored later from its stored transcript. `trial` carries this run's
 /// repetition index and seed (see [`Trial`]).
+///
+/// When the eval has a [`responder`](crate::eval::EvalBuilder::responder), this
+/// drives an **interactive** turn exchange (subject ⇄ simulated user) and
+/// accumulates the dialog into one transcript; otherwise the subject runs once.
 pub async fn execute_cell(
     eval: &Eval,
     sample: &Sample,
@@ -23,13 +28,97 @@ pub async fn execute_cell(
     params: &Params,
     trial: Trial,
 ) -> Transcript {
-    let cx = RunCx {
+    let mut cx = RunCx {
         model: model.clone(),
         max_turns: eval.max_turns,
         params: params.clone(),
         trial,
+        conversation: Vec::new(),
     };
-    eval.subject.run(sample, &cx).await
+    match &eval.responder {
+        None => eval.subject.run(sample, &cx).await,
+        Some(responder) => drive_interactive(eval, sample, &mut cx, responder.as_ref()).await,
+    }
+}
+
+/// Drive an interactive eval: invoke the subject once per turn (handing it the
+/// running conversation via [`RunCx::conversation`]), append the simulated
+/// user's reply, and repeat until the [`Responder`] ends it or `max_turns` is
+/// reached. The turns are folded into one [`Transcript`] so scoring is unchanged.
+async fn drive_interactive(
+    eval: &Eval,
+    sample: &Sample,
+    cx: &mut RunCx,
+    responder: &Responder,
+) -> Transcript {
+    // The opening user turn is the sample's (multimodal) prompt.
+    let mut convo: Vec<Message> = vec![Message::new(Role::User, sample.prompt_parts())];
+    let mut combined = Transcript::default();
+    let cap = eval.max_turns.max(1);
+
+    for turn in 1..=cap {
+        cx.conversation = convo.clone();
+        let t = eval.subject.run(sample, cx).await;
+        merge_turn(&mut combined, &t);
+        combined.iterations = turn;
+        // Record the subject's turn so the responder (and transcript) see it.
+        convo.push(Message::new(Role::Assistant, assistant_parts(&t)));
+
+        // An error ends the exchange — carry it onto the combined transcript.
+        if t.error.is_some() {
+            combined.error = t.error.clone();
+            combined.error_kind = t.error_kind;
+            break;
+        }
+        if turn == cap {
+            break;
+        }
+        // Ask the simulated user for the next turn; empty / None ends it.
+        match responder(&convo) {
+            Some(parts) if !parts.is_empty() => convo.push(Message::new(Role::User, parts)),
+            _ => break,
+        }
+    }
+
+    combined.tool_calls_count = combined.tool_calls.len();
+    combined
+}
+
+/// Fold one turn's transcript into the accumulated interactive transcript:
+/// last response wins, usage/duration/tools/events/files/metrics/metadata
+/// accumulate.
+fn merge_turn(combined: &mut Transcript, t: &Transcript) {
+    combined.final_response = t.final_response.clone();
+    combined.usage.add(&t.usage);
+    combined.timing.duration_ms += t.timing.duration_ms;
+    if combined.timing.time_to_first_token_ms.is_none() {
+        combined.timing.time_to_first_token_ms = t.timing.time_to_first_token_ms;
+    }
+    combined.tool_calls.extend(t.tool_calls.iter().cloned());
+    combined.events.extend(t.events.iter().cloned());
+    for (k, v) in &t.files {
+        combined.files.insert(k.clone(), v.clone());
+    }
+    for (k, v) in &t.metrics {
+        combined.metrics.insert(k.clone(), *v);
+    }
+    for (k, v) in &t.metadata {
+        combined.metadata.insert(k.clone(), v.clone());
+    }
+    #[cfg(feature = "protocol-unstable")]
+    {
+        combined.output = t.output.clone();
+    }
+}
+
+/// The subject's turn as conversation parts: its multimodal `output` when set
+/// (experimental), else the text `final_response`.
+fn assistant_parts(t: &Transcript) -> Vec<Part> {
+    #[cfg(feature = "protocol-unstable")]
+    if !t.output.is_empty() {
+        return t.output.clone();
+    }
+    vec![Part::text(t.final_response.clone())]
 }
 
 /// Score a (possibly previously stored) `transcript` with an eval's scorers,
@@ -414,6 +503,52 @@ mod tests {
         let report = Runner::new().add(eval).run().await;
         assert_eq!(report.total(), 1);
         assert_eq!(report.outcomes[0].key(), "e/a@sim");
+    }
+
+    #[tokio::test]
+    async fn interactive_eval_exchanges_turns() {
+        use crate::scorer::{succeeded, turns_within};
+        // The subject answers from the running conversation; the simulated user
+        // pushes back twice, then a third reply is suppressed by max_turns.
+        let eval = Eval::new("chat")
+            .case("open", "hello")
+            .max_turns(3)
+            .subject(subject_fn(|_, cx| async move {
+                // One assistant reply per turn, numbered by conversation length.
+                Transcript::response(format!("reply to {} msgs", cx.conversation.len()))
+                    .with_metric("turn_len", cx.conversation.len() as f64)
+            }))
+            .responder(|convo: &[Message]| {
+                // Keep going while under the cap; the driver enforces max_turns.
+                Some(vec![Part::text(format!("more ({})", convo.len()))])
+            })
+            .scorer(succeeded())
+            .scorer(turns_within(3))
+            .build();
+        let report = Runner::new().add(eval).run().await;
+        let out = &report.outcomes[0];
+        assert!(out.passed);
+        // Exactly max_turns subject invocations.
+        assert_eq!(out.transcript.iterations, 3);
+        // The conversation grew: turn 1 saw 1 msg (opening user), turn 3 saw 5
+        // (user, asst, user, asst, user).
+        assert!(out.transcript.final_response.contains("5 msgs"));
+    }
+
+    #[tokio::test]
+    async fn interactive_responder_can_end_early() {
+        use crate::scorer::succeeded;
+        let eval = Eval::new("chat")
+            .case("open", "hi")
+            .max_turns(10)
+            .subject(subject_fn(|_, _| async { Transcript::response("ok") }))
+            // End immediately after the first assistant turn.
+            .responder(|_: &[Message]| None)
+            .scorer(succeeded())
+            .build();
+        let report = Runner::new().add(eval).run().await;
+        // Responder ended it after one turn despite a generous max_turns.
+        assert_eq!(report.outcomes[0].transcript.iterations, 1);
     }
 
     #[tokio::test]

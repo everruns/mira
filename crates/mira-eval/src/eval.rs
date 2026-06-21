@@ -6,6 +6,7 @@
 
 use std::sync::Arc;
 
+use crate::content::{Message, Part};
 use crate::model::ModelSpec;
 use crate::scorer::Scorer;
 use crate::subject::Subject;
@@ -13,6 +14,17 @@ use crate::{Dataset, Metadata, Params, Sample};
 
 /// A dataset row, in eval-authoring terms.
 pub type Case = Sample;
+
+/// A simulated user for an **interactive** (multi-turn) eval. Given the
+/// conversation so far (ending with the subject's latest `Assistant` turn), it
+/// returns the next user [`Part`]s to send, or `None` to end the exchange.
+///
+/// The interactive driver (in [`runner`](crate::runner)) invokes the subject
+/// once per turn — passing the running conversation via
+/// [`RunCx::conversation`](crate::RunCx::conversation) — and calls the responder
+/// between turns until it returns `None` or `max_turns` is reached. Scoring is
+/// unchanged: scorers grade the final accumulated [`Transcript`](crate::Transcript).
+pub type Responder = dyn Fn(&[Message]) -> Option<Vec<Part>> + Send + Sync;
 
 /// One extra matrix axis beyond the model: a name and the discrete values it
 /// takes (e.g. `("effort", ["low", "high"])`). The runner takes the
@@ -59,6 +71,10 @@ pub struct Eval {
     /// subject reads it via [`RunCx::seed`](crate::RunCx::seed). `None` leaves
     /// seeding to the subject.
     pub seed: Option<u64>,
+    /// Optional simulated user for an interactive (multi-turn) eval. When set,
+    /// the runner drives a turn exchange (subject ⇄ responder) up to `max_turns`
+    /// instead of a single subject call. `None` for the common single-shot case.
+    pub responder: Option<Arc<Responder>>,
     pub metadata: Metadata,
 }
 
@@ -101,6 +117,7 @@ impl Eval {
             max_turns: 12,
             trials: 1,
             seed: None,
+            responder: None,
             metadata: Metadata::new(),
         }
     }
@@ -117,6 +134,7 @@ pub struct EvalBuilder {
     max_turns: usize,
     trials: usize,
     seed: Option<u64>,
+    responder: Option<Arc<Responder>>,
     metadata: Metadata,
 }
 
@@ -230,6 +248,37 @@ impl EvalBuilder {
         self
     }
 
+    /// Make this an **interactive** (multi-turn) eval driven by a simulated
+    /// user. The runner exchanges turns with the subject — sending the opening
+    /// sample, then each [`Responder`] reply — until the responder returns
+    /// `None` or `max_turns` is hit, accumulating the dialog into one transcript
+    /// that the scorers grade.
+    ///
+    /// ```
+    /// # use mira::{Eval, Part, Transcript, subject::subject_fn, scorer::succeeded};
+    /// let eval = Eval::new("haggle")
+    ///     .case("open", "I'd like a discount.")
+    ///     .max_turns(3)
+    ///     // The subject answers from the running conversation (cx.conversation).
+    ///     .subject(subject_fn(|_, cx| async move {
+    ///         Transcript::response(format!("turn {}", cx.conversation.len()))
+    ///     }))
+    ///     // The simulated user pushes back once, then stops.
+    ///     .responder(|convo: &[mira::Message]| {
+    ///         (convo.len() < 3).then(|| vec![Part::text("still too high")])
+    ///     })
+    ///     .scorer(succeeded())
+    ///     .build();
+    /// assert!(eval.responder.is_some());
+    /// ```
+    pub fn responder(
+        mut self,
+        responder: impl Fn(&[Message]) -> Option<Vec<Part>> + Send + Sync + 'static,
+    ) -> Self {
+        self.responder = Some(Arc::new(responder));
+        self
+    }
+
     /// Attach a metadata key/value (provenance, suite, observability links).
     /// The value is open-ended JSON, so `"smoke"`, `3`, or a nested object all
     /// work.
@@ -255,6 +304,7 @@ impl EvalBuilder {
             max_turns: self.max_turns,
             trials: self.trials.max(1),
             seed: self.seed,
+            responder: self.responder,
             metadata: self.metadata,
         }
     }

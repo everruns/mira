@@ -149,6 +149,46 @@ let eval = Eval::new("reasoning")
 This expands to `samples × models × effort` cells, each with a stable key like
 `reasoning/puzzle@sim[effort=high]` that selection, checkpoints, and reports use.
 
+## Interactive (multi-turn) evals
+
+By default a subject runs once per case. To evaluate a *conversation*, add a
+`.responder(..)` — a simulated user. The runner then drives a turn exchange:
+it invokes the subject once per turn with the running conversation in
+`cx.conversation`, appends the responder's reply, and repeats until the responder
+returns `None` or `max_turns` is reached. The whole dialog is folded into one
+transcript the scorers grade — so scoring is unchanged.
+
+```rust
+use mira::{Eval, Message, Part, Role, Transcript, subject::subject_fn};
+use mira::scorer::{contains, succeeded};
+
+let eval = Eval::new("clarify")
+    .case("weather", "What's the weather?")
+    .max_turns(4)
+    // The subject answers from the conversation so far.
+    .subject(subject_fn(|_s, cx| async move {
+        let answered = cx.conversation.iter()
+            .filter(|m| m.role == Role::User).nth(1).map(Message::text);
+        match answered {
+            Some(city) => Transcript::response(format!("It's sunny in {city}.")),
+            None => Transcript::response("Which city?"),
+        }
+    }))
+    // The simulated user answers the clarifying question once, then stops.
+    .responder(|convo: &[Message]| {
+        let last = convo.last()?;
+        (last.role == Role::Assistant && last.text().contains("Which city"))
+            .then(|| vec![Part::text("Paris")])
+    })
+    .scorer(succeeded())
+    .scorer(contains("sunny"))
+    .build();
+```
+
+This is in-process and needs no protocol feature — the study owns the loop. A
+model-graded responder (an LLM playing the user) is just a closure that calls a
+judge. Runnable example: `examples/interactive/`.
+
 ## Metadata & observability
 
 Metadata is free-form, open-ended `string → JSON` on evals, samples, and

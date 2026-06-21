@@ -343,8 +343,12 @@ addition is promoted (and earns its minor bump).
 
 ## 14. Multimodality, interactive evals, and capability parameters
 
-Three limitations of the v0.1 cut, addressed (or seamed) together because they
-share a root: the core types were *text-shaped* and *single-shot*.
+Three limitations of the v0.1 cut, addressed together because they share a root:
+the core types were *text-shaped* and *single-shot*. Status: multimodal **inputs**
+and **interactive** evals are stable; multimodal **output** and structured
+**capability parameters** are implemented but **staged behind `protocol-unstable`**
+(they add typed fields to wire types — see §13 — and promote together once
+concurrent protocol churn settles).
 
 ### 14.1 Content model (`Part`)
 
@@ -381,30 +385,38 @@ regenerate `schema/`, mirror in the SDKs, and earn the minor bump — done as a
 single focused change once concurrent protocol work settles, so it doesn't race
 another version bump.
 
-### 14.4 Interactive / multi-turn evals — seam
+### 14.4 Interactive / multi-turn evals — implemented (in-process)
 
-Today `Subject::run(&Sample, &RunCx) -> Transcript` runs to completion in one
-shot; multi-turn `Sample::input` is replayed, not *exchanged*. A simulated-user
-loop (the subject yields, an environment/user responds, repeat) is a defined
-seam, not yet built:
+`Subject::run` still runs once per call, but an `Eval` may now carry a
+`Responder` — a simulated user, `Fn(&[Message]) -> Option<Vec<Part>>`. When
+present, `runner::execute_cell` drives a **turn exchange**: it invokes the
+subject once per turn (handing it the running conversation via
+`RunCx::conversation`), records the subject's `Assistant` turn, asks the
+responder for the next `User` turn, and repeats until the responder returns
+`None` or `max_turns` is hit. The turns are folded into one `Transcript` (last
+response wins; usage/duration/tools/events/files/metrics accumulate), so:
 
-- **Authoring** — a `Responder` on the `Eval` (a closure or a model-graded
-  "user") that, given the transcript so far, returns the next input `Part`s or
-  signals "done". The dataset already carries the opening turns.
-- **Execution** — a turn-exchange driver around the subject; `max_turns` (already
-  present) bounds it. In-process first; the protocol gains an additive
-  `interactive` capability and per-turn `event` notifications (the `events`
-  capability already streams turns) before a wire method is needed.
-- **Scoring** — unchanged: scorers grade the final `Transcript`, whose `events`
-  already capture the full exchange.
+- **Scoring is unchanged** — scorers grade the final accumulated `Transcript`.
+- **No protocol change** — the study owns the loop; the host's `run`/`execute`
+  call is identical, so this is stable and needs no wire feature. (A future
+  *host-driven* exchange would add an additive `interactive` capability and
+  per-turn `event` notifications, but the in-process driver covers the common
+  simulated-user case.)
 
-### 14.5 Capability parameters — seam
+Example: `examples/interactive/` (a clarify-then-answer dialog). A
+model-graded responder (an LLM playing the user) is just a closure that calls a
+judge, no new machinery.
+
+### 14.5 Capability parameters — implemented (staged)
 
 `capabilities: Vec<String>` carries bare tokens; it can't express *config* (which
 event kinds a study emits, supported input/output modalities, a concurrency
-hint). The additive extension is a sibling `capability_params` map
-(`token → JSON`) on `InitializeResult` — open-vocabulary like `metadata`, so new
-keys need no version bump — staged behind `protocol-unstable` until a first real
-consumer (e.g. modality advertisement for §14.3) justifies promotion. The host
-reads it the same way it reads `capabilities`: additively, defaulting to today's
-behaviour when absent.
+hint). `InitializeResult` gains a sibling `capability_params` map
+(`token → JSON`, via `capability_param(token)`) — open-vocabulary like
+`metadata`, so new keys never need a version bump. The study advertises it from
+`initialize` (event kinds + supported modalities); a host reads it additively,
+defaulting to today's behaviour when a token is absent. Staged behind
+`protocol-unstable` (it's a new typed field on a wire type, and has no stable
+consumer yet) per §13; **promotion path:** drop the `cfg`, regenerate `schema/`,
+mirror in the SDKs, earn the minor bump — folded into the same promotion as
+§14.3 once protocol churn settles.

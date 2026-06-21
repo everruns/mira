@@ -243,6 +243,26 @@ pub struct InitializeResult {
     /// an older study that omits it is treated as base-only.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub capabilities: Vec<String>,
+    /// EXPERIMENTAL (gated behind `protocol-unstable`): structured **config** for
+    /// capabilities, keyed by capability token — the data a bare
+    /// [`capabilities`](Self::capabilities) string can't carry (which event
+    /// kinds the study emits, the input/output modalities it supports, a
+    /// concurrency hint, …). Open-vocabulary like `metadata`, so new keys need no
+    /// version bump; a host reads it additively, falling back to today's
+    /// behaviour when a token is absent. Staged off the committed schema until a
+    /// real consumer justifies promotion (architecture §14.5).
+    #[cfg(feature = "protocol-unstable")]
+    #[serde(default, skip_serializing_if = "Metadata::is_empty")]
+    pub capability_params: Metadata,
+}
+
+#[cfg(feature = "protocol-unstable")]
+impl InitializeResult {
+    /// The structured config a study advertised for `capability`, if any (see
+    /// [`capability_params`](Self::capability_params)).
+    pub fn capability_param(&self, capability: &str) -> Option<&serde_json::Value> {
+        self.capability_params.get(capability)
+    }
 }
 
 /// Capability tokens a study may advertise in [`InitializeResult::capabilities`].

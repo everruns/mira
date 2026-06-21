@@ -50,7 +50,6 @@ adheres to [Semantic Versioning](https://semver.org/).
   a version bump) fails CI until the SDK tracks it. Closes the version/method/
   capability drift gaps that wire-type codegen alone didn't cover; `specs/sdks.md`
   §3 now states exactly what the guards do and don't catch.
-<<<<<<< HEAD
 - **Per-sample and per-model metadata on the wire** (protocol `1.7`) — `list` now
   carries `samples[].metadata` (repo, difficulty, dataset split, …) and
   `models[].metadata` (agent, underlying model, effort, price, sandbox, …)
@@ -75,9 +74,21 @@ adheres to [Semantic Versioning](https://semver.org/).
   runnable example `examples/multimodal/`. **Multimodal outputs**
   (`Transcript::output`, the `produced_modality` scorer) are **staged behind the
   `protocol-unstable` feature** — `Transcript` is a wire type, so they stay off
-  the committed schema until promoted (see `specs/architecture.md` §14, which also
-  seams interactive/multi-turn evals and structured capability parameters).
+  the committed schema until promoted (see `specs/architecture.md` §14).
   `final_response` remains the canonical text projection throughout.
+- **Interactive / multi-turn evals** — an `Eval` may carry a `.responder(..)` (a
+  simulated user, `Fn(&[Message]) -> Option<Vec<Part>>`). The runner then drives
+  a turn exchange — invoking the subject once per turn with the running
+  conversation in `RunCx::conversation`, appending the responder's reply, until
+  it ends or `max_turns` is hit — and folds the dialog into one transcript the
+  scorers grade. **Stable, no protocol change** (the study owns the loop). New
+  types `Message`/`Role`; example `examples/interactive/`.
+- **Structured capability parameters** — `InitializeResult.capability_params`
+  (`token → JSON`, read via `capability_param(token)`) lets a study advertise
+  *config* a bare capability token can't carry (event kinds, supported
+  input/output modalities, concurrency hints). Open-vocabulary like `metadata`.
+  **Staged behind `protocol-unstable`** (a new typed wire field with no stable
+  consumer yet); see `specs/architecture.md` §14.5.
 - **Python SDK** (`sdks/python`) — a native, pure-stdlib library for authoring
   Mira eval studies in Python (no Rust dependency). Speaks the protocol over
   stdio; its wire types are **generated from `schema/v1/`** (the same contract

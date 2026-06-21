@@ -89,7 +89,7 @@ pub use inventory;
 pub use mira_macros::eval;
 
 pub use aggregate::{TrialAggregate, aggregate_trials};
-pub use content::Part;
+pub use content::{Message, Part, Role, Source};
 pub use dataset::{Dataset, Sample};
 pub use eval::{Case, Eval};
 pub use exec::{Concurrency, run_cells};
@@ -574,17 +574,27 @@ pub struct RunCx {
     /// [`Trial::seed`] so the run is reproducible. [`Trial::single`] for an
     /// unrepeated cell.
     pub trial: Trial,
+    /// The conversation so far, for an **interactive** (multi-turn) eval: the
+    /// alternating `User`/`Assistant` [`Message`]s leading up to this call, with
+    /// the latest `User` turn last. Empty on the first call and for single-shot
+    /// evals (the subject reads the [`Sample`] directly then). A multi-turn-aware
+    /// subject reconstructs its context from this each call (it is invoked once
+    /// per turn). Populated by the interactive driver; see [`Eval::responder`].
+    ///
+    /// [`Eval::responder`]: crate::eval::EvalBuilder::responder
+    pub conversation: Vec<Message>,
 }
 
 impl RunCx {
-    /// A context for `model` with default limits, no extra axis params, and a
-    /// single (unrepeated, unseeded) trial.
+    /// A context for `model` with default limits, no extra axis params, a single
+    /// (unrepeated, unseeded) trial, and an empty conversation.
     pub fn new(model: ModelSpec) -> Self {
         Self {
             model,
             max_turns: 12,
             params: Params::new(),
             trial: Trial::single(),
+            conversation: Vec::new(),
         }
     }
 
