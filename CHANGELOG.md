@@ -6,6 +6,19 @@ adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- **Live progress bar** for `mira run` — shows `done/total`, elapsed time, ETA,
+  and the current cell on an interactive terminal. The total is exact (the host
+  plans the full grid up front). Hidden under CI/non-TTY so it doesn't pollute
+  logs.
+- **Evaluation sessions** (`mira::session::Session`) — `--checkpoint` now writes a
+  first-class session record (study, planned `total`, created/updated timestamps,
+  per-eval definition fingerprints, and per-cell results) instead of a bare
+  results array. A resume reports accurate `done/total` progress and **warns when
+  a cached cell is stale** because its eval definition changed
+  (scorers/axes/models/samples/metadata/`max_turns`); `--fresh` recomputes.
+
 ## [0.1.0] - 2026-06-20
 
 Initial release.

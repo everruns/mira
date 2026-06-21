@@ -51,6 +51,7 @@ pub mod registry;
 pub mod report;
 pub mod runner;
 pub mod scorer;
+pub mod session;
 pub mod study;
 pub mod subject;
 
@@ -91,6 +92,7 @@ pub use model::ModelSpec;
 pub use registry::registered_evals;
 pub use runner::{CaseOutcome, RunReport, Runner};
 pub use scorer::Scorer;
+pub use session::Session;
 pub use study::Study;
 pub use subject::{CliSubject, Subject, subject_fn};
 
