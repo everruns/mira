@@ -50,6 +50,7 @@ pub mod model;
 pub mod protocol;
 pub mod registry;
 pub mod report;
+pub mod run;
 pub mod runner;
 pub mod scorer;
 pub mod session;
@@ -92,6 +93,7 @@ pub use host::{Host, HostHandle};
 pub use model::ModelSpec;
 // `register_eval!` is exported at the crate root via `#[macro_export]`.
 pub use registry::registered_evals;
+pub use run::{RunMeta, RunSummary, new_run_id, new_run_id_at};
 pub use runner::{CaseOutcome, RunReport, Runner};
 pub use scorer::Scorer;
 pub use session::Session;

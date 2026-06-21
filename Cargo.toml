@@ -57,6 +57,8 @@ regex = "1"
 clap = { version = "4", features = ["derive"] }
 # Live progress bar for the host runner (TTY only; hidden in CI/non-TTY).
 indicatif = "0.17"
+# Host config file (mira.toml) parsing.
+toml = "0.8"
 
 # Distributed eval registration (the `register_eval!` macro / `#[eval]` attribute).
 inventory = "0.3"

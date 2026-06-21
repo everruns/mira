@@ -7,6 +7,8 @@ Cargo.lock.bak
 /report.json
 /report.html
 /*.checkpoint.json
+# Saved run archive (mira run --save); dir is configurable in mira.toml.
+/results/
 .DS_Store
 
 # Local Claude Code settings (per-developer)
