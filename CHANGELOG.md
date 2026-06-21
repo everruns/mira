@@ -20,7 +20,7 @@ adheres to [Semantic Versioning](https://semver.org/).
   per-direction id spaces, two-way negotiation) as the design of record. See
   [`docs/protocol.md`](docs/protocol.md#reverse-requests-studyhost) and
   [`specs/architecture.md`](specs/architecture.md).
-- **Multimodal output + capability params promoted to the wire** (protocol `1.11`)
+- **Multimodal output + capability params promoted to the wire** (protocol `1.0`)
   — the multimodal `output` (typed `Part`s on `Transcript` / `TranscriptSummary`,
   graded by `scorer::produced_modality`) and structured
   `InitializeResult.capability_params` that shipped staged behind
@@ -28,10 +28,10 @@ adheres to [Semantic Versioning](https://semver.org/).
   publishes `output`, `capability_params`, and the `Part` / `Source` content
   defs, and the Python SDK mirrors them (codegen renders the `Part`/`Source`
   object unions as pass-through `kind`-tagged dicts). `final_response` stays the
-  canonical text projection, and both fields are optional/defaulted, so `1.0`–
-  `1.10` peers still interoperate. `TranscriptSummary.experimental` remains the
+  canonical text projection, and both fields are optional/defaulted, so older
+  peers still interoperate. `TranscriptSummary.experimental` remains the
   reserved `protocol-unstable` staging slot for the next structural addition.
-- **Run cancellation** (`cancel`, protocol `1.8`) — a host can now abort one
+- **Run cancellation** (`cancel`, protocol `1.0`) — a host can now abort one
   in-flight `run`/`execute`/`score` by its request `id` without tearing down the
   connection (previously the only lever was closing stdin, which ended *every*
   run at once). The aborted run resolves promptly with a `cancelled` error. This
@@ -52,18 +52,18 @@ adheres to [Semantic Versioning](https://semver.org/).
   `mira::aggregate` module is the **aggregation contract** — per-cell
   `TrialAggregate` (pass-rate, the unbiased `pass@k` estimator, score mean/σ),
   surfaced in the terminal report and as a `trials` array in the JSON record.
-  Additive **protocol `1.6`**: optional `trial`/`trials`/`seed` on
+  Part of **protocol `1.0`**: optional `trial`/`trials`/`seed` on
   `RunParams`/`ScoreParams`/`RunResult`/`ExecuteResult`, optional
   `EvalInfo.trials`/`EvalInfo.seed`, and the `trials` capability. `examples/trials`
   demonstrates a seed-driven flaky agent.
-- **Structured RPC errors** (protocol `1.5`) — the response `error` object is
+- **Structured RPC errors** (protocol `1.0`) — the response `error` object is
   promoted from `{ message }` to the JSON-RPC-shaped
   `{ code, message, retryable, data }`. A protocol-level failure can now be
   *classified* (a `code`) and *retried* (a `retryable` hint) without parsing the
   human message: the host re-attempts retryable RPC errors just like infra-errored
   transcripts, and the study tags bad params / unknown methods with the standard
-  JSON-RPC codes. All new fields are optional and defaulted, so a `1.4`-era peer
-  that sends bare `{ "message": "…" }` still parses. The host request path carries
+  JSON-RPC codes. All new fields are optional and defaulted, so a peer that sends
+  bare `{ "message": "…" }` still parses. The host request path carries
   the structured `RpcError` end-to-end (`mira::protocol::RpcError`, `codes`).
 - **Python SDK protocol-metadata drift guard** — `codegen.py` now also generates
   `mira/_meta.py` (protocol version, method list, capability tokens) from
@@ -73,14 +73,14 @@ adheres to [Semantic Versioning](https://semver.org/).
   a version bump) fails CI until the SDK tracks it. Closes the version/method/
   capability drift gaps that wire-type codegen alone didn't cover; `specs/sdks.md`
   §3 now states exactly what the guards do and don't catch.
-- **Per-sample and per-model metadata on the wire** (protocol `1.7`) — `list` now
+- **Per-sample and per-model metadata on the wire** (protocol `1.0`) — `list` now
   carries `samples[].metadata` (repo, difficulty, dataset split, …) and
   `models[].metadata` (agent, underlying model, effort, price, sandbox, …)
   alongside the existing eval-level metadata. `Sample::meta` / `ModelSpec::meta`
   already existed; they now ride their own column through the protocol instead of
   being dropped, so config detail rides the model column and provenance rides the
-  sample. Both maps are optional and default to empty — a `1.0`–`1.6` study still
-  interoperates. The host surfaces them in `mira list`.
+  sample. Both maps are optional and default to empty — a study that omits them
+  still interoperates. The host surfaces them in `mira list`.
 - **`mira run --group-by <key>` / `mira score --group-by <key>`** — break
   resolve-rate down by a metadata (or axis) key, e.g. `--group-by difficulty` or
   `--group-by repo`. Each cell's group value is resolved in order: axis `params`,
@@ -96,7 +96,7 @@ adheres to [Semantic Versioning](https://semver.org/).
   reports the kinds — no protocol change (a `Sample` isn't a wire type). New
   runnable example `examples/multimodal/`. **Multimodal outputs**
   (`Transcript::output`, the `produced_modality` scorer) first shipped staged
-  behind `protocol-unstable` and were **promoted to the wire in `1.11`** (see the
+  behind `protocol-unstable` and are now part of the committed `1.0` wire (see the
   entry above). `final_response` remains the canonical text projection throughout.
 - **Interactive / multi-turn evals** — an `Eval` may carry a `.responder(..)` (a
   simulated user, `Fn(&[Message]) -> Option<Vec<Part>>`). The runner then drives
@@ -109,9 +109,9 @@ adheres to [Semantic Versioning](https://semver.org/).
   (`token → JSON`, read via `capability_param(token)`) lets a study advertise
   *config* a bare capability token can't carry (event kinds, supported
   input/output modalities, concurrency hints). Open-vocabulary like `metadata`.
-  First shipped staged behind `protocol-unstable`, **promoted to the wire in
-  `1.11`** (see the entry above); see `specs/architecture.md` §14.5.
-- **Typed, correlated progress notifications** (protocol `1.9`) — `event` and
+  First shipped staged behind `protocol-unstable`, now part of the committed `1.0`
+  wire (see the entry above); see `specs/architecture.md` §14.5.
+- **Typed, correlated progress notifications** (protocol `1.0`) — `event` and
   `log` notifications now have typed, schematized payloads (`EventParams`,
   `LogParams`, published in `schema/v1/`) instead of an ad-hoc JSON bag. Each
   `event` carries a **`request_id`** correlating it to the originating
@@ -119,10 +119,10 @@ adheres to [Semantic Versioning](https://semver.org/).
   can bind progress to a specific in-flight call even when many cells (or repeated
   trials of one cell) are multiplexed over the single pipe. `event.kind` is an
   open, growing vocabulary (`started`, `turn`, `tool_call`, `output`, `finished`),
-  indexed in `meta.json` as `event_kinds`. Fully backward-compatible: a pre-`1.9`
-  study's untyped events still parse (`request_id` defaults to `0`). Foundation
+  indexed in `meta.json` as `event_kinds`. Fully backward-compatible: an untyped
+  event still parses (`request_id` defaults to `0`). Foundation
   for the live-streaming transcript view (`specs/architecture.md` §12).
-- **Paginated sample listing** (protocol `1.10`) — a study can now advertise a
+- **Paginated sample listing** (protocol `1.0`) — a study can now advertise a
   large or lazily generated dataset (e.g. SWE-bench full) without enumerating
   every sample in one `list` line. `list` returns the **first page** of an
   eval's samples plus an opaque `EvalInfo.next_cursor`; the host follows it with
@@ -225,8 +225,8 @@ adheres to [Semantic Versioning](https://semver.org/).
   separable phases, for long-running subjects and re-scoring:
   - Protocol gains `execute` (run the subject only, returning the **full**
     transcript) and `score` (score a supplied transcript without re-executing),
-    advertised via the `execute` / `score` capabilities. A `1.0`/`run`-only
-    study still interoperates.
+    advertised via the `execute` / `score` capabilities. A study without those
+    capabilities still interoperates.
   - `mira run --execute-only --artifacts <dir>` captures one full-transcript
     artifact per cell (resumable; skips existing artifacts unless `--fresh`).
   - `mira score --artifacts <dir>` (re-)scores captured artifacts and reports —
@@ -247,10 +247,10 @@ adheres to [Semantic Versioning](https://semver.org/).
   for adding a custom metric; linked from the README, getting-started,
   extensibility, and scorers docs. The `metrics` example now reports and grades a
   custom `retrieval_recall@5` metric.
-- Protocol bumped additively over `1.0`: `1.1` adds the optional
-  `ModelInfo.provider` field (concurrency bucketing) and the `execute`/`score`
-  methods + capabilities; `1.2` adds the optional `transcript.metrics` map. A
-  `1.0` study still interoperates; `MIN_PROTOCOL_VERSION` stays `1.0`.
+- Protocol additions land in the `1.0` baseline: the optional `ModelInfo.provider`
+  field (concurrency bucketing), the `execute`/`score` methods + capabilities, and
+  the optional `transcript.metrics` map. A study without those capabilities still
+  interoperates; `MIN_PROTOCOL_VERSION` stays `1.0`.
 - **`Score::na` — a third scorer state.** Scorers can now report **N/A**
   ("couldn't evaluate", e.g. an unreachable judge or missing credentials)
   instead of crashing or scoring a misleading `fail`. N/A scores are excluded
@@ -276,8 +276,8 @@ adheres to [Semantic Versioning](https://semver.org/).
   objects/arrays) — not just strings. The `.meta(key, value)` builders accept
   anything `Into<serde_json::Value>`, so existing string calls are unchanged.
   Matrix-axis `params` keep their dedicated `Params` (`string → string`) type —
-  they form part of a cell's identity. Protocol bumps to **`1.4`** (additive:
-  the field already existed, only its value type relaxed).
+  they form part of a cell's identity. Part of protocol **`1.0`** (additive: the
+  field already existed, only its value type relaxed).
 
 ### Documentation
 
@@ -285,10 +285,10 @@ adheres to [Semantic Versioning](https://semver.org/).
   SVG-diagram convention (carried over from everruns/everruns), writing rules,
   and doc/code sync. Referenced from `AGENTS.md` and `CONTRIBUTING.md`.
 - **`docs/README.md`** — a single docs index/reading order.
-- Reconciled `docs/protocol.md` to the current `PROTOCOL_VERSION` (`1.3`, was
-  stated as `1.2`), restored the missing `timing`/`metrics` fields in the
-  `Transcript` shown in `docs/subjects.md`, and aligned the README quick-start
-  to invoke the example via `--example`.
+- Reconciled `docs/protocol.md` to the current `PROTOCOL_VERSION`, restored the
+  missing `timing`/`metrics` fields in the `Transcript` shown in
+  `docs/subjects.md`, and aligned the README quick-start to invoke the example
+  via `--example`.
 
 ## [0.1.0] - 2026-06-20
 

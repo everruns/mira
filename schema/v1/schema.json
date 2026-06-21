@@ -101,7 +101,7 @@
           ]
         },
         "samples": {
-          "description": "The **first page** of this eval's samples. When `next_cursor` is `Some`,\nmore pages follow — fetch them with `list_samples` (see\n[`ListSamplesParams`]) until the cursor runs out. A study that fits its\nwhole dataset here leaves `next_cursor` empty, exactly as before `1.10`.",
+          "description": "The **first page** of this eval's samples. When `next_cursor` is present,\nmore pages follow — fetch them with `list_samples` (see\n[`ListSamplesParams`]) until the cursor runs out. A study that fits its\nwhole dataset here omits `next_cursor`.",
           "items": {
             "$ref": "#/$defs/SampleInfo"
           },
@@ -159,7 +159,7 @@
         },
         "request_id": {
           "default": 0,
-          "description": "The `id` of the `run`/`execute` request this event belongs to. Defaulted\nto 0 (\"uncorrelated\") so a pre-`1.9` study that omits it still parses.",
+          "description": "The `id` of the `run`/`execute` request this event belongs to. Defaulted\nto 0 (\"uncorrelated\") so a study that omits it still parses.",
           "format": "uint64",
           "minimum": 0,
           "type": "integer"
@@ -560,7 +560,7 @@
       "type": "object"
     },
     "RpcError": {
-      "description": "A structured, JSON-RPC-shaped protocol-level error.\n\nDistinct from a transcript's `error`/`error_kind`, which classify a *subject*\nfailure (the model under test got it wrong). An [`RpcError`] is the failure of\nthe RPC itself — bad params, an unknown method, a study-side crash, a provider\noutage surfaced at the transport. `code` and `retryable` let the host classify\nand retry the request **without parsing the human `message`**, and `data`\ncarries optional structured context.\n\nAll fields beyond `message` are optional and defaulted, so a `1.4`-era peer\nthat sends bare `{ \"message\": \"…\" }` still parses (forward/backward compat).",
+      "description": "A structured, JSON-RPC-shaped protocol-level error.\n\nDistinct from a transcript's `error`/`error_kind`, which classify a *subject*\nfailure (the model under test got it wrong). An [`RpcError`] is the failure of\nthe RPC itself — bad params, an unknown method, a study-side crash, a provider\noutage surfaced at the transport. `code` and `retryable` let the host classify\nand retry the request **without parsing the human `message`**, and `data`\ncarries optional structured context.\n\nAll fields beyond `message` are optional and defaulted, so a peer that sends\nbare `{ \"message\": \"…\" }` still parses (forward/backward compat).",
       "properties": {
         "code": {
           "default": 0,
@@ -1064,6 +1064,6 @@
       "$ref": "#/$defs/Notification"
     }
   ],
-  "description": "Wire schema for the Mira host<->study protocol (newline-delimited JSON over stdio). Protocol version 1.11. Generated from mira::protocol by `mira-schema-gen` (`just schema`); do not edit by hand.",
+  "description": "Wire schema for the Mira host<->study protocol (newline-delimited JSON over stdio). Protocol version 1.0. Generated from mira::protocol by `mira-schema-gen` (`just schema`); do not edit by hand.",
   "title": "Mira Eval Protocol"
 }

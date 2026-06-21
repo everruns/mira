@@ -87,8 +87,8 @@ classified without parsing the human message:
 | `retryable` | boolean | Hint that retrying the identical request may succeed (a transient infra fault, not the caller's mistake). The host re-attempts retryable cells up to `--max-retries`. Optional, defaults `false`. |
 | `data` | any | Optional structured payload for programmatic handling. Omitted when absent. |
 
-All fields beyond `message` are optional and defaulted (added in `1.5`), so a
-`1.4`-era peer that sends bare `{ "message": "…" }` still parses.
+All fields beyond `message` are optional and defaulted, so a peer that sends
+bare `{ "message": "…" }` still parses.
 
 ### Notification (study → host)
 
@@ -106,7 +106,7 @@ request that triggered it via a **`request_id`** in the payload, the same
 demultiplexing key responses use. This lets the host bind progress to a specific
 in-flight call even when many cells (including repeated trials of one cell) are
 multiplexed over the single pipe. `request_id` defaults to `0` ("uncorrelated"),
-so a pre-`1.9` study that omits it still validates.
+so a study that omits it still validates.
 
 An `event`'s **`kind`** is drawn from an open, growing vocabulary (like
 `capabilities`): `started` (run begun, emitted first), `turn` (a reasoning
@@ -129,14 +129,14 @@ study.
 **Params**
 
 ```json
-{ "protocol_version": "1.11", "host": "mira-cli" }
+{ "protocol_version": "1.0", "host": "mira-cli" }
 ```
 
 **Result**
 
 ```json
 {
-  "protocol_version": "1.11",
+  "protocol_version": "1.0",
   "study": "my-evals",
   "evals": 3,
   "study_version": "0.1.0",
@@ -152,7 +152,7 @@ study.
 The study replies with the `protocol_version` it implements. Compatibility is
 by **major**: a host refuses a study whose major differs from its own; a
 differing minor is additive and tolerated (see [Versioning](#versioning)). The
-current version is **`1.11`**.
+current version is **`1.0`**.
 
 `capabilities` lets a host feature-detect additively instead of sniffing
 versions. Defined tokens: `axes` (study advertises extra axes and honours
@@ -161,8 +161,9 @@ token/cost/timing), `execute` (answers `execute`), `score` (answers `score`),
 `trials` (threads the `seed` run param into the subject, so repetitions are
 reproducible), `cancel` (answers `cancel`), `paginate` (answers `list_samples`
 and may return `EvalInfo.next_cursor` from `list`). `study_version` and
-`capabilities` are optional and default to empty. A `1.0` study that only
-implements `run` interoperates unchanged — the host simply won't see the
+`capabilities` are optional and default to empty. A study that implements only
+the base methods (`initialize`, `list`, `run`) and advertises no capabilities
+interoperates unchanged — the host simply won't see the
 `execute`/`score`/`trials`/`cancel`/`paginate` capabilities.
 
 `capability_params` (optional, defaulted) carries **structured config** for the
@@ -211,8 +212,8 @@ eval carries the first page inline and a `next_cursor` the host follows with
   (optional, default absent/`null`) is an **opaque** continuation token: present
   iff more samples remain. The host pages the rest with `list_samples`, passing
   the token back verbatim, until it comes back absent. A study that fits its
-  whole dataset inline omits `next_cursor` — identical to pre-`1.5` `list`, so an
-  older host that ignores the field still works for non-paginated studies.
+  whole dataset inline omits `next_cursor` — identical to a non-paginated `list`,
+  so an older host that ignores the field still works for non-paginated studies.
 - `available: false` marks a cell the study cannot run (e.g. a missing API
   key). The host skips it rather than failing.
 - `provider` (optional, default empty) is the model's provider id (`sim`,
@@ -225,13 +226,13 @@ eval carries the first page inline and a `next_cursor` the host follows with
   `eval/sample@model` with a sorted `[k=v,…]` suffix when axes vary.
 - `metadata` is free-form, open-ended `string → JSON` (provenance, observability
   links, structured context). Values may be a string, number, bool, or a nested
-  object/array — widened from string-only values in `1.4`. (Axis `params`, by
+  object/array. (Axis `params`, by
   contrast, stay `string → string`: they form part of a cell's identity.)
   Carried at three levels, each optional and defaulting to empty: on the **eval**
   (shown above), on each **sample** (`samples[].metadata` — repo, difficulty,
   dataset split, …), and on each **model** (`models[].metadata` — agent,
   underlying model, effort, price, sandbox, …). The per-sample and per-model maps
-  were added in `1.7`; an older study that omits them still parses. The host
+  are optional; an older study that omits them still parses. The host
   surfaces them in `list` and can break resolve-rate down by any of their keys
   with `mira run --group-by <key>`.
 - `trials` (optional, default 1) is how many times each cell should be **repeated**
@@ -543,8 +544,8 @@ provider 5xx/outage, network/timeout — not the model's fault) sets
 so it is excluded from the pass-rate — neither passed nor failed, like a skip.
 The host **retries** infra-errored cells (keyed off `error_kind`) up to
 `--max-retries`, and a cell whose every score is N/A is reported as N/A, not a
-failure. `error_kind` is optional and defaulted (added in `1.3`), so a study that
-omits it still interoperates.
+failure. `error_kind` is optional and defaulted, so a study that omits it still
+interoperates.
 
 ## Run lifecycle
 
@@ -599,26 +600,16 @@ stdin, by contrast, ends *every* in-flight run at once.)
 
 ## Versioning
 
-The protocol uses `MAJOR.MINOR` (`PROTOCOL_VERSION`, currently `1.11`), all minors
-additive over `1.0`: `1.1` added the optional `ModelInfo.provider` field and the
-`execute`/`score` methods plus their capabilities; `1.2` added the optional
-`transcript.metrics` map; `1.3` added the optional `transcript.error_kind`
-(subject vs. infrastructure); `1.4` widened `metadata` values from strings to
-open-ended JSON; `1.5` promoted the error object from `{ message }` to the
-JSON-RPC-shaped `{ code, message, retryable, data }` (all new fields
-optional/defaulted); `1.6` added trials/repetitions — the optional
-`trial`/`trials`/`seed` fields on the run/execute/score payloads, `EvalInfo.trials`
-+ `EvalInfo.seed`, and the `trials` capability; `1.7` added the optional `metadata`
-map to `SampleInfo` and `ModelInfo`; `1.8` added the `cancel` method and
-capability; `1.9` gave `event`/`log` notifications a typed, schematized payload
-(`EventParams`/`LogParams`) and a `request_id` correlating each progress event to
-its originating `run` request; `1.10` added cursor-paginated sample listing (the
-optional `EvalInfo.next_cursor`, the `list_samples` method, and the `paginate`
-capability); `1.11` promoted multimodal `output` (typed `Part`s on the
-transcript) and structured `InitializeResult.capability_params` from the
-`protocol-unstable` staging ground onto the committed wire. A `1.0` study (or any
-study implementing only `run`, emitting no notifications) interoperates with a
-`1.11` host.
+The protocol uses `MAJOR.MINOR` (`PROTOCOL_VERSION`, currently `1.0`). `1.0` is
+the initial stable baseline: the full method set (`initialize`, `list`,
+`list_samples`, `run`, `execute`, `score`, `cancel`), typed and
+`request_id`-correlated `event`/`log` notifications, JSON-RPC-shaped error
+objects, trials/repetitions with seeds, cursor-paginated sample listing,
+eval/sample/model `metadata` (open-ended JSON), and multimodal `output` plus
+structured `capability_params`. A study that implements only the base methods
+(`initialize`, `list`, `run`) — advertising no capabilities and emitting no
+notifications — interoperates with a full `1.0` host: every method and field
+beyond the base is feature-detected or defaulted. Future additions bump the minor.
 
 - A **MINOR** bump is **additive**: new optional fields, new notification kinds,
   new capability tokens. A newer peer must keep talking to an older one.
@@ -684,8 +675,9 @@ covers *structural* changes — a new typed field or method — that the open
 `metrics` / `metadata` / `capabilities` vocabularies can't express; those
 already extend without a protocol bump. It lets such a change land and be
 exercised in-tree without prematurely freezing the language-neutral contract.
-Multimodal `output` and `capability_params` rode this path before promotion in
-`1.11`; `TranscriptSummary.experimental` is the reserved placeholder for the next.
+Multimodal `output` and `capability_params` rode this path before being promoted
+onto the `1.0` wire; `TranscriptSummary.experimental` is the reserved placeholder
+for the next.
 
 ## Implementing a study in another language
 

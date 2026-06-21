@@ -47,7 +47,7 @@ HANDLED_METHODS = (
 )
 
 # Samples-per-page when paginating `list`. Small studies fit in one page (`list`
-# behaves exactly as before 1.10); a huge/lazy dataset is chunked across `list` +
+# enumerates every sample inline); a huge/lazy dataset is chunked across `list` +
 # `list_samples` rather than enumerated in one giant line. Mirrors the Rust
 # `DEFAULT_PAGE_SIZE`.
 DEFAULT_PAGE_SIZE = 500
@@ -177,7 +177,7 @@ class Study:
         self.name = name
         self.version = version
         # Max samples per `list`/`list_samples` page. None (or <= 0) disables
-        # pagination: every sample is enumerated inline in `list` (pre-1.10).
+        # pagination: every sample is enumerated inline in `list`.
         self.page_size = page_size if (page_size or 0) > 0 else None
         self._evals: Dict[str, Eval] = {}
 

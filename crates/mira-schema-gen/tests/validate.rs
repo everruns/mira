@@ -86,7 +86,7 @@ fn envelopes_validate_at_root() {
 #[test]
 fn payloads_validate_against_their_defs() {
     let init = InitializeResult {
-        protocol_version: "1.2".into(),
+        protocol_version: "1.0".into(),
         study: "demo".into(),
         evals: 1,
         study_version: Some("0.1.0".into()),
@@ -206,7 +206,7 @@ fn payloads_validate_against_their_defs() {
     };
     assert_valid_against_def("ScoreParams", &to_value(&score));
 
-    // `cancel` params/result (protocol 1.5).
+    // `cancel` params/result.
     assert_valid_against_def("CancelParams", &to_value(&CancelParams { id: 7 }));
     assert_valid_against_def("CancelResult", &to_value(&CancelResult { cancelled: true }));
 }
@@ -240,8 +240,8 @@ fn unstable_field_absent_from_stable_schema() {
         "experimental field leaked into the stable schema; the generator must \
          build mira-eval without `protocol-unstable`",
     );
-    // Promoted in 1.11: multimodal `output` and structured `capability_params`
-    // are now part of the committed wire (no longer staged).
+    // Multimodal `output` and structured `capability_params` are part of the
+    // committed wire (no longer staged behind `protocol-unstable`).
     assert!(
         props.get("output").is_some(),
         "multimodal `output` should be promoted onto the stable schema",
