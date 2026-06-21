@@ -23,6 +23,21 @@ Eval = Dataset(Sample…) + Subject + [Scorer…]  ×  model matrix
 - **Matrix** — `ModelSpec`s plus extra `.axis(name, values)`; missing API keys
   *skip*, so runs are green offline.
 
+## Install
+
+The framework is a library (`mira-eval`, imported as `mira`); the runner is a
+binary (`mira-cli`, installed as `mira`).
+
+```bash
+cargo add mira-eval                 # the eval framework, used as `mira::…`
+brew install everruns/tap/mira      # the `mira` host CLI (recommended)
+cargo install mira-cli --locked     # …or build the CLI from source
+```
+
+The CLI works on macOS (arm64/x86_64) and Linux (x86_64). If Homebrew enforces
+tap trust checks, run `brew trust --tap everruns/tap` once first. For the
+everruns runtime subject, add the integration crate: `cargo add mira-everruns`.
+
 ## Authoring an eval study
 
 A study is a program that defines evals and calls `mira::Study::registered().serve()`.
