@@ -449,36 +449,45 @@ impl Scorer for Combinator {
         self.name.clone()
     }
     async fn score(&self, sample: &Sample, transcript: &Transcript) -> Score {
+        // N/A inner scores are ignored; if every inner scorer is N/A, the whole
+        // combinator is N/A (nothing could be evaluated).
         let mut values = Vec::with_capacity(self.scorers.len());
         let mut reasons = Vec::new();
         for s in &self.scorers {
             let sc = s.score(sample, transcript).await;
-            values.push((sc.value, sc.pass));
-            reasons.push(format!("{}{}", if sc.pass { "✓" } else { "✗" }, sc.scorer));
+            let glyph = if sc.na {
+                "–"
+            } else if sc.pass {
+                "✓"
+            } else {
+                "✗"
+            };
+            reasons.push(format!("{glyph}{}", sc.scorer));
+            if !sc.na {
+                values.push((sc.value, sc.pass));
+            }
         }
         let reason = reasons.join(", ");
-        if self.require_all {
-            let pass = values.iter().all(|(_, p)| *p);
-            let value = if values.is_empty() {
-                0.0
-            } else {
-                values.iter().map(|(v, _)| v).sum::<f64>() / values.len() as f64
-            };
-            Score {
-                scorer: self.name.clone(),
-                value,
-                pass,
-                reason,
-            }
+        if values.is_empty() {
+            return Score::na(self.name.clone(), reason);
+        }
+        let (pass, value) = if self.require_all {
+            (
+                values.iter().all(|(_, p)| *p),
+                values.iter().map(|(v, _)| v).sum::<f64>() / values.len() as f64,
+            )
         } else {
-            let pass = values.iter().any(|(_, p)| *p);
-            let value = values.iter().map(|(v, _)| *v).fold(0.0_f64, f64::max);
-            Score {
-                scorer: self.name.clone(),
-                value,
-                pass,
-                reason,
-            }
+            (
+                values.iter().any(|(_, p)| *p),
+                values.iter().map(|(v, _)| *v).fold(0.0_f64, f64::max),
+            )
+        };
+        Score {
+            scorer: self.name.clone(),
+            value,
+            pass,
+            na: false,
+            reason,
         }
     }
 }
@@ -492,10 +501,18 @@ impl Scorer for Not {
     }
     async fn score(&self, sample: &Sample, transcript: &Transcript) -> Score {
         let inner = self.0.score(sample, transcript).await;
+        // You can't invert "couldn't evaluate" — N/A passes straight through.
+        if inner.na {
+            return Score::na(
+                format!("not({})", inner.scorer),
+                format!("inner N/A: {}", inner.reason),
+            );
+        }
         Score {
             scorer: format!("not({})", inner.scorer),
             value: 1.0 - inner.value,
             pass: !inner.pass,
+            na: false,
             reason: format!("inverted: {}", inner.reason),
         }
     }
@@ -668,6 +685,21 @@ mod tests {
         );
         assert!(run(not(contains("zzz")), &s).await.pass);
         assert!(!run(not(contains("42")), &s).await.pass);
+    }
+
+    #[tokio::test]
+    async fn combinators_handle_na() {
+        let s = Sample::new("a", "q");
+        let na = || scorer("infra", |_, _| Score::na("infra", "unreachable"));
+        // N/A inner scores are ignored: all_of passes on the remaining scorer.
+        let r = run(all_of("mix", vec![contains("42"), na()]), &s).await;
+        assert!(r.pass && !r.na);
+        // When every inner scorer is N/A, the combinator is itself N/A.
+        let r = run(all_of("all_na", vec![na(), na()]), &s).await;
+        assert!(r.na);
+        // not() of an N/A stays N/A rather than flipping to pass.
+        let r = run(not(na()), &s).await;
+        assert!(r.na);
     }
 
     #[tokio::test]

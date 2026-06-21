@@ -40,9 +40,12 @@ pub async fn score_transcript(eval: &Eval, sample: &Sample, transcript: &Transcr
     scores
 }
 
-/// True iff at least one scorer ran and all passed (the cell verdict).
+/// True iff at least one *applicable* scorer ran and all of them passed (the
+/// cell verdict). N/A scores (e.g. an unreachable judge) are excluded: a cell
+/// passes when every score that *could* be evaluated passed, and at least one
+/// did.
 pub fn verdict(scores: &[Score]) -> bool {
-    !scores.is_empty() && scores.iter().all(|s| s.pass)
+    scores.iter().any(|s| !s.na) && scores.iter().filter(|s| !s.na).all(|s| s.pass)
 }
 
 /// Run a single matrix cell: one sample, one model, one set of axis `params`.
@@ -73,12 +76,18 @@ pub async fn run_cell(
     }
 }
 
-/// Mean of score values, or 0.0 for an empty set.
+/// Mean of the *applicable* score values, or 0.0 when none apply. N/A scores are
+/// excluded so an unreachable judge doesn't drag the aggregate toward zero.
 pub fn aggregate_value(scores: &[Score]) -> f64 {
-    if scores.is_empty() {
-        return 0.0;
+    let mut sum = 0.0;
+    let mut count = 0usize;
+    for s in scores {
+        if !s.na {
+            sum += s.value;
+            count += 1;
+        }
     }
-    scores.iter().map(|s| s.value).sum::<f64>() / scores.len() as f64
+    if count == 0 { 0.0 } else { sum / count as f64 }
 }
 
 /// The result of one matrix cell: one sample, one model, one axis combination.
@@ -272,6 +281,33 @@ mod tests {
         assert_eq!(report.total(), 0);
         assert_eq!(report.skipped.len(), 1);
         assert!(report.all_passed()); // no failures
+    }
+
+    #[tokio::test]
+    async fn na_scores_are_excluded_from_verdict_and_aggregate() {
+        use crate::scorer::scorer;
+        // A passing deterministic scorer plus an N/A judge (infra down): the cell
+        // passes on the applicable score, and the aggregate ignores the N/A one.
+        let eval = Eval::new("e")
+            .case("a", "x")
+            .subject(subject_fn(|_, _| async { Transcript::response("x") }))
+            .scorer(contains("x"))
+            .scorer(scorer("judge", |_, _| Score::na("judge", "unreachable")))
+            .build();
+        let report = Runner::new().add(eval).run().await;
+        let out = &report.outcomes[0];
+        assert!(out.passed);
+        assert_eq!(out.aggregate, 1.0); // mean over applicable scores only
+
+        // A cell whose every scorer is N/A does not pass (nothing was evaluated).
+        let all_na = Eval::new("e2")
+            .case("a", "x")
+            .subject(subject_fn(|_, _| async { Transcript::response("x") }))
+            .scorer(scorer("judge", |_, _| Score::na("judge", "unreachable")))
+            .build();
+        let report = Runner::new().add(all_na).run().await;
+        assert!(!report.outcomes[0].passed);
+        assert_eq!(report.outcomes[0].aggregate, 0.0);
     }
 
     #[tokio::test]

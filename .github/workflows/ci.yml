@@ -6,6 +6,7 @@ on:
   pull_request:
     branches: [main]
   workflow_call:
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -88,7 +89,7 @@ jobs:
       # This is also the host↔study protocol's end-to-end coverage.
       - name: Run example evals via the host CLI
         run: |
-          for ex in greet coding cli_subject metrics matrix swe_bench llmsim; do
+          for ex in greet coding cli_subject metrics matrix swe_bench llmsim llm_judge; do
             echo "=== $ex ==="
             cargo run -q -p mira-cli -- --bin "$ex" run
           done
@@ -101,6 +102,42 @@ jobs:
         run: |
           cargo run -q -p mira-cli -- --bin metrics run --format html --out report.html
           test -s report.html && grep -q "Mira eval report" report.html
+
+  # Live LLM-as-judge integration tests (mira-judge). These hit real provider
+  # APIs and cost money, so they run only on pushes to main and manual dispatch —
+  # never on PRs (fork safety + spend) — and are NOT part of the "Check" gate, so
+  # an external hiccup never blocks a merge. Keys come from Doppler.
+  llm-integration:
+    name: LLM integration (mira-judge)
+    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
+
+      # Fetch provider keys from Doppler and run the #[ignore]d judge tests.
+      # Each test no-ops (the cell is N/A) if its key is absent, so a missing
+      # secret degrades gracefully rather than failing the job.
+      - name: Run provider judge tests
+        env:
+          DOPPLER_TOKEN: ${{ secrets.DOPPLER_TOKEN }}
+        run: |
+          # Tolerant fetch: a missing secret, bad token, or error payload makes
+          # python exit non-zero (empty stdout), so `|| true` yields an empty
+          # string and the test then no-ops as N/A instead of failing the job.
+          fetch() {
+            curl -s "https://api.doppler.com/v3/configs/config/secret?name=$1" \
+              -u "$DOPPLER_TOKEN:" 2>/dev/null \
+              | python3 -c "import sys,json;print(json.load(sys.stdin)['value']['raw'])" 2>/dev/null \
+              || true
+          }
+          export OPENAI_API_KEY="$(fetch OPENAI_API_KEY)"
+          export ANTHROPIC_API_KEY="$(fetch ANTHROPIC_API_KEY)"
+          cargo test -p mira-judge -- --ignored --nocapture
 
   # Gate job for branch protection — name must stay "Check".
   check:

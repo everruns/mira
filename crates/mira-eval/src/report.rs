@@ -96,7 +96,13 @@ pub fn print_results(results: &[RunResult]) {
         }
         println!("         · {}", metrics.join(" · "));
         for s in &r.scores {
-            let m = if s.pass { "✓" } else { "✗" };
+            let m = if s.na {
+                "–"
+            } else if s.pass {
+                "✓"
+            } else {
+                "✗"
+            };
             println!("         {m} {} — {}", s.scorer, s.reason);
         }
     }
@@ -204,13 +210,24 @@ pub fn results_json(results: &[RunResult]) -> serde_json::Value {
     })
 }
 
+/// True when a cell ran but every score was N/A — nothing could be evaluated.
+/// Such a cell is reported as skipped (not a failure), so an unreachable judge
+/// doesn't masquerade as a real failure with an empty message.
+fn all_na(r: &RunResult) -> bool {
+    !r.scores.is_empty() && r.scores.iter().all(|s| s.na)
+}
+
 /// JUnit XML: one `<testcase>` per cell (`eval` ⇒ classname, `sample@model` ⇒
 /// name), a failed cell carries `<failure>` with the failing scorers, a skipped
-/// cell carries `<skipped>`. Surfaces evals in any CI that understands JUnit.
+/// cell carries `<skipped>`. A cell that was not executed or whose scores are
+/// all N/A counts as skipped. Surfaces evals in any CI that understands JUnit.
 pub fn junit_xml(results: &[RunResult]) -> String {
-    let ran = results.iter().filter(|r| !r.skipped).count();
-    let failures = results.iter().filter(|r| !r.skipped && !r.passed).count();
-    let skipped = results.len() - ran;
+    let is_skipped = |r: &RunResult| r.skipped || all_na(r);
+    let skipped = results.iter().filter(|r| is_skipped(r)).count();
+    let failures = results
+        .iter()
+        .filter(|r| !is_skipped(r) && !r.passed)
+        .count();
 
     let mut out = String::new();
     out.push_str("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n");
@@ -228,13 +245,13 @@ pub fn junit_xml(results: &[RunResult]) -> String {
             xml_escape(&r.model),
             xml_escape(&params_suffix(&r.params)),
         ));
-        if r.skipped {
+        if is_skipped(r) {
             out.push_str("\n    <skipped/>\n  ");
         } else if !r.passed {
             let reasons: Vec<String> = r
                 .scores
                 .iter()
-                .filter(|s| !s.pass)
+                .filter(|s| !s.pass && !s.na)
                 .map(|s| format!("{}: {}", s.scorer, s.reason))
                 .collect();
             out.push_str(&format!(
@@ -402,8 +419,13 @@ pub fn html(results: &[RunResult]) -> String {
         if !r.scores.is_empty() {
             out.push_str("<ul class=\"scores\">\n");
             for s in &r.scores {
-                let m = if s.pass { "✓" } else { "✗" };
-                let scls = if s.pass { "pass" } else { "fail" };
+                let (m, scls) = if s.na {
+                    ("–", "na")
+                } else if s.pass {
+                    ("✓", "pass")
+                } else {
+                    ("✗", "fail")
+                };
                 out.push_str(&format!(
                     "<li class=\"{scls}\">{m} <b>{}</b> — {}</li>\n",
                     html_escape(&s.scorer),
@@ -485,7 +507,7 @@ table.matrix td:first-child,table.matrix th:first-child{text-align:left}
 .case code{font-size:.92rem}.metrics{color:var(--mut);font-size:.8rem;margin-left:auto}
 .badge{font-size:.7rem;font-weight:700;padding:.1rem .4rem;border-radius:4px;color:#fff}
 .badge.pass{background:var(--ok)}.badge.fail{background:var(--bad)}.badge.skip{background:var(--mut)}
-.scores{list-style:none;padding:0;margin:.5rem 0}.scores li{padding:.15rem 0}.scores li.pass{color:var(--ok)}.scores li.fail{color:var(--bad)}
+.scores{list-style:none;padding:0;margin:.5rem 0}.scores li{padding:.15rem 0}.scores li.pass{color:var(--ok)}.scores li.fail{color:var(--bad)}.scores li.na{color:var(--mut)}
 .tools,.meta{font-size:.85rem;color:var(--mut)}
 pre{background:rgba(127,127,127,.1);border-radius:6px;padding:.6rem .75rem;overflow:auto;font-size:.85rem;white-space:pre-wrap}
 pre.error{color:var(--bad)}a{color:#0969da}
@@ -541,6 +563,19 @@ mod tests {
         assert!(xml.contains("<failure message=\"s: nope\"/>"));
         assert!(xml.contains("<skipped/>"));
         assert!(xml.contains("name=\"hi@sim\""));
+    }
+
+    #[test]
+    fn junit_all_na_cell_is_skipped_not_failed() {
+        // A cell that ran but whose only score is N/A must not emit an empty
+        // <failure>; it counts as skipped instead.
+        let mut r = result("greet", "hi", "opus", false, false);
+        r.scores = vec![Score::na("judge", "unreachable")];
+        let xml = junit_xml(std::slice::from_ref(&r));
+        assert!(xml.contains("failures=\"0\""));
+        assert!(xml.contains("skipped=\"1\""));
+        assert!(xml.contains("<skipped/>"));
+        assert!(!xml.contains("<failure"));
     }
 
     #[test]
