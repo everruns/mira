@@ -11,8 +11,8 @@
 use std::path::PathBuf;
 
 use mira::protocol::{
-    self, ExecuteResult, InitializeResult, ListResult, Notification, Request, Response, RunParams,
-    RunResult, ScoreParams,
+    self, CancelParams, CancelResult, ExecuteResult, InitializeResult, ListResult, Notification,
+    Request, Response, RunParams, RunResult, ScoreParams,
 };
 use schemars::SchemaGenerator;
 use schemars::generate::SchemaSettings;
@@ -42,6 +42,8 @@ pub fn build_schema() -> serde_json::Value {
     generator.subschema_for::<RunResult>();
     generator.subschema_for::<ExecuteResult>();
     generator.subschema_for::<ScoreParams>();
+    generator.subschema_for::<CancelParams>();
+    generator.subschema_for::<CancelResult>();
 
     let defs = generator.take_definitions(true);
 
@@ -72,7 +74,7 @@ pub fn build_meta() -> serde_json::Value {
         "version": protocol::PROTOCOL_VERSION,
         "min_version": protocol::MIN_PROTOCOL_VERSION,
         "schema": "schema.json",
-        "methods": ["initialize", "list", "run", "execute", "score"],
+        "methods": ["initialize", "list", "run", "execute", "score", "cancel"],
         "capabilities": [
             protocol::capabilities::AXES,
             protocol::capabilities::EVENTS,
@@ -80,6 +82,7 @@ pub fn build_meta() -> serde_json::Value {
             protocol::capabilities::EXECUTE,
             protocol::capabilities::SCORE,
             protocol::capabilities::TRIALS,
+            protocol::capabilities::CANCEL,
         ],
     })
 }

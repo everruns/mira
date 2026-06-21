@@ -21,20 +21,30 @@
 //!
 //! Keep stdout clean: only protocol JSON goes there. Logging belongs on stderr.
 
+use std::collections::HashMap;
 use std::sync::Arc;
 
-use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader, Stdout};
-use tokio::sync::Mutex;
+use tokio::io::{AsyncBufReadExt, AsyncRead, AsyncWrite, AsyncWriteExt, BufReader};
+use tokio::sync::{Mutex, oneshot};
 use tokio::task::JoinSet;
 
 use crate::eval::Eval;
 use crate::protocol::{
-    AxisInfo, EvalInfo, ExecuteResult, InitializeResult, ListResult, ModelInfo, Notification,
-    PROTOCOL_VERSION, Request, Response, RpcError, RunParams, RunResult, SampleInfo, ScoreParams,
-    TranscriptSummary, capabilities, codes,
+    AxisInfo, CancelParams, CancelResult, EvalInfo, ExecuteResult, InitializeResult, ListResult,
+    ModelInfo, Notification, PROTOCOL_VERSION, Request, Response, RpcError, RunParams, RunResult,
+    SampleInfo, ScoreParams, TranscriptSummary, capabilities, codes,
 };
 use crate::registry::registered_evals;
 use crate::runner::{aggregate_value, execute_cell, run_cell, score_transcript, verdict};
+
+/// The shared, line-serialized output sink. Boxed (not a concrete `Stdout`) so
+/// the serve loop is testable over in-memory pipes via [`Study::serve_io`].
+type SharedWriter = Arc<Mutex<Box<dyn AsyncWrite + Send + Unpin>>>;
+
+/// In-flight cancellable requests: request `id` → a signal that, when fired,
+/// aborts that request's run via the task's `select!`. Held under a sync mutex
+/// (never across an `.await`), like the host's pending map.
+type Inflight = Arc<std::sync::Mutex<HashMap<u64, oneshot::Sender<()>>>>;
 
 /// Your eval program: a named bundle of [`Eval`]s exposed to the host over the
 /// protocol. Build one, then [`serve`](Study::serve) it.
@@ -86,17 +96,34 @@ impl Study {
 
     /// Serve this study over newline-delimited JSON on stdin/stdout until EOF.
     /// The host drives the loop; this returns when stdin closes.
+    pub async fn serve(self) -> std::io::Result<()> {
+        self.serve_io(tokio::io::stdin(), tokio::io::stdout()).await
+    }
+
+    /// Serve over arbitrary line-framed transports (e.g. in-memory pipes in
+    /// tests). [`serve`](Study::serve) is this over real stdin/stdout.
     ///
     /// Requests are dispatched **concurrently**: each `run` is handled on its own
     /// task so a host can keep many cells in flight at once. Writes are serialized
-    /// through a shared stdout mutex (one whole line per lock), so responses and
+    /// through a shared writer mutex (one whole line per lock), so responses and
     /// `event`/`log` notifications never interleave mid-line. The host bounds how
     /// many runs are in flight (see [`crate::exec`]).
-    pub async fn serve(self) -> std::io::Result<()> {
-        let mut lines = BufReader::new(tokio::io::stdin()).lines();
-        let stdout = Arc::new(Mutex::new(tokio::io::stdout()));
+    ///
+    /// A `cancel` request aborts one in-flight `run`/`execute`/`score` by its
+    /// request `id`: the run's task is dropped at its next await point and replies
+    /// with a `cancelled` error, so the host's pending call resolves promptly
+    /// instead of leaking until EOF. `cancel` is handled inline (not on a task)
+    /// and is itself never cancellable.
+    pub async fn serve_io<R, W>(self, reader: R, writer: W) -> std::io::Result<()>
+    where
+        R: AsyncRead + Unpin,
+        W: AsyncWrite + Send + Unpin + 'static,
+    {
+        let mut lines = BufReader::new(reader).lines();
+        let out: SharedWriter = Arc::new(Mutex::new(Box::new(writer)));
         let me = Arc::new(self);
         let mut tasks: JoinSet<()> = JoinSet::new();
+        let inflight: Inflight = Default::default();
 
         while let Some(line) = lines.next_line().await? {
             if line.trim().is_empty() {
@@ -106,16 +133,43 @@ impl Study {
                 Ok(req) => req,
                 Err(e) => {
                     // Can't correlate a malformed line to an id; report and move on.
-                    write_line(&stdout, &log_notification(format!("bad request: {e}"))).await?;
+                    write_line(&out, &log_notification(format!("bad request: {e}"))).await?;
                     continue;
                 }
             };
 
+            // `cancel` mutates the in-flight registry and must resolve promptly;
+            // handle it inline rather than racing it against the runs it cancels.
+            if request.method == "cancel" {
+                let response = cancel(&request, &inflight);
+                write_line(&out, &response).await?;
+                continue;
+            }
+
+            // Register a cancel signal before spawning, so a `cancel` arriving the
+            // instant after dispatch starts still finds it.
+            let (cancel_tx, cancel_rx) = oneshot::channel::<()>();
+            inflight
+                .lock()
+                .expect("inflight mutex poisoned")
+                .insert(request.id, cancel_tx);
+
             let me = me.clone();
-            let stdout = stdout.clone();
+            let out = out.clone();
+            let inflight = inflight.clone();
             tasks.spawn(async move {
-                let response = me.dispatch(&request, &stdout).await;
-                let _ = write_line(&stdout, &response).await;
+                let id = request.id;
+                let response = tokio::select! {
+                    resp = me.dispatch(&request, &out) => resp,
+                    // Cancelled: drop the run future (stops work at its next await)
+                    // and reply with an error the host correlates to its `run`.
+                    _ = cancel_rx => Response::err(id, "cancelled"),
+                };
+                inflight
+                    .lock()
+                    .expect("inflight mutex poisoned")
+                    .remove(&id);
+                let _ = write_line(&out, &response).await;
             });
         }
 
@@ -124,7 +178,7 @@ impl Study {
         Ok(())
     }
 
-    async fn dispatch(&self, request: &Request, stdout: &Arc<Mutex<Stdout>>) -> Response {
+    async fn dispatch(&self, request: &Request, stdout: &SharedWriter) -> Response {
         match request.method.as_str() {
             "initialize" => Response::ok(
                 request.id,
@@ -140,6 +194,7 @@ impl Study {
                         capabilities::EXECUTE.into(),
                         capabilities::SCORE.into(),
                         capabilities::TRIALS.into(),
+                        capabilities::CANCEL.into(),
                     ],
                 }),
             ),
@@ -391,6 +446,28 @@ fn skipped_result(params: &RunParams) -> RunResult {
     }
 }
 
+/// Abort the in-flight request named by `params.id`, replying with whether one
+/// was found. A miss (`cancelled: false`) is benign: the target already finished
+/// or was never in flight. Synchronous — it only fires the run's cancel signal;
+/// the run's own task writes its `cancelled` error and deregisters itself.
+fn cancel(request: &Request, inflight: &Inflight) -> Response {
+    let params: CancelParams = match serde_json::from_value(request.params.clone()) {
+        Ok(p) => p,
+        Err(e) => {
+            return Response::err_with(
+                request.id,
+                RpcError::new(format!("bad cancel params: {e}")).with_code(codes::INVALID_PARAMS),
+            );
+        }
+    };
+    let cancelled = inflight
+        .lock()
+        .expect("inflight mutex poisoned")
+        .remove(&params.id)
+        .is_some_and(|tx| tx.send(()).is_ok());
+    Response::ok(request.id, json(&CancelResult { cancelled }))
+}
+
 fn json<T: serde::Serialize>(value: &T) -> serde_json::Value {
     serde_json::to_value(value).unwrap_or(serde_json::Value::Null)
 }
@@ -411,17 +488,14 @@ fn event_notification(eval: &str, sample: &str, model: &str, kind: &str) -> Noti
     }
 }
 
-/// Serialize `value` as one line and write it under the shared stdout lock, so
+/// Serialize `value` as one line and write it under the shared writer lock, so
 /// concurrent tasks never interleave partial lines.
-async fn write_line<T: serde::Serialize>(
-    stdout: &Arc<Mutex<Stdout>>,
-    value: &T,
-) -> std::io::Result<()> {
+async fn write_line<T: serde::Serialize>(out: &SharedWriter, value: &T) -> std::io::Result<()> {
     let mut buf = serde_json::to_vec(value).unwrap_or_default();
     buf.push(b'\n');
-    let mut stdout = stdout.lock().await;
-    stdout.write_all(&buf).await?;
-    stdout.flush().await
+    let mut out = out.lock().await;
+    out.write_all(&buf).await?;
+    out.flush().await
 }
 
 #[cfg(test)]
@@ -430,6 +504,7 @@ mod tests {
     use crate::scorer::contains;
     use crate::subject::subject_fn;
     use crate::{Eval, ModelSpec, Sample, Transcript};
+    use serde_json::json;
 
     fn study() -> Study {
         Study::new().eval(
@@ -611,5 +686,100 @@ mod tests {
             transcript: Transcript::response("x"),
         };
         assert!(study().score(&sp).await.is_err());
+    }
+
+    /// A study whose only cell sleeps far longer than the test, so a `run`
+    /// observably stays in flight until cancelled.
+    fn slow_study() -> Study {
+        Study::new().eval(
+            Eval::new("slow")
+                .sample(Sample::new("s", "go"))
+                .subject(subject_fn(|_, _| async {
+                    tokio::time::sleep(std::time::Duration::from_secs(30)).await;
+                    Transcript::response("done")
+                }))
+                .scorer(contains("done"))
+                .build(),
+        )
+    }
+
+    /// Drive `serve_io` over in-memory pipes: a `cancel` aborts the in-flight
+    /// `run` (which would otherwise sleep 30s), the run replies with a `cancelled`
+    /// error, and the cancel reports it found the request.
+    #[tokio::test]
+    async fn cancel_aborts_inflight_run() {
+        use std::time::Duration;
+        use tokio::io::AsyncWriteExt;
+
+        let (mut host_w, study_r) = tokio::io::duplex(8192);
+        let (study_w, host_r) = tokio::io::duplex(8192);
+        let server = tokio::spawn(async move { slow_study().serve_io(study_r, study_w).await });
+        let mut reader = BufReader::new(host_r).lines();
+
+        // Fire the slow run (id 1), then cancel it by that request id (id 2).
+        host_w
+            .write_all(
+                b"{\"id\":1,\"method\":\"run\",\"params\":\
+                  {\"eval\":\"slow\",\"sample\":\"s\",\"model\":\"sim\"}}\n",
+            )
+            .await
+            .unwrap();
+        host_w
+            .write_all(b"{\"id\":2,\"method\":\"cancel\",\"params\":{\"id\":1}}\n")
+            .await
+            .unwrap();
+        host_w.flush().await.unwrap();
+
+        // Collect both responses, skipping the `event` notifications.
+        let (mut run_resp, mut cancel_resp) = (None, None);
+        while run_resp.is_none() || cancel_resp.is_none() {
+            let line = tokio::time::timeout(Duration::from_secs(5), reader.next_line())
+                .await
+                .expect("response did not arrive — cancel did not abort the run")
+                .expect("read line")
+                .expect("study closed early");
+            let v: serde_json::Value = serde_json::from_str(&line).unwrap();
+            match v.get("id").and_then(|i| i.as_u64()) {
+                Some(1) => run_resp = Some(v),
+                Some(2) => cancel_resp = Some(v),
+                _ => {} // notification (no id)
+            }
+        }
+
+        assert_eq!(cancel_resp.unwrap()["result"]["cancelled"], json!(true));
+        let msg = run_resp.unwrap()["error"]["message"]
+            .as_str()
+            .unwrap()
+            .to_string();
+        assert!(msg.contains("cancelled"), "run error was {msg:?}");
+
+        drop(host_w);
+        let _ = server.await;
+    }
+
+    /// Cancelling an `id` that isn't in flight (already done, or never sent) is a
+    /// benign miss: `cancelled: false`, no error.
+    #[tokio::test]
+    async fn cancel_unknown_id_is_benign_miss() {
+        use tokio::io::AsyncWriteExt;
+
+        let (mut host_w, study_r) = tokio::io::duplex(8192);
+        let (study_w, host_r) = tokio::io::duplex(8192);
+        let server = tokio::spawn(async move { study().serve_io(study_r, study_w).await });
+        let mut reader = BufReader::new(host_r).lines();
+
+        host_w
+            .write_all(b"{\"id\":9,\"method\":\"cancel\",\"params\":{\"id\":123}}\n")
+            .await
+            .unwrap();
+        host_w.flush().await.unwrap();
+
+        let line = reader.next_line().await.unwrap().unwrap();
+        let v: serde_json::Value = serde_json::from_str(&line).unwrap();
+        assert_eq!(v["id"], json!(9));
+        assert_eq!(v["result"]["cancelled"], json!(false));
+
+        drop(host_w);
+        let _ = server.await;
     }
 }

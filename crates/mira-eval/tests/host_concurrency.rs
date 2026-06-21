@@ -3,7 +3,7 @@
 //!
 //! Uses the bundled polyglot Python study (no Mira dep, protocol 1.0) so the test
 //! also pins backward compatibility: a 1.0 study with no `provider` field talks to
-//! the concurrent 1.1 host. Skips cleanly if `python3` isn't on PATH.
+//! the concurrent current-version host. Skips cleanly if `python3` isn't on PATH.
 
 use std::path::PathBuf;
 
@@ -35,7 +35,7 @@ async fn host_handles_many_concurrent_runs() {
     let host = Host::spawn(cmd).await.expect("spawn study");
     let info = host.initialize("test-host").await.expect("initialize");
     assert_eq!(info.study, "greet-python");
-    // A 1.0 study with no provider field still lists fine through the 1.1 host.
+    // A 1.0 study with no provider field still lists fine through the newer host.
     let listing = host.list().await.expect("list");
     assert_eq!(listing.evals[0].models[0].label, "sim");
 

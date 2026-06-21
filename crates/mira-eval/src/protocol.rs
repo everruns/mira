@@ -24,6 +24,9 @@
 //!   returning the **full** transcript (for run-now, score-later)
 //! * `score` ([`ScoreParams`]) → [`RunResult`] — score a supplied transcript
 //!   (for deferred scoring and re-scoring)
+//! * `cancel` ([`CancelParams`]) → [`CancelResult`] — abort one in-flight `run`
+//!   /`execute`/`score` by its request `id` (for per-cell timeouts, cost caps,
+//!   fail-fast)
 //!
 //! See `docs/protocol.md` for the full reference.
 
@@ -60,8 +63,10 @@ use crate::{Metadata, Params, Score, Timing, Transcript, Usage};
 /// aggregates pass@k / pass-rate / variance over the repetitions; `1.7` added the
 /// optional `metadata` map to `ModelInfo` and `SampleInfo`, so per-model config
 /// (agent, effort, price, …) and per-sample provenance (repo, difficulty, …) ride
-/// their own column and the host can group reports by them.
-pub const PROTOCOL_VERSION: &str = "1.7";
+/// their own column and the host can group reports by them; `1.8` added the
+/// `cancel` method (and its `cancel` capability) to abort one in-flight run by
+/// request `id`.
+pub const PROTOCOL_VERSION: &str = "1.8";
 
 /// The oldest protocol version this build can still talk to.
 pub const MIN_PROTOCOL_VERSION: &str = "1.0";
@@ -259,6 +264,10 @@ pub mod capabilities {
     /// drives the repetition); this advertises that seeding actually takes
     /// effect, not just that the cell is re-run.
     pub const TRIALS: &str = "trials";
+    /// Study answers `cancel` (abort one in-flight run by its request `id`).
+    /// Without it, a host can only stop work by closing stdin, which ends every
+    /// in-flight run at once.
+    pub const CANCEL: &str = "cancel";
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -389,6 +398,26 @@ impl RunParams {
             seed: self.seed,
         }
     }
+}
+
+/// `cancel` params: the `id` of the in-flight `run`/`execute`/`score` [`Request`]
+/// to abort. It is the request's own `id` (the one the host assigned and awaits a
+/// response on), not a cell key — so a host can cancel a specific outstanding call
+/// even when several runs of the same cell are in flight.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+pub struct CancelParams {
+    pub id: u64,
+}
+
+/// `cancel` result: whether a matching in-flight request was found and aborted.
+/// `false` is normal and benign — the targeted request had already completed (or
+/// was never in flight) by the time the cancel arrived. Cancellation is therefore
+/// best-effort: a `run` that finishes first still returns its real result.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+pub struct CancelResult {
+    pub cancelled: bool,
 }
 
 /// Lightweight transcript carried in results and checkpoints (the raw event
@@ -595,6 +624,19 @@ mod tests {
         let back: Request = serde_json::from_str(&line).unwrap();
         assert_eq!(back.id, 7);
         assert_eq!(back.method, "run");
+    }
+
+    #[test]
+    fn cancel_params_and_result_roundtrip() {
+        let p = CancelParams { id: 42 };
+        let line = serde_json::to_string(&p).unwrap();
+        assert_eq!(line, r#"{"id":42}"#);
+        let back: CancelParams = serde_json::from_value(serde_json::json!({ "id": 42 })).unwrap();
+        assert_eq!(back.id, 42);
+
+        let r = CancelResult { cancelled: true };
+        let back: CancelResult = serde_json::from_str(&serde_json::to_string(&r).unwrap()).unwrap();
+        assert!(back.cancelled);
     }
 
     #[test]

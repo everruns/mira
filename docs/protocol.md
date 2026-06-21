@@ -59,7 +59,7 @@ A line is classified by its fields:
 | Field | Type | Notes |
 |-------|------|-------|
 | `id` | integer | Monotonic, unique per request. Correlates the response. |
-| `method` | string | One of `initialize`, `list`, `run`, `execute`, `score`. |
+| `method` | string | One of `initialize`, `list`, `run`, `execute`, `score`, `cancel`. |
 | `params` | object | Method-specific; may be absent for parameterless methods. |
 
 ### Response (study → host)
@@ -106,35 +106,35 @@ study.
 **Params**
 
 ```json
-{ "protocol_version": "1.6", "host": "mira-cli" }
+{ "protocol_version": "1.8", "host": "mira-cli" }
 ```
 
 **Result**
 
 ```json
 {
-  "protocol_version": "1.6",
+  "protocol_version": "1.8",
   "study": "my-evals",
   "evals": 3,
   "study_version": "0.1.0",
-  "capabilities": ["axes", "events", "usage", "execute", "score", "trials"]
+  "capabilities": ["axes", "events", "usage", "execute", "score", "trials", "cancel"]
 }
 ```
 
 The study replies with the `protocol_version` it implements. Compatibility is
 by **major**: a host refuses a study whose major differs from its own; a
 differing minor is additive and tolerated (see [Versioning](#versioning)). The
-current version is **`1.6`**.
+current version is **`1.8`**.
 
 `capabilities` lets a host feature-detect additively instead of sniffing
 versions. Defined tokens: `axes` (study advertises extra axes and honours
 `run.params`), `events` (emits `event` notifications), `usage` (reports
 token/cost/timing), `execute` (answers `execute`), `score` (answers `score`),
 `trials` (threads the `seed` run param into the subject, so repetitions are
-reproducible). `study_version` and `capabilities` are optional and default to
-empty. A `1.0`
-study that only implements `run` interoperates unchanged — the host simply
-won't see the `execute`/`score` capabilities.
+reproducible), `cancel` (answers `cancel`). `study_version` and `capabilities`
+are optional and default to empty. A `1.0` study that only implements `run`
+interoperates unchanged — the host simply won't see the
+`execute`/`score`/`trials`/`cancel` capabilities.
 
 ### `list`
 
@@ -334,6 +334,43 @@ The `trial`/`trials`/`seed` fields (optional) are echoed into the resulting
 **Result** — a [`RunResult`](#run), identical in shape to the `run` response
 (scores + lightweight transcript summary).
 
+### `cancel`
+
+Aborts one in-flight `run`/`execute`/`score` by its request `id`, so a host can
+enforce per-cell timeouts, hard cost caps, or fail-fast without tearing down the
+whole connection. Advertised by the `cancel` capability.
+
+**Params**
+
+```json
+{ "id": 7 }
+```
+
+`id` is the **request id** of the call to abort — the `id` the host put on the
+`run` and is awaiting a response on — not a cell key. So a host can target one
+specific outstanding call even when several runs of the same cell are in flight.
+
+**Result**
+
+```json
+{ "cancelled": true }
+```
+
+`cancelled` is whether a matching in-flight request was found and aborted.
+`false` is normal and benign: the targeted request had already completed (or was
+never in flight) by the time the cancel arrived. Cancellation is **best-effort** —
+a `run` that finishes first still returns its real result.
+
+A cancelled run's own response arrives as an `error` correlated by its `id`
+(message `cancelled`), so the host's pending call resolves promptly instead of
+hanging until EOF. The study should stop work at the next opportunity; the cancel
+response itself is immediate and independent.
+
+A host that drives this over the protocol need not even hold the id explicitly:
+the Rust [`mira`](https://docs.rs/mira-eval) host sends a best-effort `cancel`
+automatically when a `run` future is dropped (e.g. by `tokio::time::timeout` or a
+fail-fast `select!`), and also exposes an explicit `HostHandle::cancel(id)`.
+
 #### Score
 
 ```json
@@ -374,7 +411,9 @@ host                                   study
  │ run {…cell 2…} ─────────────────────▶ │
  │◀──── event {kind:"started"}           │   (0+ notifications, any order)
  │◀──── { id:2, passed, … }              │   responses correlate by id
- │◀──── { id:1, passed, … }              │
+ │ cancel { id:1 } ────────────────────▶ │   abort one run by request id
+ │◀──── { id:3, cancelled:true }         │   (cancel ack)
+ │◀──── { id:1, error:"cancelled" }      │   the aborted run resolves
  │            ⋮                          │
  │ (close stdin) ──────────────────────▶ │   EOF ⇒ study exits
 ```
@@ -391,6 +430,11 @@ halved, recovering as cells succeed. Models are bucketed by their `list`
 completed cells are persisted to a checkpoint and subtracted on the next
 invocation.
 
+A host can abort a single in-flight run with [`cancel`](#cancel) — addressing it
+by request `id` — without disturbing the others or closing the connection. This
+is the lever for per-cell timeouts, hard cost caps, and fail-fast. (Closing
+stdin, by contrast, ends *every* in-flight run at once.)
+
 ## Errors
 
 - A malformed request line that cannot be parsed (no recoverable `id`) should be
@@ -402,7 +446,7 @@ invocation.
 
 ## Versioning
 
-The protocol uses `MAJOR.MINOR` (`PROTOCOL_VERSION`, currently `1.7`), all minors
+The protocol uses `MAJOR.MINOR` (`PROTOCOL_VERSION`, currently `1.8`), all minors
 additive over `1.0`: `1.1` added the optional `ModelInfo.provider` field and the
 `execute`/`score` methods plus their capabilities; `1.2` added the optional
 `transcript.metrics` map; `1.3` added the optional `transcript.error_kind`
@@ -412,8 +456,9 @@ JSON-RPC-shaped `{ code, message, retryable, data }` (all new fields
 optional/defaulted); `1.6` added trials/repetitions — the optional
 `trial`/`trials`/`seed` fields on the run/execute/score payloads, `EvalInfo.trials`
 + `EvalInfo.seed`, and the `trials` capability; `1.7` added the optional `metadata`
-map to `SampleInfo` and `ModelInfo`. A `1.0` study (or any study implementing only
-`run`) interoperates with a `1.7` host.
+map to `SampleInfo` and `ModelInfo`; `1.8` added the `cancel` method and
+capability. A `1.0` study (or any study implementing only `run`) interoperates
+with a `1.8` host.
 
 - A **MINOR** bump is **additive**: new optional fields, new notification kinds,
   new capability tokens. A newer peer must keep talking to an older one.
@@ -429,7 +474,7 @@ Forward compatibility is a hard requirement on both sides:
    defaults (empty map/list, `0`, `null`), so an older study that omits them
    still validates against a newer host.
 3. **Feature-detect via `capabilities`**, not version sniffing, for optional
-   behaviour (`axes`, `events`, `usage`, `execute`, `score`).
+   behaviour (`axes`, `events`, `usage`, `execute`, `score`, `trials`, `cancel`).
 
 This is why a `0.x`-era study (no `axes`, no `timing`) and a `1.0` host
 interoperate: the host sees an empty `axes`/`capabilities` and a model-only
@@ -493,5 +538,8 @@ the SDK design (native libraries, not FFI bindings).
 
 To support deferred / re-scoring, a study may additionally implement `execute`
 (return the full transcript, no scoring) and `score` (score a supplied
-transcript), advertising the matching capabilities. These are optional: a study
+transcript), advertising the matching capabilities. To let a host abort a single
+in-flight run, a study may implement `cancel` (advertising the `cancel`
+capability): track runs by request `id`, and on `cancel` stop the named run and
+reply to it with an `error` of `cancelled`. All of these are optional: a study
 that implements only `run` is fully conforming.

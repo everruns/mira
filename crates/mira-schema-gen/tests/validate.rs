@@ -5,8 +5,9 @@
 //! actually describes the messages studies emit.
 
 use mira::protocol::{
-    EvalInfo, ExecuteResult, InitializeResult, ListResult, ModelInfo, Notification, Request,
-    Response, RunParams, RunResult, SampleInfo, ScoreParams, TranscriptSummary,
+    CancelParams, CancelResult, EvalInfo, ExecuteResult, InitializeResult, ListResult, ModelInfo,
+    Notification, Request, Response, RunParams, RunResult, SampleInfo, ScoreParams,
+    TranscriptSummary,
 };
 use mira::{Score, Transcript, Usage};
 use mira_schema_gen::schema_dir;
@@ -183,6 +184,23 @@ fn payloads_validate_against_their_defs() {
         transcript,
     };
     assert_valid_against_def("ScoreParams", &to_value(&score));
+
+    // `cancel` params/result (protocol 1.5).
+    assert_valid_against_def("CancelParams", &to_value(&CancelParams { id: 7 }));
+    assert_valid_against_def("CancelResult", &to_value(&CancelResult { cancelled: true }));
+}
+
+/// A `cancel` request and its ack are well-formed protocol envelopes.
+#[test]
+fn cancel_envelopes_validate_at_root() {
+    let request = Request {
+        id: 3,
+        method: "cancel".into(),
+        params: json!({ "id": 1 }),
+    };
+    let ack = Response::ok(3, json!({ "cancelled": true }));
+    assert_valid_at_root(&to_value(&request));
+    assert_valid_at_root(&to_value(&ack));
 }
 
 /// The `protocol-unstable` staging convention's guarantee: fields gated behind

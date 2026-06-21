@@ -15,6 +15,7 @@ from . import _codec
 from ._meta import PROTOCOL_VERSION
 from ._wire import (
     AxisInfo,
+    CancelResult,
     EvalInfo,
     ExecuteResult,
     InitializeResult,
@@ -40,7 +41,7 @@ _CODE_INTERNAL_ERROR = -32603
 # The protocol methods this SDK dispatches in `Study.handle`. Kept explicit so a
 # test can assert it covers every method in the generated `_meta.METHODS` — a new
 # protocol method then fails CI until the serve loop handles it.
-HANDLED_METHODS = ("initialize", "list", "run", "execute", "score")
+HANDLED_METHODS = ("initialize", "list", "run", "execute", "score", "cancel")
 
 
 # ----- authoring types --------------------------------------------------------
@@ -208,6 +209,13 @@ class Study:
                 capabilities=self._capabilities()))
         if method == "list":
             return _codec.to_dict(ListResult(evals=[e.info() for e in self._evals.values()]))
+        if method == "cancel":
+            # The serve loop is synchronous: it processes one request at a time,
+            # so there is never a concurrently in-flight run to abort. Cancel is
+            # therefore always a benign no-op (best-effort, like the protocol
+            # allows). Handled so the method isn't "unknown"; the `cancel`
+            # capability is left unadvertised since it can't do anything here.
+            return _codec.to_dict(CancelResult(cancelled=False))
         if method == "execute":
             transcript, skipped = self._execute(params)
             return _codec.to_dict(ExecuteResult(
