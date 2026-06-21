@@ -101,7 +101,7 @@
           ]
         },
         "samples": {
-          "description": "The **first page** of this eval's samples. When `next_cursor` is `Some`,\nmore pages follow — fetch them with `list_samples` (see\n[`ListSamplesParams`]) until the cursor runs out. A study that fits its\nwhole dataset here leaves `next_cursor` empty.",
+          "description": "The **first page** of this eval's samples. When `next_cursor` is present,\nmore pages follow — fetch them with `list_samples` (see\n[`ListSamplesParams`]) until the cursor runs out. A study that fits its\nwhole dataset here omits `next_cursor`.",
           "items": {
             "$ref": "#/$defs/SampleInfo"
           },

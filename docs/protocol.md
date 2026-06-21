@@ -161,8 +161,9 @@ token/cost/timing), `execute` (answers `execute`), `score` (answers `score`),
 `trials` (threads the `seed` run param into the subject, so repetitions are
 reproducible), `cancel` (answers `cancel`), `paginate` (answers `list_samples`
 and may return `EvalInfo.next_cursor` from `list`). `study_version` and
-`capabilities` are optional and default to empty. A `1.0` study that only
-implements `run` interoperates unchanged — the host simply won't see the
+`capabilities` are optional and default to empty. A study that implements only
+the base methods (`initialize`, `list`, `run`) and advertises no capabilities
+interoperates unchanged — the host simply won't see the
 `execute`/`score`/`trials`/`cancel`/`paginate` capabilities.
 
 `capability_params` (optional, defaulted) carries **structured config** for the
@@ -605,9 +606,10 @@ the initial stable baseline: the full method set (`initialize`, `list`,
 `request_id`-correlated `event`/`log` notifications, JSON-RPC-shaped error
 objects, trials/repetitions with seeds, cursor-paginated sample listing,
 eval/sample/model `metadata` (open-ended JSON), and multimodal `output` plus
-structured `capability_params`. A study implementing only `run` (and emitting no
-notifications) interoperates with a full `1.0` host: every method and field
-beyond `run` is feature-detected or defaulted. Future additions bump the minor.
+structured `capability_params`. A study that implements only the base methods
+(`initialize`, `list`, `run`) — advertising no capabilities and emitting no
+notifications — interoperates with a full `1.0` host: every method and field
+beyond the base is feature-detected or defaulted. Future additions bump the minor.
 
 - A **MINOR** bump is **additive**: new optional fields, new notification kinds,
   new capability tokens. A newer peer must keep talking to an older one.

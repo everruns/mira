@@ -463,10 +463,10 @@ pub struct EvalInfo {
     pub name: String,
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub description: String,
-    /// The **first page** of this eval's samples. When `next_cursor` is `Some`,
+    /// The **first page** of this eval's samples. When `next_cursor` is present,
     /// more pages follow — fetch them with `list_samples` (see
     /// [`ListSamplesParams`]) until the cursor runs out. A study that fits its
-    /// whole dataset here leaves `next_cursor` empty.
+    /// whole dataset here omits `next_cursor`.
     pub samples: Vec<SampleInfo>,
     /// Opaque continuation token: present iff more samples remain beyond
     /// `samples`. Pass it back via `list_samples` to fetch the next page. The

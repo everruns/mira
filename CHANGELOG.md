@@ -28,8 +28,8 @@ adheres to [Semantic Versioning](https://semver.org/).
   publishes `output`, `capability_params`, and the `Part` / `Source` content
   defs, and the Python SDK mirrors them (codegen renders the `Part`/`Source`
   object unions as pass-through `kind`-tagged dicts). `final_response` stays the
-  canonical text projection, and both fields are optional/defaulted, so a
-  `run`-only study still interoperates. `TranscriptSummary.experimental` remains the
+  canonical text projection, and both fields are optional/defaulted, so older
+  peers still interoperate. `TranscriptSummary.experimental` remains the
   reserved `protocol-unstable` staging slot for the next structural addition.
 - **Run cancellation** (`cancel`, protocol `1.0`) — a host can now abort one
   in-flight `run`/`execute`/`score` by its request `id` without tearing down the
@@ -79,8 +79,8 @@ adheres to [Semantic Versioning](https://semver.org/).
   alongside the existing eval-level metadata. `Sample::meta` / `ModelSpec::meta`
   already existed; they now ride their own column through the protocol instead of
   being dropped, so config detail rides the model column and provenance rides the
-  sample. Both maps are optional and default to empty — a `run`-only study still
-  interoperates. The host surfaces them in `mira list`.
+  sample. Both maps are optional and default to empty — a study that omits them
+  still interoperates. The host surfaces them in `mira list`.
 - **`mira run --group-by <key>` / `mira score --group-by <key>`** — break
   resolve-rate down by a metadata (or axis) key, e.g. `--group-by difficulty` or
   `--group-by repo`. Each cell's group value is resolved in order: axis `params`,
@@ -225,8 +225,8 @@ adheres to [Semantic Versioning](https://semver.org/).
   separable phases, for long-running subjects and re-scoring:
   - Protocol gains `execute` (run the subject only, returning the **full**
     transcript) and `score` (score a supplied transcript without re-executing),
-    advertised via the `execute` / `score` capabilities. A `run`-only study still
-    interoperates.
+    advertised via the `execute` / `score` capabilities. A study without those
+    capabilities still interoperates.
   - `mira run --execute-only --artifacts <dir>` captures one full-transcript
     artifact per cell (resumable; skips existing artifacts unless `--fresh`).
   - `mira score --artifacts <dir>` (re-)scores captured artifacts and reports —
@@ -249,8 +249,8 @@ adheres to [Semantic Versioning](https://semver.org/).
   custom `retrieval_recall@5` metric.
 - Protocol additions land in the `1.0` baseline: the optional `ModelInfo.provider`
   field (concurrency bucketing), the `execute`/`score` methods + capabilities, and
-  the optional `transcript.metrics` map. A `run`-only study still interoperates;
-  `MIN_PROTOCOL_VERSION` stays `1.0`.
+  the optional `transcript.metrics` map. A study without those capabilities still
+  interoperates; `MIN_PROTOCOL_VERSION` stays `1.0`.
 - **`Score::na` — a third scorer state.** Scorers can now report **N/A**
   ("couldn't evaluate", e.g. an unreachable judge or missing credentials)
   instead of crashing or scoring a misleading `fail`. N/A scores are excluded
