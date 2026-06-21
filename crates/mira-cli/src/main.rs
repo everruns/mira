@@ -194,31 +194,39 @@ async fn run(
     );
     if let Some(path) = &args.checkpoint
         && !args.fresh
-        && let Some(prev) = Session::load(path)
     {
-        let stale = prev.stale_keys(&fingerprints);
-        for r in prev.results {
-            done.insert(r.key(), r);
-        }
-        session.created_unix = prev.created_unix;
-        let resumable = plan.iter().filter(|c| done.contains_key(&c.key())).count();
-        eprintln!(
-            "resuming checkpoint: {resumable}/{} cells already done",
-            plan.len()
-        );
-        if !stale.is_empty() {
-            eprintln!(
-                "warning: {} cached cell(s) are stale — their eval definition changed \
-                 since they were recorded. They'll be reused as-is; re-run with --fresh \
-                 to recompute. e.g. {}",
-                stale.len(),
-                stale.iter().take(3).cloned().collect::<Vec<_>>().join(", "),
-            );
+        match Session::load(path) {
+            Ok(Some(prev)) => {
+                let stale = prev.stale_keys(&fingerprints);
+                for r in prev.results {
+                    done.insert(r.key(), r);
+                }
+                session.created_unix = prev.created_unix;
+                let resumable = plan.iter().filter(|c| done.contains_key(&c.key())).count();
+                eprintln!(
+                    "resuming checkpoint: {resumable}/{} cells already done",
+                    plan.len()
+                );
+                if !stale.is_empty() {
+                    eprintln!(
+                        "warning: {} cached cell(s) are stale — their eval definition changed \
+                         since they were recorded. They'll be reused as-is; re-run with --fresh \
+                         to recompute. e.g. {}",
+                        stale.len(),
+                        stale.iter().take(3).cloned().collect::<Vec<_>>().join(", "),
+                    );
+                }
+            }
+            // No checkpoint yet — a normal first run.
+            Ok(None) => {}
+            // The file exists but can't be used; don't silently discard it.
+            Err(e) => eprintln!("warning: ignoring checkpoint {path}: {e}; starting fresh"),
         }
     }
 
-    // Configure the progress bar now the plan is known. TTY only — in CI/non-TTY
-    // it stays hidden so it doesn't pollute logs; the final report still prints.
+    // Configure the progress bar now the plan is known. Drawn only when stderr is
+    // a terminal, so it stays hidden when piped or redirected (e.g. under CI) and
+    // never pollutes logs; the final report still prints.
     let resumable = plan.iter().filter(|c| done.contains_key(&c.key())).count();
     if !plan.is_empty() && std::io::stderr().is_terminal() {
         progress.set_draw_target(ProgressDrawTarget::stderr());
@@ -246,11 +254,14 @@ async fn run(
         done.insert(key, result);
         progress.inc(1);
         if let Some(path) = &args.checkpoint {
-            session.update(
-                plan.len(),
-                fingerprints.clone(),
-                done.values().cloned().collect(),
-            );
+            // Persist only the planned cells, in plan order — so the file stays
+            // deterministic and doesn't accumulate cells dropped by a narrower
+            // selection on resume.
+            let results = plan
+                .iter()
+                .filter_map(|c| done.get(&c.key()).cloned())
+                .collect();
+            session.update(plan.len(), fingerprints.clone(), results);
             if let Err(e) = session.save(path) {
                 progress.suspend(|| eprintln!("warning: failed to write checkpoint: {e}"));
             }

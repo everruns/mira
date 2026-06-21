@@ -19,12 +19,10 @@
 //! touching the definition won't be flagged — use `--fresh` when in doubt.
 
 use std::collections::BTreeMap;
-use std::collections::hash_map::DefaultHasher;
-use std::hash::{Hash, Hasher};
-use std::path::Path;
 
 use serde::{Deserialize, Serialize};
 
+use crate::Metadata;
 use crate::protocol::{EvalInfo, ListResult, RunResult};
 
 /// On-disk format version for the session/checkpoint file. Bumped on a breaking
@@ -80,18 +78,30 @@ impl Session {
         }
     }
 
-    /// Load a session from `path`. Returns `None` if the file is missing or not a
-    /// recognised session (so the caller simply starts fresh).
-    pub fn load(path: &str) -> Option<Session> {
-        if !Path::new(path).exists() {
-            return None;
-        }
-        let text = std::fs::read_to_string(path).ok()?;
-        let session: Session = serde_json::from_str(&text).ok()?;
+    /// Load a session from `path`.
+    ///
+    /// `Ok(None)` means the file simply doesn't exist (a normal first run).
+    /// `Err` means it exists but couldn't be used — unreadable, malformed, or a
+    /// different format version — so the caller can warn before starting fresh
+    /// rather than silently discarding a checkpoint.
+    pub fn load(path: &str) -> std::io::Result<Option<Session>> {
+        let text = match std::fs::read_to_string(path) {
+            Ok(text) => text,
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+            Err(e) => return Err(e),
+        };
+        let session: Session = serde_json::from_str(&text)
+            .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
         if session.format != SESSION_FORMAT {
-            return None;
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                format!(
+                    "unsupported session format {} (expected {SESSION_FORMAT})",
+                    session.format
+                ),
+            ));
         }
-        Some(session)
+        Ok(Some(session))
     }
 
     /// Persist the session to `path` as pretty JSON, stamping `updated_unix`.
@@ -159,30 +169,57 @@ pub fn fingerprints(listing: &ListResult) -> BTreeMap<String, String> {
 
 /// Stable fingerprint of one eval's advertised definition.
 ///
-/// Uses std's `DefaultHasher` (SipHash with fixed keys), which is deterministic
-/// across runs and processes — unlike `RandomState`. Not cryptographic; it only
-/// needs to change when the definition changes.
+/// Deliberately *not* `DefaultHasher`: std's SipHash algorithm is not contracted
+/// to be stable across Rust releases, so a toolchain bump could silently change
+/// fingerprints and flag every cached cell as stale. Instead we serialize the
+/// relevant fields to canonical JSON (deterministic field/`BTreeMap` order) and
+/// hash the bytes with FNV-1a — a fixed algorithm that won't drift. Not
+/// cryptographic; it only needs to change when the definition changes. The
+/// scheme is tied to [`SESSION_FORMAT`]: bump that if this changes.
 fn fingerprint(eval: &EvalInfo) -> String {
-    let mut h = DefaultHasher::new();
-    eval.scorers.hash(&mut h);
-    eval.max_turns.hash(&mut h);
-    for a in &eval.axes {
-        a.name.hash(&mut h);
-        a.values.hash(&mut h);
+    /// The subset of an eval's definition that, if changed, invalidates cached
+    /// results. `available` is intentionally excluded (it tracks env, not the
+    /// definition). Field/iteration order is deterministic, so JSON is canonical.
+    #[derive(Serialize)]
+    struct Fingerprintable<'a> {
+        scorers: &'a [String],
+        max_turns: usize,
+        axes: Vec<(&'a str, &'a [String])>,
+        models: Vec<&'a str>,
+        samples: Vec<(&'a str, &'a [String])>,
+        metadata: &'a Metadata,
     }
-    for m in &eval.models {
-        m.label.hash(&mut h);
+
+    let fp = Fingerprintable {
+        scorers: &eval.scorers,
+        max_turns: eval.max_turns,
+        axes: eval
+            .axes
+            .iter()
+            .map(|a| (a.name.as_str(), a.values.as_slice()))
+            .collect(),
+        models: eval.models.iter().map(|m| m.label.as_str()).collect(),
+        samples: eval
+            .samples
+            .iter()
+            .map(|s| (s.id.as_str(), s.tags.as_slice()))
+            .collect(),
+        metadata: &eval.metadata,
+    };
+    let bytes = serde_json::to_vec(&fp).expect("fingerprint serialization is infallible");
+    format!("{:016x}", fnv1a(&bytes))
+}
+
+/// 64-bit FNV-1a. A small, dependency-free, version-stable hash.
+fn fnv1a(bytes: &[u8]) -> u64 {
+    const OFFSET: u64 = 0xcbf29ce484222325;
+    const PRIME: u64 = 0x00000100000001b3;
+    let mut h = OFFSET;
+    for &b in bytes {
+        h ^= b as u64;
+        h = h.wrapping_mul(PRIME);
     }
-    for s in &eval.samples {
-        s.id.hash(&mut h);
-        s.tags.hash(&mut h);
-    }
-    // Metadata is a BTreeMap, so iteration order is deterministic.
-    for (k, v) in &eval.metadata {
-        k.hash(&mut h);
-        v.hash(&mut h);
-    }
-    format!("{:016x}", h.finish())
+    h
 }
 
 #[cfg(test)]
@@ -278,7 +315,7 @@ mod tests {
         session.results = vec![result("greet")];
         session.save(path).unwrap();
 
-        let back = Session::load(path).expect("loads");
+        let back = Session::load(path).unwrap().expect("loads");
         assert_eq!(back.study, "study");
         assert_eq!(back.total, 3);
         assert_eq!(back.results.len(), 1);
@@ -286,7 +323,20 @@ mod tests {
     }
 
     #[test]
-    fn load_missing_is_none() {
-        assert!(Session::load("/no/such/session.json").is_none());
+    fn load_missing_is_ok_none() {
+        assert!(Session::load("/no/such/session.json").unwrap().is_none());
+    }
+
+    #[test]
+    fn load_corrupt_is_err() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("bad.json");
+        let path = path.to_str().unwrap();
+        std::fs::write(path, "{ not valid json").unwrap();
+        assert!(Session::load(path).is_err());
+
+        // Recognisable JSON but a future format version is also an error.
+        std::fs::write(path, r#"{"format":999,"study":"x","total":0,"created_unix":0,"updated_unix":0,"results":[]}"#).unwrap();
+        assert!(Session::load(path).is_err());
     }
 }
