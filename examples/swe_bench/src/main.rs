@@ -4,6 +4,7 @@
 //! ```bash
 //! mira --bin swe_bench list
 //! mira --bin swe_bench run
+//! mira --bin swe_bench run --group-by difficulty   # resolve rate per difficulty
 //! ```
 //!
 //! Each [`Sample`] seeds a buggy source file (and records the `FAIL_TO_PASS`
@@ -42,6 +43,9 @@ struct Instance {
     buggy: &'static str,
     fixed: &'static str,
     fail_to_pass: &'static str,
+    /// SWE-bench-style provenance, carried as sample metadata so the host can
+    /// break resolve-rate down by it: `mira --bin swe_bench run --group-by difficulty`.
+    difficulty: &'static str,
 }
 
 const INSTANCES: &[Instance] = &[
@@ -51,6 +55,7 @@ const INSTANCES: &[Instance] = &[
         buggy: "def sum_to(n):\n    # BUG: drops the last term\n    return sum(range(n))\n",
         fixed: "def sum_to(n):\n    return sum(range(n + 1))\n",
         fail_to_pass: "tests/test_calc.py::test_sum_to_10",
+        difficulty: "easy",
     },
     Instance {
         id: "strutil__wrong-casing",
@@ -58,6 +63,7 @@ const INSTANCES: &[Instance] = &[
         buggy: "def shout(s):\n    # BUG: lowercases instead of upper\n    return s.lower()\n",
         fixed: "def shout(s):\n    return s.upper()\n",
         fail_to_pass: "tests/test_strutil.py::test_shout",
+        difficulty: "medium",
     },
 ];
 
@@ -74,6 +80,7 @@ fn dataset() -> Dataset {
                 .tag("swe-bench")
                 .meta("FAIL_TO_PASS", inst.fail_to_pass)
                 .meta("repo", "example/repo")
+                .meta("difficulty", inst.difficulty)
             })
             .collect(),
     )

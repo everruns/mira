@@ -226,6 +226,7 @@ impl Study {
                     .map(|s| SampleInfo {
                         id: s.id.clone(),
                         tags: s.tags.clone(),
+                        metadata: s.metadata.clone(),
                     })
                     .collect(),
                 scorers: eval.scorers.iter().map(|s| s.name()).collect(),
@@ -236,6 +237,7 @@ impl Study {
                         label: m.label.clone(),
                         provider: m.provider.clone(),
                         available: m.available,
+                        metadata: m.metadata.clone(),
                     })
                     .collect(),
                 axes: eval
@@ -427,18 +429,23 @@ mod tests {
     use super::*;
     use crate::scorer::contains;
     use crate::subject::subject_fn;
-    use crate::{Eval, Sample, Transcript};
+    use crate::{Eval, ModelSpec, Sample, Transcript};
 
     fn study() -> Study {
         Study::new().eval(
             Eval::new("greet")
                 .describe("greeting eval")
                 .meta("suite", "smoke")
-                .sample(Sample::new("hi", "say hi").tag("smoke"))
+                .sample(
+                    Sample::new("hi", "say hi")
+                        .tag("smoke")
+                        .meta("difficulty", "easy"),
+                )
                 .subject(subject_fn(|_, _| async {
                     Transcript::response("hi there")
                 }))
                 .scorer(contains("hi"))
+                .models([ModelSpec::sim().meta("agent", "demo")])
                 .build(),
         )
     }
@@ -451,8 +458,11 @@ mod tests {
         assert_eq!(e.description, "greeting eval");
         assert_eq!(e.metadata.get("suite").unwrap(), "smoke");
         assert_eq!(e.samples[0].tags, vec!["smoke"]);
+        // Per-sample and per-model metadata now ride their own wire columns (1.5).
+        assert_eq!(e.samples[0].metadata.get("difficulty").unwrap(), "easy");
         assert_eq!(e.models[0].label, "sim");
         assert!(e.models[0].available);
+        assert_eq!(e.models[0].metadata.get("agent").unwrap(), "demo");
     }
 
     #[tokio::test]

@@ -150,11 +150,14 @@ anything.
     {
       "name": "greet",
       "description": "Greets the user and reports the answer",
-      "samples": [ { "id": "hi", "tags": ["smoke"] } ],
+      "samples": [
+        { "id": "hi", "tags": ["smoke"], "metadata": { "repo": "example/repo", "difficulty": "easy" } }
+      ],
       "scorers": ["succeeded", "contains(\"42\")"],
       "models": [
         { "label": "sim", "provider": "sim", "available": true },
-        { "label": "anthropic/claude-opus-4-8", "provider": "anthropic", "available": false }
+        { "label": "anthropic/claude-opus-4-8", "provider": "anthropic", "available": false,
+          "metadata": { "agent": "swe-agent", "effort": "high", "price_tier": "premium" } }
       ],
       "axes": [ { "name": "effort", "values": ["low", "high"] } ],
       "max_turns": 12,
@@ -180,6 +183,13 @@ anything.
   links, structured context). Values may be a string, number, bool, or a nested
   object/array — widened from string-only values in `1.4`. (Axis `params`, by
   contrast, stay `string → string`: they form part of a cell's identity.)
+  Carried at three levels, each optional and defaulting to empty: on the **eval**
+  (shown above), on each **sample** (`samples[].metadata` — repo, difficulty,
+  dataset split, …), and on each **model** (`models[].metadata` — agent,
+  underlying model, effort, price, sandbox, …). The per-sample and per-model maps
+  were added in `1.7`; an older study that omits them still parses. The host
+  surfaces them in `list` and can break resolve-rate down by any of their keys
+  with `mira run --group-by <key>`.
 - `trials` (optional, default 1) is how many times each cell should be **repeated**
   for pass@k / pass-rate / variance over a stochastic subject. Unlike an axis,
   trials don't form new cells — they're re-runs of one cell, grouped back by the
@@ -392,7 +402,7 @@ invocation.
 
 ## Versioning
 
-The protocol uses `MAJOR.MINOR` (`PROTOCOL_VERSION`, currently `1.6`), all minors
+The protocol uses `MAJOR.MINOR` (`PROTOCOL_VERSION`, currently `1.7`), all minors
 additive over `1.0`: `1.1` added the optional `ModelInfo.provider` field and the
 `execute`/`score` methods plus their capabilities; `1.2` added the optional
 `transcript.metrics` map; `1.3` added the optional `transcript.error_kind`
@@ -401,8 +411,9 @@ open-ended JSON; `1.5` promoted the error object from `{ message }` to the
 JSON-RPC-shaped `{ code, message, retryable, data }` (all new fields
 optional/defaulted); `1.6` added trials/repetitions — the optional
 `trial`/`trials`/`seed` fields on the run/execute/score payloads, `EvalInfo.trials`
-+ `EvalInfo.seed`, and the `trials` capability. A `1.0` study (or any study
-implementing only `run`) interoperates with a `1.6` host.
++ `EvalInfo.seed`, and the `trials` capability; `1.7` added the optional `metadata`
+map to `SampleInfo` and `ModelInfo`. A `1.0` study (or any study implementing only
+`run`) interoperates with a `1.7` host.
 
 - A **MINOR** bump is **additive**: new optional fields, new notification kinds,
   new capability tokens. A newer peer must keep talking to an older one.

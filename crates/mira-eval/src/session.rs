@@ -234,12 +234,14 @@ mod tests {
             samples: vec![SampleInfo {
                 id: "hi".into(),
                 tags: vec![],
+                metadata: Default::default(),
             }],
             scorers: scorers.iter().map(|s| s.to_string()).collect(),
             models: vec![ModelInfo {
                 label: "sim".into(),
                 provider: "sim".into(),
                 available: true,
+                metadata: Default::default(),
             }],
             axes: vec![AxisInfo {
                 name: "effort".into(),

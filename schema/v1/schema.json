@@ -220,6 +220,11 @@
         "label": {
           "type": "string"
         },
+        "metadata": {
+          "additionalProperties": true,
+          "description": "Free-form per-model config that rides the model column: agent, underlying\nmodel, effort, price, sandbox, observability links, … Mirrors\n`ModelSpec::metadata` onto the wire so the host can surface and group by\nit. Defaulted/omitted when empty, so an older study still parses.",
+          "type": "object"
+        },
         "provider": {
           "description": "Provider id (e.g. `sim`, `anthropic`, `openai`). Lets the host bucket\nconcurrency per provider so one provider's rate limits can't be flooded.\nDefaulted (empty) so an older/foreign study that omits it still parses;\nsuch cells share the empty-provider bucket.",
           "type": "string"
@@ -444,6 +449,11 @@
       "properties": {
         "id": {
           "type": "string"
+        },
+        "metadata": {
+          "additionalProperties": true,
+          "description": "Free-form sample provenance (repo, difficulty, dataset split, …). Mirrors\n`Sample::metadata` onto the wire so the host can group reports by it\n(`--group-by`). Defaulted/omitted when empty, so an older study still parses.",
+          "type": "object"
         },
         "tags": {
           "items": {
@@ -747,6 +757,6 @@
       "$ref": "#/$defs/Notification"
     }
   ],
-  "description": "Wire schema for the Mira host<->study protocol (newline-delimited JSON over stdio). Protocol version 1.6. Generated from mira::protocol by `mira-schema-gen` (`just schema`); do not edit by hand.",
+  "description": "Wire schema for the Mira host<->study protocol (newline-delimited JSON over stdio). Protocol version 1.7. Generated from mira::protocol by `mira-schema-gen` (`just schema`); do not edit by hand.",
   "title": "Mira Eval Protocol"
 }

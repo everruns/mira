@@ -41,13 +41,43 @@ impl Format {
     }
 }
 
+/// A `--group-by` view over a result set: the metadata key, plus the resolved
+/// group value for each cell (parallel to the results; `None` ⇒ the cell had no
+/// value for the key). The host resolves the values (it owns the listing join);
+/// the reporters only bucket and render, so this module stays pure.
+#[derive(Clone, Copy)]
+pub struct Group<'a> {
+    pub key: &'a str,
+    pub values: &'a [Option<String>],
+}
+
 /// Render `results` in `format` to a string.
 pub fn render(results: &[RunResult], format: Format) -> String {
+    render_with_group(results, format, None)
+}
+
+/// Like [`render`], but also folds a `--group-by` breakdown into formats that can
+/// carry it: a `groups` block in the JSON record (and the HTML viewer's embedded
+/// copy), a section in Markdown, and a table in HTML. JUnit is unaffected.
+pub fn render_with_group(
+    results: &[RunResult],
+    format: Format,
+    group: Option<Group<'_>>,
+) -> String {
     match format {
-        Format::Json => serde_json::to_string_pretty(&results_json(results)).unwrap_or_default(),
+        Format::Json => {
+            serde_json::to_string_pretty(&results_json_with_group(results, group.as_ref()))
+                .unwrap_or_default()
+        }
         Format::Junit => junit_xml(results),
-        Format::Markdown => markdown(results),
-        Format::Html => html(results),
+        Format::Markdown => {
+            let mut out = markdown(results);
+            if let Some(g) = group {
+                out.push_str(&group_markdown(results, g.key, g.values));
+            }
+            out
+        }
+        Format::Html => html_with_group(results, group),
     }
 }
 
@@ -146,6 +176,137 @@ pub fn print_results(results: &[RunResult]) {
         na,
         skipped,
     );
+}
+
+/// One row of a `--group-by` breakdown: a group value and its pass/scored tally.
+pub struct GroupRate {
+    pub value: String,
+    pub passed: usize,
+    pub scored: usize,
+}
+
+impl GroupRate {
+    /// Pass rate in `[0,1]` (0 when nothing was scored).
+    pub fn rate(&self) -> f64 {
+        if self.scored == 0 {
+            0.0
+        } else {
+            self.passed as f64 / self.scored as f64
+        }
+    }
+}
+
+/// Resolve-rate bucketed by a pre-resolved per-cell group value (`values`
+/// parallel to `results`; `None` ⇒ the `(unset)` bucket). Skipped and all-N/A
+/// cells are excluded from `scored`, exactly like the matrix, so infra hiccups
+/// don't skew a group's rate. Buckets are ordered by value, `(unset)` last.
+pub fn group_rates(results: &[RunResult], values: &[Option<String>]) -> Vec<GroupRate> {
+    use std::collections::BTreeMap;
+    // `values` is resolved per result by the host and must be parallel to it;
+    // a mismatch would silently truncate the tally via `zip`. Fail fast in debug.
+    debug_assert_eq!(
+        results.len(),
+        values.len(),
+        "group_rates: values must be parallel to results"
+    );
+    let mut buckets: BTreeMap<String, (usize, usize)> = BTreeMap::new();
+    let mut unset = (0usize, 0usize);
+    for (r, value) in results.iter().zip(values) {
+        if r.skipped || is_na(r) {
+            continue;
+        }
+        let entry = match value {
+            Some(v) => buckets.entry(v.clone()).or_default(),
+            None => &mut unset,
+        };
+        entry.1 += 1;
+        if r.passed {
+            entry.0 += 1;
+        }
+    }
+    let mut out: Vec<GroupRate> = buckets
+        .into_iter()
+        .map(|(value, (passed, scored))| GroupRate {
+            value,
+            passed,
+            scored,
+        })
+        .collect();
+    if unset.1 > 0 {
+        out.push(GroupRate {
+            value: "(unset)".into(),
+            passed: unset.0,
+            scored: unset.1,
+        });
+    }
+    out
+}
+
+/// Print a `--group-by` breakdown (resolve rate per group value) to stdout.
+pub fn print_group_breakdown(results: &[RunResult], key: &str, values: &[Option<String>]) {
+    let rates = group_rates(results, values);
+    if rates.is_empty() {
+        return;
+    }
+    println!("\n── resolve rate by {key} (passed/scored) ──");
+    let w = rates
+        .iter()
+        .map(|r| r.value.len())
+        .max()
+        .unwrap_or(0)
+        .max(key.len());
+    for r in &rates {
+        println!(
+            "  {:w$}  {}/{}  ({:.0}%)",
+            r.value,
+            r.passed,
+            r.scored,
+            r.rate() * 100.0,
+            w = w,
+        );
+    }
+}
+
+/// Escape a value for a Markdown table cell: a `|` would start a new column and a
+/// newline would break the row. Group values come from free-form metadata, so
+/// neutralize both before rendering (otherwise a stray `|` corrupts the table and
+/// any CI job summary built from it).
+fn md_cell(s: &str) -> String {
+    s.replace('|', "\\|").replace(['\r', '\n'], " ")
+}
+
+/// Markdown section for a `--group-by` breakdown (empty when nothing scored).
+fn group_markdown(results: &[RunResult], key: &str, values: &[Option<String>]) -> String {
+    let rates = group_rates(results, values);
+    if rates.is_empty() {
+        return String::new();
+    }
+    let key = md_cell(key);
+    let mut out = format!(
+        "\n### Resolve rate by {key}\n\n| {key} | passed | scored | rate |\n|---|---|---|---|\n"
+    );
+    for r in &rates {
+        out.push_str(&format!(
+            "| {} | {} | {} | {:.0}% |\n",
+            md_cell(&r.value),
+            r.passed,
+            r.scored,
+            r.rate() * 100.0
+        ));
+    }
+    out
+}
+
+/// The `groups` block for the JSON record: `{ key: { value: {passed, scored} } }`.
+fn groups_json(results: &[RunResult], key: &str, values: &[Option<String>]) -> serde_json::Value {
+    let mut map = serde_json::Map::new();
+    for r in group_rates(results, values) {
+        map.insert(
+            r.value,
+            serde_json::json!({ "passed": r.passed, "scored": r.scored }),
+        );
+    }
+    serde_json::json!({ key: serde_json::Value::Object(map) })
 }
 
 /// Distinct evals and models, in first-seen order.
@@ -258,6 +419,21 @@ pub fn results_json(results: &[RunResult]) -> serde_json::Value {
         // Fail loudly: a TrialAggregate is plain owned data, so serialization
         // can't fail — turning it into `null` would only mask a real bug.
         record["trials"] = serde_json::to_value(trials).expect("trial aggregates serialize");
+    }
+    record
+}
+
+/// [`results_json`] plus an optional `groups` block (resolve rate per group
+/// value) when a `--group-by` view is supplied.
+pub fn results_json_with_group(
+    results: &[RunResult],
+    group: Option<&Group<'_>>,
+) -> serde_json::Value {
+    let mut record = results_json(results);
+    if let Some(g) = group
+        && let Some(obj) = record.as_object_mut()
+    {
+        obj.insert("groups".into(), groups_json(results, g.key, g.values));
     }
     record
 }
@@ -376,6 +552,12 @@ fn html_escape(s: &str) -> String {
 /// a per-case breakdown (scores, usage, timing, tools, metadata links, error,
 /// final response). Open it straight from a CI artifact.
 pub fn html(results: &[RunResult]) -> String {
+    html_with_group(results, None)
+}
+
+/// [`html`] with an optional `--group-by` table and a group-aware embedded JSON
+/// record.
+pub fn html_with_group(results: &[RunResult], group: Option<Group<'_>>) -> String {
     let (evals, models) = axes(results);
     let scored = results.iter().filter(|r| !r.skipped && !is_na(r)).count();
     let passed = results
@@ -452,6 +634,29 @@ pub fn html(results: &[RunResult]) -> String {
             out.push_str("</tr>\n");
         }
         out.push_str("</tbody>\n</table>\n");
+    }
+
+    // Group-by breakdown (resolve rate per metadata group value).
+    if let Some(g) = &group {
+        let rates = group_rates(results, g.values);
+        if !rates.is_empty() {
+            out.push_str(&format!(
+                "<h2>Resolve rate by {}</h2>\n<table class=\"matrix\">\n\
+                 <thead><tr><th>{}</th><th>passed</th><th>scored</th><th>rate</th></tr></thead>\n<tbody>\n",
+                html_escape(g.key),
+                html_escape(g.key),
+            ));
+            for r in &rates {
+                out.push_str(&format!(
+                    "<tr><td>{}</td><td>{}</td><td>{}</td><td>{:.0}%</td></tr>\n",
+                    html_escape(&r.value),
+                    r.passed,
+                    r.scored,
+                    r.rate() * 100.0,
+                ));
+            }
+            out.push_str("</tbody>\n</table>\n");
+        }
     }
 
     // Per-case detail.
@@ -564,7 +769,8 @@ pub fn html(results: &[RunResult]) -> String {
     }
 
     // Embed the canonical JSON record for programmatic consumers.
-    let json = serde_json::to_string(&results_json(results)).unwrap_or_default();
+    let json = serde_json::to_string(&results_json_with_group(results, group.as_ref()))
+        .unwrap_or_default();
     out.push_str("<script type=\"application/json\" id=\"mira-data\">\n");
     out.push_str(&json.replace("</", "<\\/"));
     out.push_str("\n</script>\n");
@@ -752,6 +958,85 @@ mod tests {
         assert!(xml.contains("name=\"a@sim#2\""));
         let h = html(&results);
         assert!(h.contains("flaky/a@sim#1"));
+    }
+
+    #[test]
+    fn group_rates_bucket_and_exclude_skips() {
+        // pass@easy, fail@easy, pass@hard, skip (unset). The skip is excluded
+        // from scored; the unset bucket only appears when it has scored cells.
+        let results = vec![
+            result("e", "a", "sim", true, false),
+            result("e", "b", "sim", false, false),
+            result("e", "c", "sim", true, false),
+            result("e", "d", "sim", false, true),
+        ];
+        let values = vec![
+            Some("easy".to_string()),
+            Some("easy".to_string()),
+            Some("hard".to_string()),
+            None,
+        ];
+        let rates = group_rates(&results, &values);
+        assert_eq!(rates.len(), 2); // easy, hard — the skipped (None) cell drops out
+        assert_eq!(rates[0].value, "easy");
+        assert_eq!((rates[0].passed, rates[0].scored), (1, 2));
+        assert_eq!(rates[0].rate(), 0.5);
+        assert_eq!(rates[1].value, "hard");
+        assert_eq!((rates[1].passed, rates[1].scored), (1, 1));
+    }
+
+    #[test]
+    fn unset_bucket_when_scored() {
+        let results = vec![result("e", "a", "sim", true, false)];
+        let rates = group_rates(&results, &[None]);
+        assert_eq!(rates.len(), 1);
+        assert_eq!(rates[0].value, "(unset)");
+        assert_eq!((rates[0].passed, rates[0].scored), (1, 1));
+    }
+
+    #[test]
+    fn group_renders_into_every_format() {
+        let results = vec![
+            result("e", "a", "sim", true, false),
+            result("e", "b", "sim", false, false),
+        ];
+        let values = vec![Some("easy".to_string()), Some("hard".to_string())];
+        let group = Group {
+            key: "difficulty",
+            values: &values,
+        };
+
+        let md = render_with_group(&results, Format::Markdown, Some(group));
+        assert!(md.contains("Resolve rate by difficulty"));
+        assert!(md.contains("| easy | 1 | 1 | 100% |"));
+
+        let json = render_with_group(&results, Format::Json, Some(group));
+        let v: serde_json::Value = serde_json::from_str(&json).unwrap();
+        assert_eq!(v["groups"]["difficulty"]["easy"]["passed"], 1);
+        assert_eq!(v["groups"]["difficulty"]["hard"]["scored"], 1);
+
+        let html = render_with_group(&results, Format::Html, Some(group));
+        assert!(html.contains("Resolve rate by difficulty"));
+        // The embedded JSON record carries the groups too.
+        assert!(html.contains("\"groups\""));
+    }
+
+    #[test]
+    fn group_markdown_escapes_pipe_and_newline() {
+        // A free-form metadata value with a pipe / newline must not corrupt the
+        // Markdown table (or a CI job summary built from it).
+        let results = vec![result("e", "a", "sim", true, false)];
+        let values = vec![Some("a|b\nc".to_string())];
+        let md = render_with_group(
+            &results,
+            Format::Markdown,
+            Some(Group {
+                key: "repo",
+                values: &values,
+            }),
+        );
+        assert!(md.contains("| a\\|b c |"), "got: {md}");
+        assert!(!md.contains("a|b"));
     }
 
     #[test]

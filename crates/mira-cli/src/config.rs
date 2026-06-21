@@ -158,16 +158,22 @@ pub fn resolve_results_dir(save: &Option<String>, config: &Config) -> Option<Str
 }
 
 /// Write a run's report bundle into `<base>/<run_id>/`. Returns the run folder.
-pub fn save_run(base: &str, meta: &RunMeta, results: &[RunResult]) -> std::io::Result<PathBuf> {
+/// An optional `--group-by` view is folded into the saved JSON and HTML reports.
+pub fn save_run(
+    base: &str,
+    meta: &RunMeta,
+    results: &[RunResult],
+    group: Option<report::Group<'_>>,
+) -> std::io::Result<PathBuf> {
     let run_dir = Path::new(base).join(&meta.run_id);
     std::fs::create_dir_all(&run_dir)?;
     std::fs::write(
         run_dir.join("report.json"),
-        report::render(results, Format::Json),
+        report::render_with_group(results, Format::Json, group),
     )?;
     std::fs::write(
         run_dir.join("report.html"),
-        report::render(results, Format::Html),
+        report::render_with_group(results, Format::Html, group),
     )?;
     let meta_json = serde_json::to_string_pretty(meta)
         .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
@@ -279,7 +285,7 @@ mod tests {
             environment: None,
             summary: RunSummary::default(),
         };
-        let run_dir = save_run(dir.path().to_str().unwrap(), &meta, &[]).unwrap();
+        let run_dir = save_run(dir.path().to_str().unwrap(), &meta, &[], None).unwrap();
         assert!(run_dir.join("report.json").is_file());
         assert!(run_dir.join("report.html").is_file());
         let meta_back = std::fs::read_to_string(run_dir.join("meta.json")).unwrap();
