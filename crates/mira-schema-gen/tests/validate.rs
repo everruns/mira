@@ -100,12 +100,14 @@ fn payloads_validate_against_their_defs() {
             samples: vec![SampleInfo {
                 id: "hi".into(),
                 tags: vec!["smoke".into()],
+                metadata: Default::default(),
             }],
             scorers: vec!["succeeded".into()],
             models: vec![ModelInfo {
                 label: "sim".into(),
                 provider: "sim".into(),
                 available: true,
+                metadata: Default::default(),
             }],
             axes: vec![],
             max_turns: 12,

@@ -40,6 +40,20 @@ adheres to [Semantic Versioning](https://semver.org/).
   a version bump) fails CI until the SDK tracks it. Closes the version/method/
   capability drift gaps that wire-type codegen alone didn't cover; `specs/sdks.md`
   §3 now states exactly what the guards do and don't catch.
+- **Per-sample and per-model metadata on the wire** (protocol `1.7`) — `list` now
+  carries `samples[].metadata` (repo, difficulty, dataset split, …) and
+  `models[].metadata` (agent, underlying model, effort, price, sandbox, …)
+  alongside the existing eval-level metadata. `Sample::meta` / `ModelSpec::meta`
+  already existed; they now ride their own column through the protocol instead of
+  being dropped, so config detail rides the model column and provenance rides the
+  sample. Both maps are optional and default to empty — a `1.0`–`1.6` study still
+  interoperates. The host surfaces them in `mira list`.
+- **`mira run --group-by <key>` / `mira score --group-by <key>`** — break
+  resolve-rate down by a metadata (or axis) key, e.g. `--group-by difficulty` or
+  `--group-by repo`. Each cell's group value is resolved in order: axis `params`,
+  sample metadata, model metadata, then transcript metadata. The breakdown prints
+  to the terminal and is folded into the JSON (`groups` block), Markdown, and HTML
+  reports (and the saved-run bundle).
 - **Python SDK** (`sdks/python`) — a native, pure-stdlib library for authoring
   Mira eval studies in Python (no Rust dependency). Speaks the protocol over
   stdio; its wire types are **generated from `schema/v1/`** (the same contract

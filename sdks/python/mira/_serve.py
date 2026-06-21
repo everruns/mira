@@ -70,10 +70,17 @@ class Model:
     label: str
     provider: str = ""
     available: bool = True
+    metadata: Dict[str, Any] = field(default_factory=dict)
 
 
-def model(label: str, provider: str = "", available: bool = True) -> Model:
-    return Model(label=label, provider=provider, available=available)
+def model(
+    label: str,
+    provider: str = "",
+    available: bool = True,
+    metadata: Optional[Dict[str, Any]] = None,
+) -> Model:
+    return Model(label=label, provider=provider, available=available,
+                 metadata=dict(metadata or {}))
 
 
 @dataclass
@@ -109,9 +116,11 @@ class Eval:
         return EvalInfo(
             name=self.name,
             description=self.description,
-            samples=[SampleInfo(id=s.id, tags=list(s.tags)) for s in self.samples],
+            samples=[SampleInfo(id=s.id, tags=list(s.tags), metadata=dict(s.metadata))
+                     for s in self.samples],
             scorers=[sc.name for sc in self.scorers],
-            models=[ModelInfo(label=m.label, provider=m.provider, available=m.available)
+            models=[ModelInfo(label=m.label, provider=m.provider, available=m.available,
+                              metadata=dict(m.metadata))
                     for m in self.models],
             axes=[AxisInfo(name=a.name, values=list(a.values)) for a in self.axes],
             max_turns=self.max_turns,

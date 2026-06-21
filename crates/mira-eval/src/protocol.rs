@@ -57,8 +57,11 @@ use crate::{Metadata, Params, Score, Timing, Transcript, Usage};
 /// the optional `trial`/`trials`/`seed` fields on `RunParams`/`ScoreParams`/
 /// `RunResult`/`ExecuteResult` and the optional `EvalInfo.trials`/`EvalInfo.seed`,
 /// so a cell can be run N times (seeded for reproducibility) and the host
-/// aggregates pass@k / pass-rate / variance over the repetitions.
-pub const PROTOCOL_VERSION: &str = "1.6";
+/// aggregates pass@k / pass-rate / variance over the repetitions; `1.7` added the
+/// optional `metadata` map to `ModelInfo` and `SampleInfo`, so per-model config
+/// (agent, effort, price, …) and per-sample provenance (repo, difficulty, …) ride
+/// their own column and the host can group reports by them.
+pub const PROTOCOL_VERSION: &str = "1.7";
 
 /// The oldest protocol version this build can still talk to.
 pub const MIN_PROTOCOL_VERSION: &str = "1.0";
@@ -264,6 +267,11 @@ pub struct SampleInfo {
     pub id: String,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub tags: Vec<String>,
+    /// Free-form sample provenance (repo, difficulty, dataset split, …). Mirrors
+    /// `Sample::metadata` onto the wire so the host can group reports by it
+    /// (`--group-by`). Defaulted/omitted when empty, so an older study still parses.
+    #[serde(default, skip_serializing_if = "Metadata::is_empty")]
+    pub metadata: Metadata,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -278,6 +286,12 @@ pub struct ModelInfo {
     pub provider: String,
     /// False when a real provider's API key is absent in the study's env.
     pub available: bool,
+    /// Free-form per-model config that rides the model column: agent, underlying
+    /// model, effort, price, sandbox, observability links, … Mirrors
+    /// `ModelSpec::metadata` onto the wire so the host can surface and group by
+    /// it. Defaulted/omitted when empty, so an older study still parses.
+    #[serde(default, skip_serializing_if = "Metadata::is_empty")]
+    pub metadata: Metadata,
 }
 
 /// One extra matrix axis advertised by `list`, so the host can plan the full
@@ -613,6 +627,47 @@ mod tests {
         assert_eq!(info.max_turns, 0);
         assert!(info.axes.is_empty());
         assert_eq!(info.samples.len(), 1);
+        // The new 1.5 per-sample / per-model metadata defaults to empty.
+        assert!(info.samples[0].metadata.is_empty());
+        assert!(info.models[0].metadata.is_empty());
+    }
+
+    #[test]
+    fn sample_and_model_metadata_omitted_when_empty() {
+        // Forward-compat: a 1.5 study that sets no sample/model metadata must
+        // produce the exact 1.4 wire shape (no `metadata` key), so an older host
+        // reading it sees nothing new. `skip_serializing_if` guarantees this.
+        let sample = serde_json::to_string(&SampleInfo {
+            id: "hi".into(),
+            tags: vec![],
+            metadata: Default::default(),
+        })
+        .unwrap();
+        assert!(!sample.contains("metadata"), "got: {sample}");
+        let model = serde_json::to_string(&ModelInfo {
+            label: "sim".into(),
+            provider: "sim".into(),
+            available: true,
+            metadata: Default::default(),
+        })
+        .unwrap();
+        assert!(!model.contains("metadata"), "got: {model}");
+    }
+
+    #[test]
+    fn sample_and_model_metadata_roundtrip() {
+        let mut metadata = Metadata::new();
+        metadata.insert("difficulty".into(), serde_json::json!("hard"));
+        metadata.insert("retries".into(), serde_json::json!(3));
+        let info = SampleInfo {
+            id: "hi".into(),
+            tags: vec!["smoke".into()],
+            metadata: metadata.clone(),
+        };
+        let back: SampleInfo =
+            serde_json::from_str(&serde_json::to_string(&info).unwrap()).unwrap();
+        assert_eq!(back.metadata.get("difficulty").unwrap(), "hard");
+        assert_eq!(back.metadata.get("retries").unwrap(), &serde_json::json!(3));
     }
 
     #[test]

@@ -157,8 +157,31 @@ through the protocol and surfaces in `list` and reports — the place to put tra
 URLs, dashboard deep-links, commit SHAs, and dataset provenance.
 
 ```rust
-Sample::new("hi", "…").meta("trace", "https://observe.example/run/abc123")
+// Per-sample provenance (repo, difficulty, dataset split, …):
+Sample::new("hi", "…")
+    .meta("trace", "https://observe.example/run/abc123")
+    .meta("difficulty", "hard");
+
+// Per-model config riding the model column (agent, effort, price, sandbox, …):
+ModelSpec::anthropic("claude-opus-4-8")
+    .meta("agent", "swe-agent")
+    .meta("effort", "high");
 ```
+
+### Grouping reports by metadata
+
+The host can break resolve-rate down by any metadata (or axis) key with
+`--group-by`:
+
+```bash
+mira --bin swe_bench run --group-by difficulty   # one resolve-rate row per difficulty
+mira --bin swe_bench run --group-by agent         # …or per model-level config key
+```
+
+Each cell's group value is resolved in order: axis `params`, then sample
+metadata, then model metadata, then transcript metadata. The breakdown prints to
+the terminal and is folded into the JSON, Markdown, and HTML reports (a `groups`
+block in the JSON record).
 
 ## Registration vs. explicit lists
 

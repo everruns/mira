@@ -138,6 +138,11 @@ struct RunArgs {
     /// Overrides the eval's declared seed; the subject reads it via `cx.seed()`.
     #[arg(long)]
     seed: Option<u64>,
+    /// Break resolve-rate down by a metadata key (e.g. `repo`, `difficulty`,
+    /// `agent`). The value is resolved per cell from, in order: axis params,
+    /// sample metadata, model metadata, then transcript metadata.
+    #[arg(long)]
+    group_by: Option<String>,
     /// Write a report file (see --format).
     #[arg(long)]
     out: Option<String>,
@@ -188,6 +193,9 @@ struct ScoreArgs {
     /// Directory of execution artifacts written by `run --execute-only`.
     #[arg(long)]
     artifacts: String,
+    /// Break resolve-rate down by a metadata key (see `run --group-by`).
+    #[arg(long)]
+    group_by: Option<String>,
     /// Write a report file (see --format).
     #[arg(long)]
     out: Option<String>,
@@ -253,7 +261,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             Ok(())
         }
         Some(Cmd::Run(args)) => run(host, info, listing, args, progress).await,
-        Some(Cmd::Score(args)) => score(host, info, args).await,
+        Some(Cmd::Score(args)) => score(host, info, listing, args).await,
         // Help/no-args returned earlier, before the host was spawned.
         None | Some(Cmd::Help(_)) => unreachable!("handled before host spawn"),
     }
@@ -506,13 +514,27 @@ async fn run(
 
     report::print_results(&results);
 
+    // Resolve the --group-by breakdown once; reused by the terminal, file, and
+    // saved reports so they all agree.
+    let group_vals = args
+        .group_by
+        .as_deref()
+        .map(|key| group_values(&results, key, &listing));
+    let group = match (args.group_by.as_deref(), group_vals.as_deref()) {
+        (Some(key), Some(values)) => {
+            report::print_group_breakdown(&results, key, values);
+            Some(report::Group { key, values })
+        }
+        _ => None,
+    };
+
     if let Some(path) = &args.out {
-        std::fs::write(path, report::render(&results, format))?;
+        std::fs::write(path, report::render_with_group(&results, format, group))?;
         eprintln!("\nwrote {path} ({:?})", format);
     }
 
     if let Some(base) = &save_dir {
-        save_results(base, &run_id, &info, started_unix, &results)?;
+        save_results(base, &run_id, &info, started_unix, &results, group)?;
     }
 
     // A cell that's N/A (all scores N/A — e.g. an infra failure) is neither
@@ -531,6 +553,7 @@ fn save_results(
     info: &InitializeResult,
     started_unix: u64,
     results: &[RunResult],
+    group: Option<report::Group<'_>>,
 ) -> Result<(), Box<dyn std::error::Error>> {
     // Capture environment context (commit, box, host version, labels) unless
     // disabled in mira.toml. Best-effort: never fails the save.
@@ -550,7 +573,7 @@ fn save_results(
         environment,
         summary: RunSummary::of(results),
     };
-    let dir = config::save_run(base, &meta, results)?;
+    let dir = config::save_run(base, &meta, results, group)?;
     eprintln!("\nsaved run {} to {}", meta.run_id, dir.display());
     Ok(())
 }
@@ -637,6 +660,7 @@ async fn execute_only(
 async fn score(
     host: Host,
     info: InitializeResult,
+    listing: ListResult,
     args: ScoreArgs,
 ) -> Result<(), Box<dyn std::error::Error>> {
     require_capability(&info, capabilities::SCORE, "mira score")?;
@@ -665,13 +689,27 @@ async fn score(
 
     report::print_results(&results);
 
+    // Resolve the --group-by breakdown once; reused by the terminal, file, and
+    // saved reports so they all agree.
+    let group_vals = args
+        .group_by
+        .as_deref()
+        .map(|key| group_values(&results, key, &listing));
+    let group = match (args.group_by.as_deref(), group_vals.as_deref()) {
+        (Some(key), Some(values)) => {
+            report::print_group_breakdown(&results, key, values);
+            Some(report::Group { key, values })
+        }
+        _ => None,
+    };
+
     if let Some(path) = &args.out {
-        std::fs::write(path, report::render(&results, format))?;
+        std::fs::write(path, report::render_with_group(&results, format, group))?;
         eprintln!("\nwrote {path} ({:?})", format);
     }
 
     if let Some(base) = &save_dir {
-        save_results(base, &run_id, &info, started_unix, &results)?;
+        save_results(base, &run_id, &info, started_unix, &results, group)?;
     }
 
     // A cell that's N/A (all scores N/A — e.g. an infra failure) is neither
@@ -830,6 +868,64 @@ fn plan_grid(
     plan
 }
 
+/// Per-(eval,sample) and per-(eval,model) metadata, indexed from the listing so
+/// `--group-by` can resolve a key against the sample and model columns.
+type MetaIndex = BTreeMap<(String, String), mira::Metadata>;
+
+fn meta_indexes(listing: &ListResult) -> (MetaIndex, MetaIndex) {
+    let mut sample_meta = MetaIndex::new();
+    let mut model_meta = MetaIndex::new();
+    for eval in &listing.evals {
+        for s in &eval.samples {
+            if !s.metadata.is_empty() {
+                sample_meta.insert((eval.name.clone(), s.id.clone()), s.metadata.clone());
+            }
+        }
+        for m in &eval.models {
+            if !m.metadata.is_empty() {
+                model_meta.insert((eval.name.clone(), m.label.clone()), m.metadata.clone());
+            }
+        }
+    }
+    (sample_meta, model_meta)
+}
+
+/// Resolve a `--group-by` key for one cell, in priority order: axis params,
+/// sample metadata, model metadata, then transcript metadata. `None` ⇒ the cell
+/// carried no value for the key.
+fn group_value(
+    r: &RunResult,
+    key: &str,
+    sample_meta: &MetaIndex,
+    model_meta: &MetaIndex,
+) -> Option<String> {
+    if let Some(v) = r.params.get(key) {
+        return Some(v.clone());
+    }
+    if let Some(v) = sample_meta
+        .get(&(r.eval.clone(), r.sample.clone()))
+        .and_then(|m| m.get(key))
+    {
+        return Some(mira::metadata_display(v));
+    }
+    if let Some(v) = model_meta
+        .get(&(r.eval.clone(), r.model.clone()))
+        .and_then(|m| m.get(key))
+    {
+        return Some(mira::metadata_display(v));
+    }
+    r.transcript.metadata.get(key).map(mira::metadata_display)
+}
+
+/// Resolve `--group-by` values for every result (parallel to `results`).
+fn group_values(results: &[RunResult], key: &str, listing: &ListResult) -> Vec<Option<String>> {
+    let (sample_meta, model_meta) = meta_indexes(listing);
+    results
+        .iter()
+        .map(|r| group_value(r, key, &sample_meta, &model_meta))
+        .collect()
+}
+
 fn print_listing(listing: &ListResult) {
     for eval in &listing.evals {
         let desc = if eval.description.is_empty() {
@@ -851,10 +947,15 @@ fn print_listing(listing: &ListResult) {
             "  samples: {}",
             eval.samples
                 .iter()
-                .map(|s| if s.tags.is_empty() {
-                    s.id.clone()
-                } else {
-                    format!("{} [{}]", s.id, s.tags.join(","))
+                .map(|s| {
+                    let mut label = s.id.clone();
+                    if !s.tags.is_empty() {
+                        label.push_str(&format!(" [{}]", s.tags.join(",")));
+                    }
+                    if !s.metadata.is_empty() {
+                        label.push_str(&format!(" {{{}}}", fmt_meta(&s.metadata)));
+                    }
+                    label
                 })
                 .collect::<Vec<_>>()
                 .join(", ")
@@ -864,10 +965,15 @@ fn print_listing(listing: &ListResult) {
             "  models:  {}",
             eval.models
                 .iter()
-                .map(|m| if m.available {
-                    m.label.clone()
-                } else {
-                    format!("{} (unavailable)", m.label)
+                .map(|m| {
+                    let mut label = m.label.clone();
+                    if !m.available {
+                        label.push_str(" (unavailable)");
+                    }
+                    if !m.metadata.is_empty() {
+                        label.push_str(&format!(" {{{}}}", fmt_meta(&m.metadata)));
+                    }
+                    label
                 })
                 .collect::<Vec<_>>()
                 .join(", ")
@@ -881,12 +987,16 @@ fn print_listing(listing: &ListResult) {
             println!("  axes:    {}", axes.join(", "));
         }
         if !eval.metadata.is_empty() {
-            let meta: Vec<String> = eval
-                .metadata
-                .iter()
-                .map(|(k, v)| format!("{k}={}", mira::metadata_display(v)))
-                .collect();
-            println!("  meta:    {}", meta.join(", "));
+            println!("  meta:    {}", fmt_meta(&eval.metadata));
         }
     }
+}
+
+/// Render a metadata map as `k=v, …` for the listing (values via the shared
+/// `metadata_display`, so a JSON string shows raw and anything else compact JSON).
+fn fmt_meta(meta: &mira::Metadata) -> String {
+    meta.iter()
+        .map(|(k, v)| format!("{k}={}", mira::metadata_display(v)))
+        .collect::<Vec<_>>()
+        .join(", ")
 }

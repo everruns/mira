@@ -62,6 +62,7 @@ class ListResult:
 class ModelInfo:
     available: bool = False
     label: str = ""
+    metadata: Dict[str, Any] = field(default_factory=dict)
     provider: str = ""
     __required__ = ("available", "label")
 
@@ -123,6 +124,7 @@ class RunResult:
 @dataclass
 class SampleInfo:
     id: str = ""
+    metadata: Dict[str, Any] = field(default_factory=dict)
     tags: List[str] = field(default_factory=list)
     __required__ = ("id",)
 

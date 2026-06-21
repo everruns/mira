@@ -4,7 +4,7 @@ Regenerate with `python3 codegen.py` from schema/v1/meta.json. CI runs
 `codegen.py --check` to fail on drift.
 """
 
-PROTOCOL_VERSION = "1.6"
+PROTOCOL_VERSION = "1.7"
 MIN_PROTOCOL_VERSION = "1.0"
 
 METHODS = ("initialize", "list", "run", "execute", "score")
