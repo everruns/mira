@@ -8,6 +8,18 @@ adheres to [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- **Reverse request channel (study→host) — reserved seam.** Designed (not yet
+  built) the one envelope direction the protocol doesn't carry: a study→host
+  request, for host-brokered model access, shared resources, and
+  human-in-the-loop. Fixing its design now keeps it an additive *minor* later
+  instead of forcing a breaking 2.0. The host reader now classifies inbound lines
+  by **field** (`method` ⇒ request/notification, never a response), so a future
+  reverse request can't be mistaken for a response or collide with the host's
+  pending request ids — it is logged and safely dropped today. Reserves the
+  `host_requests` capability and documents the invariants (field-based framing,
+  per-direction id spaces, two-way negotiation) as the design of record. See
+  [`docs/protocol.md`](docs/protocol.md#reverse-requests-studyhost) and
+  [`specs/architecture.md`](specs/architecture.md).
 - **Run cancellation** (`cancel`, protocol `1.8`) — a host can now abort one
   in-flight `run`/`execute`/`score` by its request `id` without tearing down the
   connection (previously the only lever was closing stdin, which ended *every*
