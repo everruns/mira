@@ -113,6 +113,7 @@ pub type Metadata = BTreeMap<String, String>;
 /// capture the breakdowns modern providers report; they default to zero for
 /// subjects that don't surface them.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub struct Usage {
     pub input_tokens: u64,
     pub output_tokens: u64,
@@ -150,6 +151,7 @@ impl Usage {
 /// Wall-clock timing for a run. Subjects that can measure it populate these;
 /// the rest leave them at their defaults.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub struct Timing {
     /// Total wall-clock duration of the run, in milliseconds.
     #[serde(default, skip_serializing_if = "is_zero_u64")]
@@ -175,6 +177,7 @@ impl Timing {
 /// `events` field carries the raw transcript (e.g. everruns' canonical JSONL
 /// `Event`s) for structural scorers to search.
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub struct Transcript {
     /// The subject's final response text.
     pub final_response: String,
@@ -238,6 +241,7 @@ pub struct Transcript {
 /// (neither pass nor fail, like [`Score::na`] for a single scorer), and the host
 /// retries them up to `--max-retries`. See [`Transcript::infra_error`].
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(rename_all = "snake_case")]
 pub enum ErrorKind {
     /// The subject/model under test errored: a real, scoreable failure.
@@ -356,6 +360,7 @@ impl Transcript {
 /// rather than crashing the run or lying with a `fail`. An N/A score is excluded
 /// from the cell verdict and the aggregate: it neither passes nor fails.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub struct Score {
     pub scorer: String,
     pub value: f64,

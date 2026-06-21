@@ -6,7 +6,9 @@ a child process's stdio. Any program in any language that implements it is a
 valid study — this is Mira's polyglot seam.
 
 This page is the normative reference. For the Rust types, see the
-[`mira::protocol`](https://docs.rs/mira-eval/latest/mira/protocol/) module.
+[`mira::protocol`](https://docs.rs/mira-eval/latest/mira/protocol/) module. For a
+machine-readable definition, see the generated **JSON Schema** under
+[`schema/v1/`](../schema/v1/) (see [Machine-readable schema](#machine-readable-schema)).
 
 ## Overview
 
@@ -371,6 +373,41 @@ Forward compatibility is a hard requirement on both sides:
 This is why a `0.x`-era study (no `axes`, no `timing`) and a `1.0` host
 interoperate: the host sees an empty `axes`/`capabilities` and a model-only
 matrix, and the missing transcript fields default to zero.
+
+## Machine-readable schema
+
+The wire types have a generated, language-neutral definition under `schema/`:
+
+- `schema/v1/schema.json` — a **JSON Schema 2020-12** document. The root is an
+  `anyOf` over the three envelopes (`Request`, `Response`, `Notification`); every
+  payload type (`InitializeResult`, `ListResult`/`EvalInfo`, `RunParams`,
+  `RunResult`/`TranscriptSummary`, `ExecuteResult`/`ScoreParams` and the full
+  `Transcript`, `Score`, …) is published under `$defs`.
+- `schema/v1/meta.json` — a small index: the current `version`, `min_version`,
+  the method list, and the defined `capabilities` tokens.
+
+The directory is versioned by the protocol **major** (`v1`). The artifacts are
+**generated from the Rust types** in `mira::protocol` by the `mira-schema-gen`
+tool — they are not hand-edited and stay in lockstep with the wire format.
+Regenerate with `just schema` (or `cargo run -p mira-schema-gen`); CI runs the
+same generator with `--check` and fails if the committed files are stale, so a
+protocol change can't merge without a matching schema update. A separate test
+suite validates real serialized messages against the committed schema.
+
+A non-Rust study can validate its messages against `schema.json` with any
+standard JSON Schema validator instead of mirroring the Rust structs by hand.
+
+### Staging unstable additions
+
+New wire structure is developed behind the `mira-eval` crate's
+`protocol-unstable` feature first — gated with `#[cfg(feature =
+"protocol-unstable")]`. The schema generator builds **without** that feature, so
+the committed `schema/` describes only the stable protocol; an addition reaches
+the artifact (and a minor-version bump) only when promoted out of staging. This
+covers *structural* changes — a new typed field or method — that the open
+`metrics` / `metadata` / `capabilities` vocabularies can't express; those
+already extend without a protocol bump. It lets such a change land and be
+exercised in-tree without prematurely freezing the language-neutral contract.
 
 ## Implementing a study in another language
 

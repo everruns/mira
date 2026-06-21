@@ -24,6 +24,15 @@ default = ["macros"]
 # The `#[eval]` attribute, re-exported as `mira::eval`. Opt out for a leaner
 # build (proc-macro deps) and use `register_eval!` instead.
 macros = ["dep:mira-macros"]
+# Derive `schemars::JsonSchema` on the protocol wire types (consumed by the
+# `mira-schema-gen` tool). Off by default so normal builds never pull schemars.
+schema = ["dep:schemars"]
+# Staging ground for experimental protocol fields/methods (ACP-style): wire
+# additions land behind `#[cfg(feature = "protocol-unstable")]` first, so they
+# can be exercised in-tree without freezing into the published, stable schema.
+# The schema generator builds *without* this feature, so unstable additions
+# never reach the committed `schema/` artifacts until they're promoted.
+protocol-unstable = []
 
 [dependencies]
 async-trait.workspace = true
@@ -36,3 +45,5 @@ inventory.workspace = true
 tempfile.workspace = true
 # Optional: the `#[eval]` attribute macro (enabled by the default `macros` feature).
 mira-macros = { workspace = true, optional = true }
+# Optional: JSON Schema derives, enabled by the `schema` feature.
+schemars = { workspace = true, optional = true }

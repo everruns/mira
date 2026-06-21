@@ -303,3 +303,23 @@ else `./results`. A run id is per *invocation* (not per checkpoint), so resuming
 a `--checkpoint` is still a fresh run with its own id/timestamps. This is the
 data foundation for *historical trend aggregation*: the deferred `list`/`compare`
 commands read these `meta.json` records and don't change their shape.
+
+## 13. Machine-readable protocol schema
+
+The wire protocol has a generated, language-neutral definition: JSON Schema
+(2020-12) artifacts under `schema/v<major>/` (`schema.json` + `meta.json`),
+emitted from the `mira::protocol` Rust types — the single source of truth — by
+the non-published `mira-schema-gen` tool. The Rust types stay authoritative; the
+schema is derived, never hand-written, so a polyglot study can validate against
+it instead of mirroring the structs. CI regenerates and diffs (`--check`) so a
+protocol change can't merge without a matching schema, and a validation suite
+checks real serialized messages against the committed artifact.
+
+**Stable vs. staged.** schemars derives sit behind `mira-eval`'s optional
+`schema` feature (so default builds stay dep-light). The protocol extends
+primarily through *open vocabularies* — `metrics` (numeric), `metadata`
+(string), and `capabilities` tokens — which need no version bump. For the rarer
+*structural* change (a new typed field or method), a `protocol-unstable` feature
+stages it behind `#[cfg(feature = "protocol-unstable")]`; the generator builds
+without it, so the committed schema describes only the stable protocol until the
+addition is promoted (and earns its minor bump).

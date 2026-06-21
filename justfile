@@ -40,6 +40,15 @@ check:
     cargo fmt --all -- --check
     cargo clippy --all-targets --all-features -- -D warnings
     cargo test --workspace
+    # Staged (unstable) protocol additions must still compile and round-trip.
+    cargo test -p mira-eval --features protocol-unstable
+    # The committed schema must match the protocol types.
+    cargo run -q -p mira-schema-gen -- --check
+
+# Regenerate the committed JSON Schema artifacts under schema/ from the
+# protocol types. Run after changing crates/mira-eval/src/protocol.rs.
+schema:
+    cargo run -q -p mira-schema-gen
 
 # Build the API docs with warnings denied (as CI does).
 doc:

@@ -1,0 +1,19 @@
+{
+  "capabilities": [
+    "axes",
+    "events",
+    "usage",
+    "execute",
+    "score"
+  ],
+  "methods": [
+    "initialize",
+    "list",
+    "run",
+    "execute",
+    "score"
+  ],
+  "min_version": "1.0",
+  "schema": "schema.json",
+  "version": "1.3"
+}
