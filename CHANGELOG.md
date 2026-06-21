@@ -17,6 +17,7 @@ adheres to [Semantic Versioning](https://semver.org/).
   comes from `--save <dir>`, else `[results].dir` in the nearest `mira.toml`,
   else `./results`. Foundation for listing/diffing past runs (see
   `specs/architecture.md` §12).
+- `just install` recipe to build and install the local `mira` CLI binary.
 - `CONTRIBUTING.md` guidance for the `main` branch-protection gate: require a PR
   and the `CI / Check` status check so a red CI run can no longer be merged.
 - **Infrastructure errors → N/A, not failures.** A run now distinguishes a
