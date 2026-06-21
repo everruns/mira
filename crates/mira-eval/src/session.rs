@@ -236,6 +236,7 @@ mod tests {
                 tags: vec![],
                 metadata: Default::default(),
             }],
+            next_cursor: None,
             scorers: scorers.iter().map(|s| s.to_string()).collect(),
             models: vec![ModelInfo {
                 label: "sim".into(),

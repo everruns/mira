@@ -20,6 +20,7 @@ from ._wire import (
     ExecuteResult,
     InitializeResult,
     ListResult,
+    ListSamplesResult,
     ModelInfo,
     RunResult,
     SampleInfo,
@@ -41,7 +42,15 @@ _CODE_INTERNAL_ERROR = -32603
 # The protocol methods this SDK dispatches in `Study.handle`. Kept explicit so a
 # test can assert it covers every method in the generated `_meta.METHODS` — a new
 # protocol method then fails CI until the serve loop handles it.
-HANDLED_METHODS = ("initialize", "list", "run", "execute", "score", "cancel")
+HANDLED_METHODS = (
+    "initialize", "list", "list_samples", "run", "execute", "score", "cancel",
+)
+
+# Samples-per-page when paginating `list`. Small studies fit in one page (`list`
+# behaves exactly as before 1.10); a huge/lazy dataset is chunked across `list` +
+# `list_samples` rather than enumerated in one giant line. Mirrors the Rust
+# `DEFAULT_PAGE_SIZE`.
+DEFAULT_PAGE_SIZE = 500
 
 
 # ----- authoring types --------------------------------------------------------
@@ -163,9 +172,13 @@ def _aggregate(scores: List[Score]) -> float:
 # ----- study + serve loop -----------------------------------------------------
 
 class Study:
-    def __init__(self, name: str, version: Optional[str] = None) -> None:
+    def __init__(self, name: str, version: Optional[str] = None,
+                 page_size: Optional[int] = DEFAULT_PAGE_SIZE) -> None:
         self.name = name
         self.version = version
+        # Max samples per `list`/`list_samples` page. None (or <= 0) disables
+        # pagination: every sample is enumerated inline in `list` (pre-1.10).
+        self.page_size = page_size if (page_size or 0) > 0 else None
         self._evals: Dict[str, Eval] = {}
 
     def add(self, ev: Eval) -> None:
@@ -183,10 +196,40 @@ class Study:
         return deco
 
     def _capabilities(self) -> List[str]:
-        caps = ["usage", "execute", "score"]
+        caps = ["usage", "execute", "score", "paginate"]
         if any(ev.axes for ev in self._evals.values()):
             caps.insert(0, "axes")
         return caps
+
+    def _sample_page(self, ev: Eval, offset: int) -> tuple[List[SampleInfo], Optional[str]]:
+        """One page of `ev`'s samples from `offset`, plus the cursor for the page
+        after it (None once exhausted). With pagination off, one page holds them
+        all. Mirrors crate::study::Study::sample_page."""
+        start = min(offset, len(ev.samples))
+        end = len(ev.samples) if self.page_size is None \
+            else min(start + self.page_size, len(ev.samples))
+        page = [SampleInfo(id=s.id, tags=list(s.tags), metadata=dict(s.metadata))
+                for s in ev.samples[start:end]]
+        nxt = str(end) if end < len(ev.samples) else None
+        return page, nxt
+
+    def _eval_info(self, ev: Eval) -> EvalInfo:
+        """`info()` with only the first page of samples (and the cursor for more)."""
+        info = ev.info()
+        info.samples, info.next_cursor = self._sample_page(ev, 0)
+        return info
+
+    def _list_samples(self, params: dict) -> ListSamplesResult:
+        ev = self._evals.get(params["eval"])
+        if ev is None:
+            raise ValueError(f"no such eval: {params['eval']}")
+        cursor = params["cursor"]
+        try:
+            offset = int(cursor)
+        except (TypeError, ValueError):
+            raise ValueError(f"bad cursor: {cursor}")
+        samples, nxt = self._sample_page(ev, offset)
+        return ListSamplesResult(samples=samples, next_cursor=nxt)
 
     # --- method handlers ---
     def _execute(self, params: dict) -> tuple[Transcript, bool]:
@@ -208,7 +251,10 @@ class Study:
                 evals=len(self._evals), study_version=self.version,
                 capabilities=self._capabilities()))
         if method == "list":
-            return _codec.to_dict(ListResult(evals=[e.info() for e in self._evals.values()]))
+            return _codec.to_dict(ListResult(
+                evals=[self._eval_info(e) for e in self._evals.values()]))
+        if method == "list_samples":
+            return _codec.to_dict(self._list_samples(params))
         if method == "cancel":
             # The serve loop is synchronous: it processes one request at a time,
             # so there is never a concurrently in-flight run to abort. Cancel is

@@ -41,7 +41,8 @@ def test_handled_methods_actually_dispatch():
     base = {"eval": "e", "sample": "x", "model": "sim"}
     ex = s.handle("execute", base)
     payloads = {
-        "initialize": {}, "list": {}, "run": base, "execute": base,
+        "initialize": {}, "list": {}, "list_samples": {"eval": "e", "cursor": "0"},
+        "run": base, "execute": base,
         "score": {**base, "transcript": ex["transcript"]},
         "cancel": {"id": 1},
     }

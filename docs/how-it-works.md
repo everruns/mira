@@ -45,9 +45,11 @@ over stdio (MCP-style).
   (`initialize` + `list`), plans the run (selection × matrix), drives execution
   (`run`), then aggregates, checkpoints, and renders.
 
-Three methods (`initialize`, `list`, `run`) plus fire-and-forget `event`/`log`
-notifications. This boundary is the natural seam for **polyglot studies** — any
-program in any language that speaks the protocol is a valid study.
+Three core methods (`initialize`, `list`, `run`) plus fire-and-forget
+`event`/`log` notifications and optional capability-gated extensions
+(`execute`/`score`, and `list_samples` to page large datasets). This boundary is
+the natural seam for **polyglot studies** — any program in any language that
+speaks the protocol is a valid study.
 
 The protocol is versioned: `initialize` advertises a `MAJOR.MINOR`
 `protocol_version` and a `capabilities` list. A major bump is breaking; a minor

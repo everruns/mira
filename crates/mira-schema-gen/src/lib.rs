@@ -12,7 +12,8 @@ use std::path::PathBuf;
 
 use mira::protocol::{
     self, CancelParams, CancelResult, EventParams, ExecuteResult, InitializeResult, ListResult,
-    LogParams, Notification, Request, Response, RunParams, RunResult, ScoreParams,
+    ListSamplesParams, ListSamplesResult, LogParams, Notification, Request, Response, RunParams,
+    RunResult, ScoreParams,
 };
 use schemars::SchemaGenerator;
 use schemars::generate::SchemaSettings;
@@ -38,6 +39,8 @@ pub fn build_schema() -> serde_json::Value {
     // them explicitly to publish their shapes in `$defs` for study authors.
     generator.subschema_for::<InitializeResult>();
     generator.subschema_for::<ListResult>();
+    generator.subschema_for::<ListSamplesParams>();
+    generator.subschema_for::<ListSamplesResult>();
     generator.subschema_for::<RunParams>();
     generator.subschema_for::<RunResult>();
     generator.subschema_for::<ExecuteResult>();
@@ -78,7 +81,7 @@ pub fn build_meta() -> serde_json::Value {
         "version": protocol::PROTOCOL_VERSION,
         "min_version": protocol::MIN_PROTOCOL_VERSION,
         "schema": "schema.json",
-        "methods": ["initialize", "list", "run", "execute", "score", "cancel"],
+        "methods": ["initialize", "list", "list_samples", "run", "execute", "score", "cancel"],
         "capabilities": [
             protocol::capabilities::AXES,
             protocol::capabilities::EVENTS,
@@ -87,6 +90,7 @@ pub fn build_meta() -> serde_json::Value {
             protocol::capabilities::SCORE,
             protocol::capabilities::TRIALS,
             protocol::capabilities::CANCEL,
+            protocol::capabilities::PAGINATE,
         ],
         "event_kinds": protocol::event::ALL,
     })

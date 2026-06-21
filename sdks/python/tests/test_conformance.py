@@ -50,6 +50,7 @@ def study():
     [
         ("initialize", {}, "InitializeResult"),
         ("list", {}, "ListResult"),
+        ("list_samples", {"eval": "greet", "cursor": "0"}, "ListSamplesResult"),
         ("run", {"eval": "greet", "sample": "hi", "model": "sim"}, "RunResult"),
         ("execute", {"eval": "greet", "sample": "hi", "model": "sim"}, "ExecuteResult"),
     ],
@@ -77,7 +78,7 @@ def test_axis_params_flow_through(study):
 
 def test_capabilities_advertise_axes(study):
     init = study.handle("initialize", {})
-    assert set(init["capabilities"]) >= {"axes", "usage", "execute", "score"}
+    assert set(init["capabilities"]) >= {"axes", "usage", "execute", "score", "paginate"}
 
 
 def test_codegen_is_in_sync():
