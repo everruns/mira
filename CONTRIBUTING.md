@@ -36,6 +36,29 @@ pulls the everruns runtime and is slow on first build.
 See [AGENTS.md](AGENTS.md) for the full checklist and architecture notes, and
 [specs/release-process.md](specs/release-process.md) for how releases ship.
 
+## Branch protection (the merge gate)
+
+`main` must stay green and merge-gated. CI (`.github/workflows/ci.yml`) runs
+`lint`, `audit`, `test`, and `examples`, and rolls them up into a single
+`Check` job (`needs: [lint, audit, test, examples]`, `if: always()`) that fails
+unless every job succeeds. That one job is the status check to require.
+
+Configure once, in **Settings → Branches → Branch protection rules** for
+`main` (needs admin):
+
+- **Require a pull request before merging** — no direct pushes to `main`.
+- **Require status checks to pass before merging**, then search for and select
+  the `Check` status check. GitHub lists Actions checks as
+  `<workflow> / <job>`, so it appears as **`CI / Check`** (the `Check` job in
+  the `CI` workflow) — pick that entry, not a bare `Check`. Keep "Require
+  branches to be up to date before merging" on so the gate runs against the
+  post-merge tree.
+- **Do not allow bypassing the above settings** (applies the rule to admins).
+
+The job is named `Check` deliberately — keep that name stable so the required
+check never silently detaches. Without this rule the `Check` job is advisory
+only: a red run can still be merged.
+
 ## License
 
 By contributing you agree your contributions are licensed under the MIT License.
