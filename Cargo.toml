@@ -27,7 +27,7 @@ authors = ["Mykhailo Chalyi <mike@chaliy.name>", "Everruns"]
 repository = "https://github.com/everruns/mira"
 homepage = "https://everruns.com"
 documentation = "https://docs.rs/mira-eval"
-keywords = ["eval", "llm", "ai", "agent", "everruns"]
+keywords = ["eval", "agentic", "llm", "agent", "everruns"]
 categories = ["development-tools::testing", "command-line-utilities"]
 
 [workspace.dependencies]

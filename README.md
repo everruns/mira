@@ -2,7 +2,8 @@
 
 # Mira
 
-**A Rust-first, code-first evaluation framework for agents and tools.**
+**A Rust-first, code-first evaluation framework for agents and tools — built
+for multi-turn, tool-using, long-running agent trajectories.**
 
 [![CI](https://github.com/everruns/mira/actions/workflows/ci.yml/badge.svg)](https://github.com/everruns/mira/actions/workflows/ci.yml)
 [![crates.io](https://img.shields.io/crates/v/mira-eval.svg)](https://crates.io/crates/mira-eval)
@@ -117,6 +118,9 @@ Teams run agents and tools against datasets in incompatible ways — a Python
 SWE-bench harness here, a bespoke Rust string-check bench there, an rstest matrix
 somewhere else. Mira is the one framework they can converge on:
 
+- **Agent-trajectory–native** — score tool calls (`tool_called`,
+  `tools_used_exactly`), multi-turn transcripts, and live runtime sessions;
+  checkpoints resume long-running payloads that take minutes to play out.
 - **Code-first authoring** with `cargo test`-style discovery (`#[eval]`) and
   selection.
 - **Polyglot by design** — the `CliSubject` evaluates any binary in any language
