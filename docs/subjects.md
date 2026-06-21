@@ -113,9 +113,9 @@ The contract:
 
 - **Isolated per call.** One invocation per `(sample, model, axis)` cell; never
   let state from one sample leak into the next.
-- **Fill what you can measure.** Set `iterations`, `tool_calls`, `usage`,
-  `timing`, `files` so structural and budget scorers have signal. Anything you
-  can't measure stays at its default.
+- **Fill what you can measure.** Set `iterations`, `tool_calls` (names, in order)
+  and `tool_calls_count`, `usage`, `timing`, `files` so structural and budget
+  scorers have signal. Anything you can't measure stays at its default.
 - **Record failures, don't panic.** Put the error in `Transcript.error` (or use
   `Transcript::failed(msg)`); a panicking subject takes down the whole run.
 

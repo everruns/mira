@@ -4,7 +4,7 @@
 //! for a cloud provider and the same eval runs for real.
 //!
 //! ```bash
-//! mira --package mira-examples --example llmsim run
+//! mira --bin llmsim run
 //! ```
 //!
 //! The embedder owns runtime wiring inside the [`RuntimeSubject`] factory: build

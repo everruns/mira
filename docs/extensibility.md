@@ -48,11 +48,15 @@ fields exist precisely so you can carry information the core doesn't model:
 ```rust
 pub struct Transcript {
     pub final_response: String,
+    pub iterations: usize,
+    pub tool_calls_count: usize,
     pub usage: Usage,                     // structured metrics: tokens + cost
     pub timing: Timing,                   // structured metrics: duration, TTFT
-    pub metadata: Metadata,               // free-form string → string
+    pub tool_calls: Vec<String>,          // tool names, in call order
+    pub files: BTreeMap<String, String>,  // workspace after the run
     pub events: Vec<serde_json::Value>,   // free-form structured stream
-    // … iterations, tool_calls, files, error …
+    pub metadata: Metadata,               // free-form string → string
+    pub error: Option<String>,
 }
 ```
 
@@ -71,18 +75,19 @@ For **your own metric**, emit it from the subject and grade it with a scorer.
 The transcript's `metadata` is the simplest channel:
 
 ```rust
-// In the subject: record whatever you measured.
-let mut t = Transcript::response(answer);
+// In the subject: record whatever you measured (here, retrieval recall@k).
+let recall = hits_at_k as f64 / relevant_total as f64;
+let mut t = Transcript::response(response_text);
 t.metadata.insert("retrieval_recall".into(), format!("{recall:.3}"));
 
 // As a scorer: parse it back and turn it into a graded Score.
 use mira::{Score, scorer::scorer};
-let recall = scorer("retrieval_recall", |_sample, t| {
-    let v: f64 = t.metadata
+let recall_scorer = scorer("retrieval_recall", |_sample, t| {
+    let recall: f64 = t.metadata
         .get("retrieval_recall")
         .and_then(|s| s.parse().ok())
         .unwrap_or(0.0);
-    Score::graded("retrieval_recall", v, 0.80, format!("recall={v:.2}"))
+    Score::graded("retrieval_recall", recall, 0.80, format!("recall={recall:.2}"))
 });
 ```
 

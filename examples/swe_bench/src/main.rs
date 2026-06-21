@@ -2,8 +2,8 @@
 //! passes. This is the canonical "harness as a Mira eval" shape.
 //!
 //! ```bash
-//! mira --package mira-examples --example swe_bench list
-//! mira --package mira-examples --example swe_bench run
+//! mira --bin swe_bench list
+//! mira --bin swe_bench run
 //! ```
 //!
 //! Each [`Sample`] seeds a buggy source file (and records the `FAIL_TO_PASS`
@@ -15,7 +15,7 @@
 //! in-process "fixer" and the gate is a pure check on the patched file. In a
 //! real run you swap two things and nothing else changes:
 //!
-//! * **Subject** → a [`CliSubject`] that shells out to your agent / Docker
+//! * **Subject** → a [`CliSubject`](mira::CliSubject) that shells out to your agent / Docker
 //!   harness (the polyglot path), seeding `sample.files` into the container and
 //!   capturing the patched tree back.
 //! * **Scorer** → a `fail_to_pass` that actually runs the instance's tests
