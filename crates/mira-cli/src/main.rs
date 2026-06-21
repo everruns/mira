@@ -35,6 +35,7 @@ use indicatif::{ProgressBar, ProgressDrawTarget, ProgressStyle};
 use tokio::process::Command;
 
 mod config;
+mod env;
 
 use mira::Host;
 use mira::exec::{self, CellSpec, Concurrency};
@@ -515,6 +516,14 @@ fn save_results(
     started_unix: u64,
     results: &[RunResult],
 ) -> Result<(), Box<dyn std::error::Error>> {
+    // Capture environment context (commit, box, host version, labels) unless
+    // disabled in mira.toml. Best-effort: never fails the save.
+    let cfg = config::Config::load();
+    let environment = cfg
+        .environment
+        .enabled
+        .then(|| env::collect(&cfg.environment.labels))
+        .flatten();
     let meta = RunMeta {
         format: RUN_META_FORMAT,
         run_id: run_id.to_string(),
@@ -522,6 +531,7 @@ fn save_results(
         study_version: info.study_version.clone(),
         started_unix,
         finished_unix: now_unix(),
+        environment,
         summary: RunSummary::of(results),
     };
     let dir = config::save_run(base, &meta, results)?;

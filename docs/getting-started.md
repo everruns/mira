@@ -120,7 +120,8 @@ with three files:
 
 - `report.json` — the canonical machine-readable record (summary + per case),
 - `report.html` — the self-contained transcript viewer,
-- `meta.json` — run identity: id, study, start/finish timestamps, and summary.
+- `meta.json` — run identity: id, study, start/finish timestamps, summary, and
+  the **environment** the run came from (see below).
 
 With no value, `--save` writes under `./results` (or `[results].dir` from the
 nearest `mira.toml`); pass `--save <dir>` to override. A `mira.toml` at the repo
@@ -133,6 +134,31 @@ dir = "./results"   # where `mira run --save` archives runs
 
 `mira score --save` archives a re-score the same way. (Listing and diffing past
 runs from these records is a planned follow-up.)
+
+### Environment metadata
+
+Every saved run records the context it was produced in, so a result can be
+interpreted and compared later — which commit, which box, which host version.
+`meta.json` carries an `environment` block:
+
+- **git** — `HEAD` commit, branch, and a `dirty` flag for uncommitted edits,
+- **box** — `os`, `arch`, `hostname`, `cpus`, `mem_total_mib`,
+- **mira_version** — the host binary that produced the run,
+- **labels** — auto-detected CI context (`ci.*`) plus anything you configure.
+
+Capture is **on by default** and best-effort (anything it can't determine is
+omitted; it never fails a run). Control it under `[environment]`:
+
+```toml
+[environment]
+enabled = true            # set false to record no environment block
+
+[environment.labels]      # static labels stamped on every run, for later filtering
+team = "search"
+region = "us-east-1"
+```
+
+Configured labels override auto-detected ones on a key collision.
 
 ## Next steps
 
