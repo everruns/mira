@@ -61,6 +61,7 @@ labels and no SDK types. Keep everruns (and any future provider SDK) out of
 ```bash
 just --list     # all recipes
 just build      # cargo build
+just install    # build and install the local mira CLI
 just test       # cargo test (workspace)
 just check      # fmt --check + clippy -D warnings + test
 just pre-pr     # check + publish dry-run
@@ -94,6 +95,7 @@ Actions secrets for publishing. The Homebrew tap push uses
   (a SessionStart hook) sets it; if git identity is missing or agent-like, stop
   and ask before committing.
 - Stage files explicitly by name. Avoid broad `git add .` / `git add -A`.
+- Merging PRs as part of the shipment flow is pre-approved when CI is green.
 
 ### Pre-PR checklist
 

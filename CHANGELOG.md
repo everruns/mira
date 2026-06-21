@@ -8,6 +8,7 @@ adheres to [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- `just install` recipe to build and install the local `mira` CLI binary.
 - `CONTRIBUTING.md` guidance for the `main` branch-protection gate: require a PR
   and the `CI / Check` status check so a red CI run can no longer be merged.
 - **Infrastructure errors → N/A, not failures.** A run now distinguishes a

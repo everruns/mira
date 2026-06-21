@@ -16,6 +16,10 @@ build:
 build-core:
     cargo build -p mira-eval -p mira-cli
 
+# Build and install the local mira CLI binary.
+install:
+    cargo install --path crates/mira-cli --bin mira --locked --force
+
 # Run all tests.
 test:
     cargo test --workspace
