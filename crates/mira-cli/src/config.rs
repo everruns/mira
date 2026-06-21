@@ -28,6 +28,11 @@ pub const DEFAULT_RESULTS_DIR: &str = "./results";
 pub struct Config {
     #[serde(default)]
     pub results: ResultsConfig,
+    /// Directory containing the `mira.toml` this was loaded from, used to
+    /// resolve relative paths. `None` for a default/parsed-in-memory config, in
+    /// which case relative paths are returned verbatim (cwd-relative).
+    #[serde(default, skip)]
+    base: Option<PathBuf>,
 }
 
 /// `[results]` — where `--save` writes run folders.
@@ -46,10 +51,16 @@ impl Config {
             return Config::default();
         };
         match std::fs::read_to_string(&path) {
-            Ok(text) => Config::parse(&text).unwrap_or_else(|e| {
-                eprintln!("warning: ignoring {}: {e}", path.display());
-                Config::default()
-            }),
+            Ok(text) => match Config::parse(&text) {
+                Ok(mut cfg) => {
+                    cfg.base = path.parent().map(Path::to_path_buf);
+                    cfg
+                }
+                Err(e) => {
+                    eprintln!("warning: ignoring {}: {e}", path.display());
+                    Config::default()
+                }
+            },
             Err(e) => {
                 eprintln!("warning: cannot read {}: {e}", path.display());
                 Config::default()
@@ -57,17 +68,23 @@ impl Config {
         }
     }
 
-    /// Parse config TOML text.
+    /// Parse config TOML text (no `base`; relative paths stay cwd-relative).
     pub fn parse(text: &str) -> Result<Config, toml::de::Error> {
         toml::from_str(text)
     }
 
-    /// The configured results dir, or the default.
+    /// The configured results dir, or the default. A relative dir from a loaded
+    /// `mira.toml` resolves against that file's directory, so results land in the
+    /// same place no matter which subdir `mira` runs from.
     pub fn results_dir(&self) -> String {
-        self.results
-            .dir
-            .clone()
-            .unwrap_or_else(|| DEFAULT_RESULTS_DIR.to_string())
+        let dir = self.results.dir.as_deref().unwrap_or(DEFAULT_RESULTS_DIR);
+        match &self.base {
+            Some(base) if !Path::new(dir).is_absolute() => {
+                let rel = dir.strip_prefix("./").unwrap_or(dir);
+                base.join(rel).to_string_lossy().into_owned()
+            }
+            _ => dir.to_string(),
+        }
     }
 }
 
@@ -85,14 +102,25 @@ fn find_config() -> Option<PathBuf> {
     }
 }
 
-/// Resolve the results base directory for a `--save` value: explicit dir wins,
-/// then `mira.toml`, then the default. `None` means `--save` was not given.
+/// Resolve the results base dir for a `--save` value, loading `mira.toml` only
+/// when it's actually needed (a bare `--save`). Returns `None` when `--save`
+/// wasn't given, so a plain run does no config I/O.
+pub fn resolve_save_dir(save: &Option<String>) -> Option<String> {
+    // Only a bare `--save` consults mira.toml; every other case avoids the
+    // directory walk + file read entirely.
+    if matches!(save, Some(s) if s.is_empty()) {
+        resolve_results_dir(save, &Config::load())
+    } else {
+        resolve_results_dir(save, &Config::default())
+    }
+}
+
+/// Resolve the results dir against an already-loaded config (the pure core of
+/// [`resolve_save_dir`]).
 pub fn resolve_results_dir(save: &Option<String>, config: &Config) -> Option<String> {
     match save {
         None => None,
-        // `--save` with no value: use config/default.
         Some(s) if s.is_empty() => Some(config.results_dir()),
-        // `--save <DIR>`: explicit override.
         Some(dir) => Some(dir.clone()),
     }
 }
@@ -134,6 +162,28 @@ mod tests {
             Config::parse("").unwrap().results_dir(),
             DEFAULT_RESULTS_DIR
         );
+    }
+
+    #[test]
+    fn relative_dir_resolves_against_config_parent() {
+        // A relative dir from a loaded mira.toml resolves against the file's
+        // directory (not cwd), and a leading `./` is normalised away.
+        let cfg = Config {
+            results: ResultsConfig {
+                dir: Some("./results".into()),
+            },
+            base: Some(PathBuf::from("/proj")),
+        };
+        assert_eq!(cfg.results_dir(), "/proj/results");
+
+        // An absolute dir is left untouched.
+        let abs = Config {
+            results: ResultsConfig {
+                dir: Some("/var/evals".into()),
+            },
+            base: Some(PathBuf::from("/proj")),
+        };
+        assert_eq!(abs.results_dir(), "/var/evals");
     }
 
     #[test]

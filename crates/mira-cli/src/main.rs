@@ -42,7 +42,7 @@ use mira::protocol::{
     ExecuteResult, InitializeResult, ListResult, RunResult, TranscriptSummary, capabilities,
 };
 use mira::report::{self, Format};
-use mira::run::{RUN_META_FORMAT, RunMeta, RunSummary, new_run_id};
+use mira::run::{RUN_META_FORMAT, RunMeta, RunSummary, new_run_id_at};
 use mira::session::{self, Session, now_unix};
 
 #[derive(Parser)]
@@ -231,8 +231,11 @@ async fn run(
     progress: Arc<ProgressBar>,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let format = Format::from_str(&args.format)?;
+    // Capture run identity at invocation start so the sortable run-id timestamp
+    // matches `started_unix` (not the later finish time).
     let started_unix = now_unix();
-    let save_dir = config::resolve_results_dir(&args.save, &config::Config::load());
+    let run_id = new_run_id_at(started_unix);
+    let save_dir = config::resolve_save_dir(&args.save);
     let model_filter: Option<Vec<String>> = args
         .models
         .as_ref()
@@ -378,7 +381,7 @@ async fn run(
     }
 
     if let Some(base) = &save_dir {
-        save_results(base, &info, started_unix, &results)?;
+        save_results(base, &run_id, &info, started_unix, &results)?;
     }
 
     // A cell that's N/A (all scores N/A — e.g. an infra failure) is neither
@@ -389,16 +392,18 @@ async fn run(
     std::process::exit(if failed { 1 } else { 0 });
 }
 
-/// Write a timestamped run folder under `base` and report where it landed.
+/// Write a timestamped run folder under `base` and report where it landed. The
+/// `run_id` is captured at invocation start so it sorts by start time.
 fn save_results(
     base: &str,
+    run_id: &str,
     info: &InitializeResult,
     started_unix: u64,
     results: &[RunResult],
 ) -> Result<(), Box<dyn std::error::Error>> {
     let meta = RunMeta {
         format: RUN_META_FORMAT,
-        run_id: new_run_id(),
+        run_id: run_id.to_string(),
         study: info.study.clone(),
         study_version: info.study_version.clone(),
         started_unix,
@@ -491,7 +496,8 @@ async fn score(
     require_capability(&info, capabilities::SCORE, "mira score")?;
     let format = Format::from_str(&args.format)?;
     let started_unix = now_unix();
-    let save_dir = config::resolve_results_dir(&args.save, &config::Config::load());
+    let run_id = new_run_id_at(started_unix);
+    let save_dir = config::resolve_save_dir(&args.save);
     let mut artifacts = load_artifacts(&args.artifacts);
     if let Some(f) = &args.filter {
         artifacts.retain(|a| a.key().contains(f.as_str()));
@@ -519,7 +525,7 @@ async fn score(
     }
 
     if let Some(base) = &save_dir {
-        save_results(base, &info, started_unix, &results)?;
+        save_results(base, &run_id, &info, started_unix, &results)?;
     }
 
     // A cell that's N/A (all scores N/A — e.g. an infra failure) is neither

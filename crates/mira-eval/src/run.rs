@@ -94,15 +94,21 @@ impl RunSummary {
     }
 }
 
-/// A fresh, sortable, collision-resistant run id: `YYYYMMDDThhmmssZ-xxxx`. The
-/// timestamp prefix sorts lexically by time; the 4-hex suffix disambiguates two
-/// runs started within the same second.
-pub fn new_run_id() -> String {
+/// A sortable, collision-resistant run id for a run that started at
+/// `started_unix`: `YYYYMMDDThhmmssZ-xxxx`. The timestamp prefix sorts lexically
+/// by start time; the 4-hex suffix disambiguates two runs started in the same
+/// second. Pass the *start* time so the id agrees with `RunMeta.started_unix`.
+pub fn new_run_id_at(started_unix: u64) -> String {
     format!(
         "{}-{}",
-        format_compact_utc(now_unix()),
+        format_compact_utc(started_unix),
         Hex4(short_suffix())
     )
+}
+
+/// [`new_run_id_at`] for a run starting now.
+pub fn new_run_id() -> String {
+    new_run_id_at(now_unix())
 }
 
 /// `YYYYMMDDThhmmssZ` for `secs` (Unix seconds, UTC). Dependency-free on
@@ -171,6 +177,12 @@ mod tests {
         assert_eq!(&id[8..9], "T");
         assert_eq!(&id[15..17], "Z-");
         assert!(id[17..].chars().all(|c| c.is_ascii_hexdigit()));
+    }
+
+    #[test]
+    fn run_id_uses_given_start_time() {
+        // The timestamp prefix reflects the passed start time, not "now".
+        assert!(new_run_id_at(1_609_459_200).starts_with("20210101T000000Z-"));
     }
 
     fn run_result(passed: bool, skipped: bool, tokens: u64) -> RunResult {
