@@ -26,14 +26,14 @@ register_eval!(greet);
 
 #[tokio::main]
 async fn main() -> std::io::Result<()> {
-    mira::serve_registered().await
+    mira::Study::registered().serve().await
 }
 ```
 
 Run it with the [`mira-cli`](https://crates.io/crates/mira-cli) host:
 
 ```bash
-mira --example greet run
+mira --bin greet run
 ```
 
 See the [docs](https://github.com/everruns/mira/tree/main/docs) for the full

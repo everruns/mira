@@ -16,7 +16,9 @@
 use mira::scorer::{contains, succeeded, tokens_within};
 use mira::subject::subject_fn;
 use mira::{Eval, ModelSpec, eval};
-use mira_examples::fake_agent;
+
+mod support;
+use support::fake_agent;
 
 #[eval]
 fn reasoning() -> Eval {
@@ -51,5 +53,5 @@ fn reasoning() -> Eval {
 
 #[tokio::main]
 async fn main() -> std::io::Result<()> {
-    mira::serve_registered().await
+    mira::Study::registered().serve().await
 }

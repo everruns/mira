@@ -4,7 +4,19 @@
 
 [workspace]
 resolver = "2"
-members = ["crates/*", "examples"]
+# Each Rust example is its own self-contained crate under examples/<name>/.
+# Polyglot examples (e.g. examples/greet-python/) are plain folders with no
+# Cargo.toml — they aren't workspace members, so they're simply not listed here.
+members = [
+    "crates/*",
+    "examples/greet",
+    "examples/coding",
+    "examples/cli_subject",
+    "examples/metrics",
+    "examples/matrix",
+    "examples/swe_bench",
+    "examples/llmsim",
+]
 
 [workspace.package]
 version = "0.1.0"

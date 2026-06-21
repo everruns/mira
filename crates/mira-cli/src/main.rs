@@ -1,19 +1,21 @@
-//! `mira` — the host CLI. Compiles + spawns an eval **server** (a program that
-//! calls `mira::serve`), enumerates its evals, plans the run (selection ×
-//! matrix), executes each cell over the protocol, then aggregates, saves, and
-//! checkpoints.
+//! `mira` — the host CLI. Compiles + spawns an eval **study** (a program that
+//! calls `mira::Study::registered().serve()`), enumerates its evals, plans the
+//! run (selection × matrix), executes each cell over the protocol, then
+//! aggregates, saves, and checkpoints.
 //!
 //! ```bash
-//! mira --example greet list
-//! mira --example greet run                          # all cells (sim runs; keyed cells skip)
-//! mira --example greet run greet                    # substring filter
-//! mira --example greet run --tag smoke
-//! mira --example greet run --models sim --format junit --out results.xml
-//! mira --example greet run --checkpoint ck.json     # resumable
+//! mira --bin greet list
+//! mira --bin greet run                          # all cells (sim runs; keyed cells skip)
+//! mira --bin greet run greet                    # substring filter
+//! mira --bin greet run --tag smoke
+//! mira --bin greet run --models sim --format junit --out results.xml
+//! mira --bin greet run --checkpoint ck.json     # resumable
 //! ```
 //!
-//! Point it at any server: `--bin NAME`, `--example NAME`, an arbitrary
-//! `--cmd "..."`, or another package with `--package` / `--manifest-path`.
+//! Each Rust example is a crate exposing a like-named binary, so `--bin <name>`
+//! resolves it across the workspace. Point it at any study: `--bin NAME`,
+//! `--example NAME`, an arbitrary `--cmd "..."` (e.g. a Python study), or
+//! another package with `--package` / `--manifest-path`.
 
 use std::collections::BTreeMap;
 use std::path::Path;
@@ -35,13 +37,13 @@ struct Cli {
     cmd: Cmd,
 }
 
-/// How to launch the eval server process.
+/// How to launch the eval study process.
 #[derive(Args)]
 struct Target {
-    /// Run `cargo run -q --bin <NAME>`.
+    /// Run `cargo run -q --bin <NAME>` (defaults to `greet`).
     #[arg(long, global = true)]
     bin: Option<String>,
-    /// Run `cargo run -q --example <NAME>` (default: greet).
+    /// Run `cargo run -q --example <NAME>`.
     #[arg(long, global = true)]
     example: Option<String>,
     /// Launch an arbitrary command (split on whitespace).
@@ -57,7 +59,7 @@ struct Target {
 
 #[derive(Subcommand)]
 enum Cmd {
-    /// List the evals, samples, scorers, and models the server advertises.
+    /// List the evals, samples, scorers, and models the study advertises.
     List,
     /// Run selected cells and report.
     Run(RunArgs),
@@ -105,14 +107,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             } else if n.method == "log"
                 && let Some(msg) = n.params["message"].as_str()
             {
-                eprintln!("  server: {msg}");
+                eprintln!("  study: {msg}");
             }
         });
 
     let info = host.initialize("mira-cli").await?;
     eprintln!(
-        "server {} · protocol {} · {} evals",
-        info.server, info.protocol_version, info.evals
+        "study {} · protocol {} · {} evals",
+        info.study, info.protocol_version, info.evals
     );
     let listing = host.list().await?;
 
@@ -126,7 +128,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 }
 
-/// Build the server launch command from the target flags.
+/// Build the study launch command from the target flags.
 fn build_command(target: &Target) -> Command {
     if let Some(raw) = &target.cmd {
         let mut parts = raw.split_whitespace();
@@ -143,10 +145,11 @@ fn build_command(target: &Target) -> Command {
     }
     if let Some(bin) = &target.bin {
         command.arg("--bin").arg(bin);
-    } else {
-        // Default to the bundled demo example.
-        let example = target.example.as_deref().unwrap_or("greet");
+    } else if let Some(example) = &target.example {
         command.arg("--example").arg(example);
+    } else {
+        // Default to the bundled `greet` example crate's binary.
+        command.arg("--bin").arg("greet");
     }
     if let Some(manifest) = &target.manifest_path {
         command.arg("--manifest-path").arg(manifest);
@@ -166,7 +169,7 @@ async fn run(
         .map(|m| m.split(',').map(|s| s.trim().to_string()).collect());
 
     // Plan the full grid, then apply selection. Done up front so the host owns
-    // selection/matrix without the server re-running anything.
+    // selection/matrix without the study re-running anything.
     let plan = plan_grid(&listing, &args, &model_filter);
     if plan.is_empty() {
         eprintln!("no cells matched the selection");
@@ -217,7 +220,7 @@ async fn run(
 
 /// One planned matrix cell: an eval/sample/model plus a chosen value per extra
 /// axis. Mirrors the in-process runner's cell expansion, but driven entirely
-/// from the server's advertised `list` so the host owns the plan.
+/// from the study's advertised `list` so the host owns the plan.
 struct Cell {
     eval: String,
     sample: String,

@@ -37,7 +37,7 @@ Eval = Dataset(Sample…) + Subject + [Scorer…]  ×  model matrix × axes
 - **Matrix & axes** — models are a first-class axis; add arbitrary axes
   (`.axis("effort", ["low","high"])`) and the runner takes the cross-product.
   Missing API keys **skip** rather than fail, so a fresh run is green offline.
-- **Two processes, one protocol** — your eval program (the *server*) owns
+- **Two processes, one protocol** — your eval program (the *study*) owns
   subjects and scoring; the `mira` CLI (the *host*) owns selection, the matrix,
   checkpoints, and reporting. Provider keys never cross the wire. The
   [protocol](docs/protocol.md) is versioned and forward-compatible.
@@ -56,7 +56,7 @@ Building from source instead? `cargo install mira-cli --locked`.
 
 ## Quick start
 
-Add the framework and write an eval server:
+Add the framework and write an eval study:
 
 ```toml
 # Cargo.toml
@@ -87,27 +87,28 @@ fn greet() -> Eval {
 
 #[tokio::main]
 async fn main() -> std::io::Result<()> {
-    mira::serve_registered().await
+    mira::Study::registered().serve().await
 }
 ```
 
 Run it with the host CLI:
 
 ```bash
-mira --example my_evals list                 # what the server advertises
-mira --example my_evals run                  # run the whole matrix
-mira --example my_evals run greet            # selective (substring), like cargo test
-mira --example my_evals run --tag smoke
-mira --example my_evals run --format html --out report.html   # self-contained viewer
-mira --example my_evals run --checkpoint ck.json              # resumable long runs
+mira --bin my_evals list                 # what the study advertises
+mira --bin my_evals run                  # run the whole matrix
+mira --bin my_evals run greet            # selective (substring), like cargo test
+mira --bin my_evals run --tag smoke
+mira --bin my_evals run --format html --out report.html   # self-contained viewer
+mira --bin my_evals run --checkpoint ck.json              # resumable long runs
 ```
 
 See [`docs/getting-started.md`](docs/getting-started.md) for a full walkthrough,
 and [`examples/`](examples) for runnable servers (`greet`, `coding`,
-`cli_subject`, `metrics`, `matrix`, `swe_bench`, `llmsim`):
+`cli_subject`, `metrics`, `matrix`, `swe_bench`, `llmsim`, plus the non-Rust
+`greet-python`):
 
 ```bash
-cargo run -p mira-cli -- --package mira-examples --example metrics run
+cargo run -p mira-cli -- --bin metrics run
 ```
 
 ## Why Mira
@@ -132,11 +133,11 @@ somewhere else. Mira is the one framework they can converge on:
 
 | Path | Crate | What |
 |------|-------|------|
-| [`crates/mira-eval`](crates/mira-eval) | `mira-eval` (lib `mira`) | The framework: types, traits, scorers, subjects, protocol, server, host. |
-| [`crates/mira-cli`](crates/mira-cli) | `mira-cli` (bin `mira`) | The host CLI that drives eval servers. |
+| [`crates/mira-eval`](crates/mira-eval) | `mira-eval` (lib `mira`) | The framework: types, traits, scorers, subjects, protocol, study, host. |
+| [`crates/mira-cli`](crates/mira-cli) | `mira-cli` (bin `mira`) | The host CLI that drives eval studies. |
 | [`crates/mira-macros`](crates/mira-macros) | `mira-macros` | The `#[eval]` attribute macro (re-exported as `mira::eval`). |
 | [`crates/mira-everruns`](crates/mira-everruns) | `mira-everruns` | `RuntimeSubject` over the published `everruns-runtime`. |
-| [`examples/`](examples) | `mira-examples` | Runnable, offline example eval servers. |
+| [`examples/`](examples) | per-example crates | Runnable, offline example studies (one self-contained folder each; Rust + a Python study). |
 | [`docs/`](docs) | — | Public docs incl. the [protocol reference](docs/protocol.md). |
 | [`specs/`](specs) | — | [Architecture](specs/architecture.md) and the [release process](specs/release-process.md). |
 | [`Formula/`](Formula) | — | The Homebrew formula (mirrored to the tap on release). |

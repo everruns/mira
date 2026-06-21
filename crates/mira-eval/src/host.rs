@@ -1,4 +1,4 @@
-//! Host side of the eval protocol. Spawns the server process and issues
+//! Host side of the eval protocol. Spawns the study process and issues
 //! `initialize` / `list` / `run` requests, handling interleaved progress
 //! notifications. The `mira` CLI (`mira-cli`) is the user-facing driver built on
 //! top of this.
@@ -12,7 +12,7 @@ use crate::protocol::{
     RunResult,
 };
 
-/// A spawned server process and the framed stdio channel to it.
+/// A spawned study process and the framed stdio channel to it.
 pub struct Host {
     child: tokio::process::Child,
     stdin: ChildStdin,
@@ -23,7 +23,7 @@ pub struct Host {
 }
 
 impl Host {
-    /// Spawn `command` as the eval server. Its stderr is inherited (build logs,
+    /// Spawn `command` as the eval study. Its stderr is inherited (build logs,
     /// tracing); only stdout carries protocol JSON.
     pub async fn spawn(mut command: Command) -> std::io::Result<Self> {
         command
@@ -60,7 +60,7 @@ impl Host {
         // incompatibility; a differing minor is additive and tolerated.
         if !crate::protocol::version_compatible(&info.protocol_version) {
             return Err(format!(
-                "incompatible protocol: server speaks {}, host speaks {} (major mismatch)",
+                "incompatible protocol: study speaks {}, host speaks {} (major mismatch)",
                 info.protocol_version, PROTOCOL_VERSION
             ));
         }
@@ -93,7 +93,7 @@ impl Host {
         serde_json::from_value(value).map_err(|e| e.to_string())
     }
 
-    /// Close stdin and wait for the server to exit.
+    /// Close stdin and wait for the study to exit.
     pub async fn shutdown(mut self) -> std::io::Result<()> {
         drop(self.stdin);
         self.child.wait().await.map(|_| ())
@@ -127,7 +127,7 @@ impl Host {
                 .next_line()
                 .await
                 .map_err(|e| e.to_string())?
-                .ok_or_else(|| "server closed the connection".to_string())?;
+                .ok_or_else(|| "study closed the connection".to_string())?;
             if line.trim().is_empty() {
                 continue;
             }

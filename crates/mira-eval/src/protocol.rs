@@ -1,20 +1,20 @@
 //! The Mira eval protocol: newline-delimited JSON over stdio, MCP-style.
 //!
 //! Two processes talk:
-//! * the **server** (your eval program) — defines evals in Rust, owns subject
+//! * the **study** (your eval program) — defines evals in Rust, owns subject
 //!   construction and scoring, and knows nothing about selection, the matrix,
-//!   aggregation, checkpoints, or rendering. See [`crate::server`].
-//! * the **host** (the `mira` CLI) — compiles + spawns the server, enumerates
+//!   aggregation, checkpoints, or rendering. See [`crate::study`].
+//! * the **host** (the `mira` CLI) — compiles + spawns the study, enumerates
 //!   evals, plans the run (selection × matrix), drives execution, then
 //!   aggregates / saves / checkpoints / visualizes. See [`crate::host`].
 //!
-//! Provider API keys live only in the server's environment and never cross the
+//! Provider API keys live only in the study's environment and never cross the
 //! wire — the host addresses models by *label*.
 //!
 //! ## Framing
 //! One JSON object per line. A line with `id` is a [`Response`]; a line with
-//! `method` but no `id` is a [`Notification`]. [`Request`]s flow host→server;
-//! [`Response`]s and [`Notification`]s flow server→host.
+//! `method` but no `id` is a [`Notification`]. [`Request`]s flow host→study;
+//! [`Response`]s and [`Notification`]s flow study→host.
 //!
 //! ## Methods
 //! * `initialize` → [`InitializeResult`]
@@ -59,7 +59,7 @@ pub fn version_compatible(other: &str) -> bool {
     version_major(other) == version_major(PROTOCOL_VERSION)
 }
 
-/// host → server.
+/// host → study.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Request {
     pub id: u64,
@@ -68,7 +68,7 @@ pub struct Request {
     pub params: serde_json::Value,
 }
 
-/// server → host, correlated to a [`Request`] by `id`.
+/// study → host, correlated to a [`Request`] by `id`.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Response {
     pub id: u64,
@@ -102,7 +102,7 @@ pub struct RpcError {
     pub message: String,
 }
 
-/// server → host, fire-and-forget progress (no `id`). Carries live events (a
+/// study → host, fire-and-forget progress (no `id`). Carries live events (a
 /// turn started, a tool was called, tokens spent) so the host can render
 /// progress and, later, stream into a transcript viewer.
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -118,26 +118,26 @@ pub struct Notification {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct InitializeResult {
     pub protocol_version: String,
-    pub server: String,
+    pub study: String,
     pub evals: usize,
-    /// Optional server version string (e.g. the server crate's version). For
+    /// Optional study version string (e.g. the study crate's version). For
     /// diagnostics; defaulted for forward/backward compatibility.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub server_version: Option<String>,
-    /// Named capabilities this server supports beyond the base methods, so hosts
+    pub study_version: Option<String>,
+    /// Named capabilities this study supports beyond the base methods, so hosts
     /// can feature-detect additively (e.g. `"axes"`, `"events"`). Defaulted, so
-    /// an older server that omits it is treated as base-only.
+    /// an older study that omits it is treated as base-only.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub capabilities: Vec<String>,
 }
 
-/// Capability tokens a server may advertise in [`InitializeResult::capabilities`].
+/// Capability tokens a study may advertise in [`InitializeResult::capabilities`].
 pub mod capabilities {
-    /// Server advertises extra matrix axes in `list` and honours `run.params`.
+    /// Study advertises extra matrix axes in `list` and honours `run.params`.
     pub const AXES: &str = "axes";
-    /// Server emits `event` progress notifications during `run`.
+    /// Study emits `event` progress notifications during `run`.
     pub const EVENTS: &str = "events";
-    /// Server reports token/cost usage and timing in transcripts.
+    /// Study reports token/cost usage and timing in transcripts.
     pub const USAGE: &str = "usage";
 }
 
@@ -151,7 +151,7 @@ pub struct SampleInfo {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct ModelInfo {
     pub label: String,
-    /// False when a real provider's API key is absent in the server env.
+    /// False when a real provider's API key is absent in the study's env.
     pub available: bool,
 }
 
@@ -177,6 +177,9 @@ pub struct EvalInfo {
     /// the field still parse (forward compatibility).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub axes: Vec<AxisInfo>,
+    /// Defaulted so a foreign/older study that omits it still parses, per the
+    /// protocol's forward-compatibility contract (see docs/protocol.md).
+    #[serde(default)]
     pub max_turns: usize,
     #[serde(default, skip_serializing_if = "Metadata::is_empty")]
     pub metadata: Metadata,
@@ -273,12 +276,24 @@ mod tests {
 
     #[test]
     fn unknown_fields_are_ignored_for_forward_compat() {
-        // A future server adds fields the host doesn't know — must still parse.
-        let line = r#"{"protocol_version":"1.7","server":"x","evals":2,
+        // A future study adds fields the host doesn't know — must still parse.
+        let line = r#"{"protocol_version":"1.7","study":"x","evals":2,
             "capabilities":["axes","future_thing"],"brand_new_field":{"a":1}}"#;
         let info: InitializeResult = serde_json::from_str(line).unwrap();
         assert_eq!(info.evals, 2);
         assert!(info.capabilities.contains(&"axes".to_string()));
+    }
+
+    #[test]
+    fn eval_info_defaults_missing_optional_fields() {
+        // A foreign/older study (e.g. the Python example) omits max_turns, axes,
+        // description, and metadata. Per the forward-compat contract it must parse.
+        let line = r#"{"name":"greet","samples":[{"id":"hi"}],
+            "scorers":["succeeded"],"models":[{"label":"sim","available":true}]}"#;
+        let info: EvalInfo = serde_json::from_str(line).unwrap();
+        assert_eq!(info.max_turns, 0);
+        assert!(info.axes.is_empty());
+        assert_eq!(info.samples.len(), 1);
     }
 
     #[test]

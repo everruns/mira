@@ -121,5 +121,5 @@ fn swe_bench() -> Eval {
 
 #[tokio::main]
 async fn main() -> std::io::Result<()> {
-    mira::serve_registered().await
+    mira::Study::registered().serve().await
 }

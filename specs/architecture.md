@@ -86,7 +86,7 @@ adds a discrete axis (e.g. reasoning `effort`, harness variant), and the runner
 crosses every axis with the model matrix. The chosen value per cell reaches the
 subject via `RunCx::param(name)`. Cell identity is `eval/sample@model` with a
 sorted `[k=v,…]` suffix when axes vary (e.g.
-`reasoning/puzzle@sim[effort=high]`), computed identically by host and server
+`reasoning/puzzle@sim[effort=high]`), computed identically by host and study
 (`mira::cell_key`).
 
 ### Selective evaluation
@@ -101,25 +101,25 @@ Eval *definitions* and the *runner* are split across a process boundary, talking
 newline-delimited JSON over stdio, MCP-style. This is the core architectural
 decision. Full wire reference: [`docs/protocol.md`](../docs/protocol.md).
 
-- **server** — *your* eval program. Defines evals and calls `mira::serve` /
-  `serve_registered`. Owns subjects and scoring; knows nothing about selection,
-  matrices, aggregation, checkpoints, or rendering. **Provider API keys live only
-  here and never cross the wire.**
-- **host** — the `mira` CLI. Compiles + spawns the server, enumerates evals
+- **study** — *your* eval program. Defines evals and calls
+  `Study::new(…).serve()` / `Study::registered().serve()`. Owns subjects and
+  scoring; knows nothing about selection, matrices, aggregation, checkpoints, or
+  rendering. **Provider API keys live only here and never cross the wire.**
+- **host** — the `mira` CLI. Compiles + spawns the study, enumerates evals
   (`initialize` + `list`), plans the run (selection × matrix), drives execution
   cell-by-cell (`run`), then aggregates / saves / checkpoints / renders.
 
 Three methods (`initialize`, `list`, `run`) plus fire-and-forget `event`/`log`
 notifications. Models are addressed by **label**; an unavailable cell is skipped.
-The boundary is the natural seam for **polyglot servers** — any program in any
-language that speaks the protocol is a valid server.
+The boundary is the natural seam for **polyglot studies** — any program in any
+language that speaks the protocol is a valid study.
 
 **Versioning & forward compatibility.** `initialize` advertises a
 `MAJOR.MINOR` `protocol_version` plus a `capabilities` list. The contract: a
 **major** bump is breaking (the host refuses a mismatched major); a **minor**
 bump is additive. Every payload tolerates unknown fields (no
 `deny_unknown_fields`) and adds new fields as `#[serde(default)]`, so a newer
-server and an older host interoperate. Hosts feature-detect additively via
+study and an older host interoperate. Hosts feature-detect additively via
 `capabilities` (`axes`, `events`, `usage`) rather than version sniffing.
 
 ## 5. Crate architecture
@@ -129,7 +129,7 @@ publishable; heavy integrations are separate, optional crates.
 
 | Crate | Lib/bin | Role | Heavy deps |
 |-------|---------|------|-----------|
-| `mira-eval` | lib `mira` | Core: types, traits, scorers, `subject_fn`/`CliSubject`, protocol, server, host, runner, report. | none |
+| `mira-eval` | lib `mira` | Core: types, traits, scorers, `subject_fn`/`CliSubject`, protocol, study, host, runner, report. | none |
 | `mira-cli` | bin `mira` | The host CLI. | none |
 | `mira-everruns` | lib | `RuntimeSubject` over published `everruns-runtime`. | everruns |
 
@@ -141,9 +141,10 @@ install mira-cli` and `cargo add mira-eval` cheap, and lets the polyglot
 ## 6. Developer experience
 
 **Authoring** — an explicit builder; the `#[eval]` attribute (or `register_eval!`)
-+ `serve_registered()` for `cargo test`-style discovery across modules; or an
-explicit `serve(vec![…])`. `#[eval]` ships in the proc-macro crate `mira-macros`,
-re-exported as `mira::eval` behind the default `macros` feature.
++ `Study::registered().serve()` for `cargo test`-style discovery across modules;
+or an explicit `Study::new().eval(…).serve()`. `#[eval]` ships in the proc-macro
+crate `mira-macros`, re-exported as `mira::eval` behind the default `macros`
+feature.
 
 **Running** — the `mira` CLI: `list`, `run [filter]`, `--tag`, `--models`,
 `--format json|junit|md|html`, `--out`, `--checkpoint`/`--fresh`. Non-zero exit
@@ -152,7 +153,7 @@ on failure, so it drops into CI. In-process `Runner` for evals as
 
 ## 7. Reporting, checkpoints & resume
 
-The host owns all of this; the server only returns per-cell results.
+The host owns all of this; the study only returns per-cell results.
 
 - **Terminal** — per-case list (with token/cost/latency/tool metrics) + a
   model×eval pass-rate matrix + totals.

@@ -37,9 +37,9 @@ Initial release.
     matrix; per-cell values reach subjects via `RunCx::param`. Stable cell keys
     via `mira::cell_key` (`eval/sample@model[k=v,…]`).
   - `#[eval]` attribute (crate `mira-macros`, re-exported as `mira::eval`) and
-    `register_eval!` + `serve_registered()` for `cargo test`-style discovery.
-  - The eval protocol (newline-delimited JSON over stdio): `serve` (server) and
-    `Host` (host), with `initialize` / `list` / `run`, progress notifications,
+    `register_eval!` + `Study::registered()` for `cargo test`-style discovery.
+  - The eval protocol (newline-delimited JSON over stdio): `Study` (the study)
+    and `Host` (host), with `initialize` / `list` / `run`, progress notifications,
     `MAJOR.MINOR` versioning + capability negotiation, and forward-compatible
     (default/ignore-unknown) payloads.
   - In-process `Runner` with substring / tag / model selection.

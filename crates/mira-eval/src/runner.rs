@@ -4,7 +4,7 @@
 //!
 //! Selection mirrors `cargo test`: a free-text `filter` is a substring match on
 //! the case key `eval/sample@model`, and `tag` narrows by sample tag. The same
-//! [`run_cell`] is used by the protocol [`server`](crate::server), so in-process
+//! [`run_cell`] is used by the protocol [`study`](crate::study), so in-process
 //! and over-the-wire runs score identically.
 
 use crate::eval::Eval;
@@ -12,7 +12,7 @@ use crate::model::ModelSpec;
 use crate::{Metadata, RunCx, Sample, Score, Transcript, cell_key};
 
 /// Run a single matrix cell: one sample, one model, one set of axis `params`.
-/// Shared by the in-process [`Runner`] and the protocol server.
+/// Shared by the in-process [`Runner`] and the protocol study.
 pub async fn run_cell(
     eval: &Eval,
     sample: &Sample,

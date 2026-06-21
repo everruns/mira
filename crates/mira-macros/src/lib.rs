@@ -11,7 +11,7 @@ use syn::{ItemFn, parse_macro_input};
 ///
 /// `#[eval]` annotates a `fn() -> Eval` (or `-> EvalBuilder`) factory. It leaves
 /// the function untouched and additionally submits it to the global registry, so
-/// [`serve_registered`] / [`registered_evals`] pick it up with no central list.
+/// [`Study::registered`] / [`registered_evals`] pick it up with no central list.
 /// It is the ergonomic form of [`register_eval!`]; these are equivalent:
 ///
 /// ```ignore
@@ -23,7 +23,7 @@ use syn::{ItemFn, parse_macro_input};
 /// register_eval!(greet);
 /// ```
 ///
-/// [`serve_registered`]: ../mira/fn.serve_registered.html
+/// [`Study::registered`]: ../mira/struct.Study.html#method.registered
 /// [`registered_evals`]: ../mira/fn.registered_evals.html
 /// [`register_eval!`]: ../mira/macro.register_eval.html
 #[proc_macro_attribute]

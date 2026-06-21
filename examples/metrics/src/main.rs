@@ -18,7 +18,9 @@ use mira::scorer::{
 };
 use mira::subject::subject_fn;
 use mira::{Eval, eval};
-use mira_examples::fake_agent;
+
+mod support;
+use support::fake_agent;
 
 #[eval]
 fn metrics() -> Eval {
@@ -64,5 +66,5 @@ fn metrics() -> Eval {
 
 #[tokio::main]
 async fn main() -> std::io::Result<()> {
-    mira::serve_registered().await
+    mira::Study::registered().serve().await
 }

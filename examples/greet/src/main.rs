@@ -1,9 +1,9 @@
-//! A minimal eval server, registered with the `#[eval]` attribute and served
-//! with `serve_registered`. Run it under the host CLI:
+//! A minimal eval study, registered with the `#[eval]` attribute and served
+//! with `Study::registered().serve()`. Run it under the host CLI:
 //!
 //! ```bash
-//! mira --package mira-examples --example greet list
-//! mira --package mira-examples --example greet run
+//! mira --bin greet list
+//! mira --bin greet run
 //! ```
 //!
 //! The subject here is a deterministic in-process closure, so the whole thing
@@ -49,5 +49,5 @@ fn greet() -> Eval {
 
 #[tokio::main]
 async fn main() -> std::io::Result<()> {
-    mira::serve_registered().await
+    mira::Study::registered().serve().await
 }

@@ -1,9 +1,9 @@
 # The Mira Eval Protocol
 
 The Mira Eval Protocol is how a **host** (the `mira` CLI) talks to an eval
-**server** (your program). It is a small, MCP-style JSON-RPC dialect spoken over
+**study** (your program). It is a small, MCP-style JSON-RPC dialect spoken over
 a child process's stdio. Any program in any language that implements it is a
-valid eval server — this is Mira's polyglot seam.
+valid study — this is Mira's polyglot seam.
 
 This page is the normative reference. For the Rust types, see the
 [`mira::protocol`](https://docs.rs/mira-eval/latest/mira/protocol/) module.
@@ -13,7 +13,7 @@ This page is the normative reference. For the Rust types, see the
 ```text
 ┌────────────┐   spawn (cargo run / arbitrary cmd)   ┌────────────────┐
 │            │ ────────────────────────────────────▶ │                │
-│   host     │   stdin:  Request   (JSON, 1/line)     │     server     │
+│   host     │   stdin:  Request   (JSON, 1/line)     │     study      │
 │ (mira CLI) │ ────────────────────────────────────▶ │ (your evals)   │
 │            │   stdout: Response | Notification      │                │
 │            │ ◀──────────────────────────────────────│                │
@@ -22,17 +22,17 @@ This page is the normative reference. For the Rust types, see the
 
 - The **host** owns selection, the model matrix, aggregation, checkpoints, and
   rendering. It plans the whole run from `list` before executing anything.
-- The **server** owns subjects and scoring. It answers requests and knows
+- The **study** owns subjects and scoring. It answers requests and knows
   nothing about matrices, checkpoints, or reporting.
-- **Provider API keys live only in the server's environment** and never cross
+- **Provider API keys live only in the study's environment** and never cross
   the wire. The host addresses models by *label*; a cell whose model is
   unavailable is reported and skipped.
 
 ## Transport & framing
 
-- Transport is the child process's **stdio**. `stdin` carries host→server
-  messages; `stdout` carries server→host messages. `stderr` is free for the
-  server's logs and build output and is never parsed.
+- Transport is the child process's **stdio**. `stdin` carries host→study
+  messages; `stdout` carries study→host messages. `stderr` is free for the
+  study's logs and build output and is never parsed.
 - Framing is **newline-delimited JSON**: exactly one JSON object per line, UTF-8,
   no embedded newlines. Blank lines are ignored.
 - `stdout` must carry **only** protocol JSON. Anything else (logging, `println!`)
@@ -44,11 +44,11 @@ A line is classified by its fields:
 
 | Has `id` | Has `method` | Type |
 |---|---|---|
-| ✓ | ✓ | **Request** (host → server) |
-| ✓ | — | **Response** (server → host) |
-| — | ✓ | **Notification** (server → host) |
+| ✓ | ✓ | **Request** (host → study) |
+| ✓ | — | **Response** (study → host) |
+| — | ✓ | **Notification** (study → host) |
 
-### Request (host → server)
+### Request (host → study)
 
 ```json
 { "id": 1, "method": "run", "params": { "eval": "greet", "sample": "hi", "model": "sim" } }
@@ -60,7 +60,7 @@ A line is classified by its fields:
 | `method` | string | One of `initialize`, `list`, `run`. |
 | `params` | object | Method-specific; may be absent for parameterless methods. |
 
-### Response (server → host)
+### Response (study → host)
 
 ```json
 { "id": 1, "result": { "...": "..." } }
@@ -69,7 +69,7 @@ A line is classified by its fields:
 
 Exactly one of `result` or `error` is present. `id` echoes the request.
 
-### Notification (server → host)
+### Notification (study → host)
 
 Fire-and-forget; no `id`, never acknowledged. Used for live progress.
 
@@ -78,7 +78,7 @@ Fire-and-forget; no `id`, never acknowledged. Used for live progress.
 { "method": "log",   "params": { "message": "warming up driver" } }
 ```
 
-The host may render or ignore notifications. A conforming server is not required
+The host may render or ignore notifications. A conforming study is not required
 to emit any.
 
 ## Methods
@@ -86,7 +86,7 @@ to emit any.
 ### `initialize`
 
 Always the first request. Negotiates the protocol version and announces the
-server.
+study.
 
 **Params**
 
@@ -99,27 +99,27 @@ server.
 ```json
 {
   "protocol_version": "1.0",
-  "server": "my-evals",
+  "study": "my-evals",
   "evals": 3,
-  "server_version": "0.1.0",
+  "study_version": "0.1.0",
   "capabilities": ["axes", "events", "usage"]
 }
 ```
 
-The server replies with the `protocol_version` it implements. Compatibility is
-by **major**: a host refuses a server whose major differs from its own; a
+The study replies with the `protocol_version` it implements. Compatibility is
+by **major**: a host refuses a study whose major differs from its own; a
 differing minor is additive and tolerated (see [Versioning](#versioning)). The
 current version is **`1.0`**.
 
 `capabilities` lets a host feature-detect additively instead of sniffing
-versions. Defined tokens: `axes` (server advertises extra axes and honours
+versions. Defined tokens: `axes` (study advertises extra axes and honours
 `run.params`), `events` (emits `event` notifications), `usage` (reports
-token/cost/timing). `server_version` and `capabilities` are optional and
+token/cost/timing). `study_version` and `capabilities` are optional and
 default to empty.
 
 ### `list`
 
-Enumerates every eval the server defines, with enough detail for the host to
+Enumerates every eval the study defines, with enough detail for the host to
 plan the full `samples × models` grid and apply selection — without running
 anything.
 
@@ -145,7 +145,7 @@ anything.
 }
 ```
 
-- `available: false` marks a cell the server cannot run (e.g. a missing API
+- `available: false` marks a cell the study cannot run (e.g. a missing API
   key). The host skips it rather than failing.
 - `axes` (optional, default empty) advertises **extra matrix axes** beyond the
   model. The host takes the cross-product of every axis with the model matrix and
@@ -156,7 +156,7 @@ anything.
 ### `run`
 
 Runs exactly one matrix cell, addressed by `(eval, sample, model label)`, and
-returns the scored result. The server may emit `event` notifications before the
+returns the scored result. The study may emit `event` notifications before the
 response.
 
 **Params**
@@ -207,7 +207,7 @@ advertised in `list.axes`.
 The `transcript.usage` object may also carry `cache_read_tokens` and
 `reasoning_tokens` (default 0), and `transcript.timing` carries `duration_ms`
 and `time_to_first_token_ms` (omitted when unmeasured). All are optional and
-defaulted — older servers that omit them still validate.
+defaulted — older studies that omit them still validate.
 
 #### Score
 
@@ -222,7 +222,7 @@ report a graded signal while still contributing a pass/fail to the matrix.
 ## Run lifecycle
 
 ```text
-host                                   server
+host                                   study
  │ initialize ─────────────────────────▶│
  │◀──────────────── { protocol, evals } │
  │ list ───────────────────────────────▶│
@@ -236,7 +236,7 @@ host                                   server
  │◀──── { passed, scores, transcript }   │
  │ run {…next cell…} ──────────────────▶ │
  │            ⋮                          │
- │ (close stdin) ──────────────────────▶ │   EOF ⇒ server exits
+ │ (close stdin) ──────────────────────▶ │   EOF ⇒ study exits
 ```
 
 The host issues one `run` per planned cell. Because the host owns the plan,
@@ -250,7 +250,7 @@ subtracted on the next invocation.
 - A request that fails (unknown method, bad params, unknown eval/sample/model)
   returns an `error` response correlated by `id`. It does not terminate the
   connection.
-- Closing the host's `stdin` (EOF) signals the server to exit cleanly.
+- Closing the host's `stdin` (EOF) signals the study to exit cleanly.
 
 ## Versioning
 
@@ -264,24 +264,24 @@ The protocol uses `MAJOR.MINOR` (`PROTOCOL_VERSION`, currently `1.0`).
 Forward compatibility is a hard requirement on both sides:
 
 1. **Ignore unknown fields.** Every payload is parsed leniently (no strict
-   "deny unknown fields"). A future server adding `transcript.energy_joules` must
+   "deny unknown fields"). A future study adding `transcript.energy_joules` must
    not break an older host.
 2. **Default missing fields.** New fields are added as optional with sensible
-   defaults (empty map/list, `0`, `null`), so an older server that omits them
+   defaults (empty map/list, `0`, `null`), so an older study that omits them
    still validates against a newer host.
 3. **Feature-detect via `capabilities`**, not version sniffing, for optional
    behaviour (`axes`, `events`, `usage`).
 
-This is why a `0.x`-era server (no `axes`, no `timing`) and a `1.0` host
+This is why a `0.x`-era study (no `axes`, no `timing`) and a `1.0` host
 interoperate: the host sees an empty `axes`/`capabilities` and a model-only
 matrix, and the missing transcript fields default to zero.
 
-## Implementing a server in another language
+## Implementing a study in another language
 
-A minimal server is a stdio loop that:
+A minimal study is a stdio loop that:
 
 1. reads a line, parses JSON;
-2. on `initialize`, replies with `{ protocol_version, server, evals }`;
+2. on `initialize`, replies with `{ protocol_version, study, evals }`;
 3. on `list`, replies with the eval catalogue;
 4. on `run`, executes the subject, scores the transcript, and replies with a
    `RunResult`;
@@ -289,4 +289,4 @@ A minimal server is a stdio loop that:
 
 No Mira dependency is required — only the JSON shapes above. This is how
 non-Rust agents (a Python SWE-bench harness, a Node agent) plug in as
-first-class eval servers.
+first-class studies.

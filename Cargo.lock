@@ -1910,14 +1910,61 @@ dependencies = [
 ]
 
 [[package]]
-name = "mira-examples"
+name = "mira-example-cli_subject"
+version = "0.1.0"
+dependencies = [
+ "mira-eval",
+ "tokio",
+]
+
+[[package]]
+name = "mira-example-coding"
+version = "0.1.0"
+dependencies = [
+ "mira-eval",
+ "tokio",
+]
+
+[[package]]
+name = "mira-example-greet"
+version = "0.1.0"
+dependencies = [
+ "mira-eval",
+ "tokio",
+]
+
+[[package]]
+name = "mira-example-llmsim"
 version = "0.1.0"
 dependencies = [
  "everruns-core",
  "everruns-runtime",
  "mira-eval",
  "mira-everruns",
- "serde_json",
+ "tokio",
+]
+
+[[package]]
+name = "mira-example-matrix"
+version = "0.1.0"
+dependencies = [
+ "mira-eval",
+ "tokio",
+]
+
+[[package]]
+name = "mira-example-metrics"
+version = "0.1.0"
+dependencies = [
+ "mira-eval",
+ "tokio",
+]
+
+[[package]]
+name = "mira-example-swe_bench"
+version = "0.1.0"
+dependencies = [
+ "mira-eval",
  "tokio",
 ]
 

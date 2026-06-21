@@ -8,7 +8,7 @@
 //! `ResolvedModel`, while a [`CliSubject`](crate::subject::CliSubject) passes
 //! the label to a subprocess.
 //!
-//! Availability is decided in the *server* process (where keys live): a named
+//! Availability is decided in the *study* process (where keys live): a named
 //! provider is available only when its API-key env var is set. Unavailable
 //! cells are **skipped**, never failed, so a key-free run stays green offline.
 
@@ -73,7 +73,7 @@ impl ModelSpec {
     }
 
     /// A cloud cell labelled `provider/model`, available iff `key_env` is set in
-    /// the server environment.
+    /// the study's environment.
     pub fn cloud(
         provider: impl Into<String>,
         model: impl Into<String>,

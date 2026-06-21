@@ -1,20 +1,10 @@
-//! Shared helpers for the Mira example eval servers.
-//!
-//! The examples are deliberately **offline and deterministic** — they run
-//! against the `sim` model with no API keys so they stay green in CI and cost
-//! nothing. Each `examples/*.rs` is a standalone server; drive them with the
-//! host CLI:
-//!
-//! ```bash
-//! cargo run -p mira-cli -- --package mira-examples --example greet run
-//! ```
+//! Local helper for this example: a deterministic fake "agent" transcript with
+//! realistic-looking metrics, so metric-oriented scorers have something to grade
+//! without calling a real model. Numbers are derived from the text so they are
+//! stable across runs.
 
 use mira::{Timing, Transcript, Usage};
 
-/// A deterministic fake "agent" transcript with realistic-looking metrics, so
-/// metric-oriented scorers (tokens, cost, latency, tools) have something to
-/// grade without calling a real model. Tokens/cost are derived from the text so
-/// the numbers are stable across runs.
 pub fn fake_agent(response: &str, tools: &[&str]) -> Transcript {
     let output_tokens = (response.split_whitespace().count() as u64).max(1);
     let input_tokens = 40 + output_tokens * 3;

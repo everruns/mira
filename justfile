@@ -43,15 +43,16 @@ doc:
 
 # === Examples ===
 
-# Drive each bundled example server through the host CLI (offline, sim only).
+# Drive each bundled example study through the host CLI (offline, sim only).
 run-examples:
-    cargo run -q -p mira-cli -- --package mira-examples --example greet run
-    cargo run -q -p mira-cli -- --package mira-examples --example coding run
-    cargo run -q -p mira-cli -- --package mira-examples --example cli_subject run
-    cargo run -q -p mira-cli -- --package mira-examples --example metrics run
-    cargo run -q -p mira-cli -- --package mira-examples --example matrix run
-    cargo run -q -p mira-cli -- --package mira-examples --example swe_bench run
-    cargo run -q -p mira-cli -- --package mira-examples --example llmsim run
+    cargo run -q -p mira-cli -- --bin greet run
+    cargo run -q -p mira-cli -- --bin coding run
+    cargo run -q -p mira-cli -- --bin cli_subject run
+    cargo run -q -p mira-cli -- --bin metrics run
+    cargo run -q -p mira-cli -- --bin matrix run
+    cargo run -q -p mira-cli -- --bin swe_bench run
+    cargo run -q -p mira-cli -- --bin llmsim run
+    cargo run -q -p mira-cli -- --cmd "python3 examples/greet-python/study.py" run
 
 # === Release ===
 

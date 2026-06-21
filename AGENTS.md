@@ -43,12 +43,12 @@ change there.
 
 ```
 crates/mira-eval     core library (lib name `mira`): types, traits, scorers,
-                     subjects (subject_fn, CliSubject), protocol, server, host,
+                     subjects (subject_fn, CliSubject), protocol, study, host,
                      runner, report.  NO heavy deps.
 crates/mira-cli      the `mira` host binary.
 crates/mira-macros   the `#[eval]` proc-macro (re-exported as `mira::eval`).
 crates/mira-everruns RuntimeSubject over the published everruns-runtime.
-examples/            mira-examples: runnable, offline example eval servers.
+examples/            runnable, offline example studies (one folder each).
 ```
 
 The core is **provider-agnostic**: `ModelSpec` carries `(provider, model)`

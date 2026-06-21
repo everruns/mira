@@ -3,7 +3,7 @@
 //! including an everruns coding CLI that emits the canonical JSONL transcript.
 //!
 //! ```bash
-//! mira --package mira-examples --example cli_subject run
+//! mira --bin cli_subject run
 //! ```
 
 use mira::scorer::{contains, succeeded};
@@ -14,12 +14,10 @@ use mira::{Eval, eval};
 fn shell() -> Eval {
     Eval::new("shell")
         .describe("Runs an external CLI and scores its stdout")
-        // The subject runs `sh -c 'echo <prompt> | tr a-z A-Z'`, i.e. it
-        // upper-cases whatever prompt we send it.
+        // The subject is a real external program, `subject.sh`, sitting next to
+        // this example. Mira sends it the prompt as argv[1] and captures stdout.
         .subject(
-            CliSubject::new("sh")
-                .arg("-c")
-                .arg("printf '%s' \"{prompt}\" | tr 'a-z' 'A-Z'"),
+            CliSubject::new(concat!(env!("CARGO_MANIFEST_DIR"), "/subject.sh")).arg("{prompt}"),
         )
         .case("greet", "hello world")
         .scorer(succeeded())
@@ -29,5 +27,5 @@ fn shell() -> Eval {
 
 #[tokio::main]
 async fn main() -> std::io::Result<()> {
-    mira::serve_registered().await
+    mira::Study::registered().serve().await
 }

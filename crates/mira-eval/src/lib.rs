@@ -28,13 +28,14 @@
 //!
 //! * **In process** — build [`Eval`]s and drive them with a [`Runner`]. Best for
 //!   unit-style evals that live next to the code under test.
-//! * **Over the protocol** — your program calls [`serve`] to expose its evals;
-//!   the `mira` host CLI ([`Host`]) compiles/spawns it, plans the run, and owns
-//!   selection, the matrix, checkpoints, and reporting. Provider keys never
-//!   cross the wire — models are addressed by *label*. See [`protocol`].
+//! * **Over the protocol** — your program is a [`Study`]: it bundles evals and
+//!   calls [`serve`](Study::serve) to expose them. The `mira` host CLI ([`Host`])
+//!   compiles/spawns it, plans the run, and owns selection, the matrix,
+//!   checkpoints, and reporting. Provider keys never cross the wire — models are
+//!   addressed by *label*. See [`protocol`].
 //!
 //! See the crate `examples/` (`greet`, `coding`, `cli_subject`) for runnable
-//! eval servers.
+//! studies.
 
 // Boxed async-closure aliases (judge, subject factories) are the idiomatic way
 // to express async callbacks behind trait objects here.
@@ -50,7 +51,7 @@ pub mod registry;
 pub mod report;
 pub mod runner;
 pub mod scorer;
-pub mod server;
+pub mod study;
 pub mod subject;
 
 use std::collections::BTreeMap;
@@ -90,7 +91,7 @@ pub use model::ModelSpec;
 pub use registry::registered_evals;
 pub use runner::{CaseOutcome, RunReport, Runner};
 pub use scorer::Scorer;
-pub use server::{serve, serve_registered};
+pub use study::Study;
 pub use subject::{CliSubject, Subject, subject_fn};
 
 /// Free-form key/value metadata attached to evals, samples, models, and runs.
@@ -324,7 +325,7 @@ impl RunCx {
 /// The canonical, stable identity of one matrix cell: `eval/sample@model`,
 /// suffixed with `[k=v,…]` (axis params sorted by key) when extra axes vary.
 /// Used for selection, dedupe, checkpoint resume, and reporting — host and
-/// server compute it identically.
+/// study compute it identically.
 pub fn cell_key(eval: &str, sample: &str, model: &str, params: &Metadata) -> String {
     let base = format!("{eval}/{sample}@{model}");
     if params.is_empty() {

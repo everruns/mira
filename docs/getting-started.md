@@ -12,11 +12,11 @@ cargo add mira-eval
 brew install everruns/tap/mira   # or: cargo install mira-cli
 ```
 
-## 2. Write an eval server
+## 2. Write an eval study
 
-An eval **server** is just a program that defines evals and calls
-`mira::serve_registered()`. Put it anywhere `cargo run` can reach it — a binary,
-or (handy for libraries) an example:
+An eval **study** is just a program that defines evals and calls
+`mira::Study::registered().serve()`. Put it anywhere `cargo run` can reach it — a
+binary, or (handy for libraries) an example:
 
 ```rust
 // examples/my_evals.rs
@@ -47,7 +47,7 @@ fn capital() -> Eval {
 
 #[tokio::main]
 async fn main() -> std::io::Result<()> {
-    mira::serve_registered().await
+    mira::Study::registered().serve().await
 }
 ```
 

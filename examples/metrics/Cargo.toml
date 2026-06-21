@@ -1,0 +1,19 @@
+[package]
+name = "mira-example-metrics"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+homepage.workspace = true
+description = "Mira example: metric-oriented scorers (tokens, cost, latency, tools)"
+publish = false
+
+[[bin]]
+name = "metrics"
+path = "src/main.rs"
+
+[dependencies]
+mira-eval.workspace = true
+tokio.workspace = true

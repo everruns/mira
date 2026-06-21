@@ -1,8 +1,8 @@
 //! Automatic eval registration.
 //!
 //! Instead of hand-building a `Vec<Eval>`, annotate factory functions and let
-//! the server collect them. This is Mira's `cargo test`-style discovery: write
-//! the eval, register it, and `serve_registered()` exposes it.
+//! the study collect them. This is Mira's `cargo test`-style discovery: write
+//! the eval, register it, and `Study::registered()` exposes it.
 //!
 //! ```no_run
 //! use mira::{register_eval, Eval, Transcript};
@@ -20,7 +20,7 @@
 //!
 //! #[tokio::main]
 //! async fn main() -> std::io::Result<()> {
-//!     mira::serve_registered().await
+//!     mira::Study::registered().serve().await
 //! }
 //! ```
 //!
@@ -36,7 +36,7 @@ pub struct EvalFactory(pub fn() -> Eval);
 inventory::collect!(EvalFactory);
 
 /// Register a zero-argument `fn() -> Eval` so it is picked up by
-/// [`registered_evals`] / [`serve_registered`](crate::serve_registered).
+/// [`registered_evals`] / [`Study::registered`](crate::Study::registered).
 ///
 /// ```
 /// # use mira::{register_eval, Eval, Transcript};

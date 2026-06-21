@@ -23,9 +23,9 @@ Eval = Dataset(Sample…) + Subject + [Scorer…]  ×  model matrix
 - **Matrix** — `ModelSpec`s plus extra `.axis(name, values)`; missing API keys
   *skip*, so runs are green offline.
 
-## Authoring an eval server
+## Authoring an eval study
 
-A server is a program that defines evals and calls `mira::serve_registered()`.
+A study is a program that defines evals and calls `mira::Study::registered().serve()`.
 Register factories with `#[eval]` (or `register_eval!`).
 
 ```rust
@@ -63,22 +63,25 @@ fn coding() -> Eval {
 }
 
 #[tokio::main]
-async fn main() -> std::io::Result<()> { mira::serve_registered().await }
+async fn main() -> std::io::Result<()> { mira::Study::registered().serve().await }
 ```
 
-Put servers in `examples/*.rs` (run via `--example NAME`) or as `[[bin]]`s.
+A study is just a `[[bin]]` that calls `Study::registered().serve()`; `--bin NAME`
+resolves it. A non-Rust study (any language that speaks the protocol) runs via
+`--cmd "..."` — see `examples/greet-python/`.
 
 ## Running
 
 ```bash
-mira --example coding list                 # advertised evals/samples/scorers/models
-mira --example coding run                  # whole matrix
-mira --example coding run add-fn           # substring filter on eval/sample@model
-mira --example coding run --tag smoke
-mira --example coding run --models sim
-mira --example coding run --format junit --out results.xml   # CI artifact
-mira --example coding run --format html  --out report.html   # transcript viewer
-mira --example coding run --checkpoint ck.json               # resumable
+mira --bin coding list                 # advertised evals/samples/scorers/models
+mira --bin coding run                  # whole matrix
+mira --bin coding run add-fn           # substring filter on eval/sample@model
+mira --bin coding run --tag smoke
+mira --bin coding run --models sim
+mira --bin coding run --format junit --out results.xml   # CI artifact
+mira --bin coding run --format html  --out report.html   # transcript viewer
+mira --bin coding run --checkpoint ck.json               # resumable
+mira --cmd "python3 study.py" run      # a study written in another language
 ```
 
 Exit code is non-zero if any cell failed — drops straight into CI.

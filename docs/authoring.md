@@ -123,7 +123,7 @@ Sample::new("hi", "…").meta("trace", "https://observe.example/run/abc123")
 
 ## Registration vs. explicit lists
 
-Annotate factory functions with `#[eval]` and let the server collect them
+Annotate factory functions with `#[eval]` and let the study collect them
 (`#[eval]` is the ergonomic form of `register_eval!`):
 
 ```rust
@@ -133,17 +133,17 @@ use mira::{eval, Eval};
 fn greet() -> Eval { /* … */ }
 
 #[tokio::main]
-async fn main() -> std::io::Result<()> { mira::serve_registered().await }
+async fn main() -> std::io::Result<()> { mira::Study::registered().serve().await }
 ```
 
 Prefer no proc-macros? `register_eval!(greet);` is equivalent, and disabling the
-default `macros` feature drops the `#[eval]` attribute entirely. Or hand `serve`
-an explicit `Vec<Eval>`:
+default `macros` feature drops the `#[eval]` attribute entirely. Or build a
+study from an explicit list:
 
 ```rust
 #[tokio::main]
 async fn main() -> std::io::Result<()> {
-    mira::serve(vec![greet(), coding()]).await
+    mira::Study::new().eval(greet()).eval(coding()).serve().await
 }
 ```
 
