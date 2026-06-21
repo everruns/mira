@@ -19,13 +19,17 @@
 //! ## Methods
 //! * `initialize` → [`InitializeResult`]
 //! * `list` → [`ListResult`]
-//! * `run` ([`RunParams`]) → [`RunResult`]
+//! * `run` ([`RunParams`]) → [`RunResult`] — execute + score in one call
+//! * `execute` ([`RunParams`]) → [`ExecuteResult`] — execute the subject only,
+//!   returning the **full** transcript (for run-now, score-later)
+//! * `score` ([`ScoreParams`]) → [`RunResult`] — score a supplied transcript
+//!   (for deferred scoring and re-scoring)
 //!
 //! See `docs/protocol.md` for the full reference.
 
 use serde::{Deserialize, Serialize};
 
-use crate::{Metadata, Score, Timing, Usage};
+use crate::{Metadata, Score, Timing, Transcript, Usage};
 
 /// The protocol version advertised by `initialize`, as `MAJOR.MINOR`.
 ///
@@ -139,6 +143,12 @@ pub mod capabilities {
     pub const EVENTS: &str = "events";
     /// Study reports token/cost usage and timing in transcripts.
     pub const USAGE: &str = "usage";
+    /// Study answers `execute` (run the subject only, returning a full
+    /// transcript) for run-now-score-later workflows.
+    pub const EXECUTE: &str = "execute";
+    /// Study answers `score` (run scorers over a supplied transcript) for
+    /// deferred scoring and re-scoring of stored transcripts.
+    pub const SCORE: &str = "score";
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -225,6 +235,62 @@ pub struct TranscriptSummary {
     pub metadata: Metadata,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub error: Option<String>,
+}
+
+impl TranscriptSummary {
+    /// Project a full [`Transcript`] onto the lightweight wire/checkpoint form,
+    /// dropping the raw `events` and captured `files` to keep results small.
+    pub fn of(t: &Transcript) -> Self {
+        Self {
+            final_response: t.final_response.clone(),
+            iterations: t.iterations,
+            tool_calls_count: t.tool_calls_count,
+            tool_calls: t.tool_calls.clone(),
+            usage: t.usage,
+            timing: t.timing,
+            metadata: t.metadata.clone(),
+            error: t.error.clone(),
+        }
+    }
+}
+
+/// `execute` result for one cell: the **full** [`Transcript`] (raw events and
+/// captured files included), so the host can persist it as an execution
+/// artifact and `score` it later. Distinct from [`RunResult`], which carries the
+/// lightweight [`TranscriptSummary`] plus scores.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct ExecuteResult {
+    pub eval: String,
+    pub sample: String,
+    pub model: String,
+    /// Extra matrix-axis values for this cell (empty for a model-only matrix).
+    #[serde(default, skip_serializing_if = "Metadata::is_empty")]
+    pub params: Metadata,
+    /// The complete transcript, unlike the summary carried in [`RunResult`].
+    pub transcript: Transcript,
+    /// True when the cell was not executed (e.g. model unavailable).
+    #[serde(default)]
+    pub skipped: bool,
+}
+
+impl ExecuteResult {
+    /// Stable cell identity (see [`RunResult::key`]).
+    pub fn key(&self) -> String {
+        crate::cell_key(&self.eval, &self.sample, &self.model, &self.params)
+    }
+}
+
+/// `score` params: a cell identity plus the full [`Transcript`] to score. The
+/// transcript travels over the wire so the host can replay a stored one — the
+/// study scores it without re-running the subject.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct ScoreParams {
+    pub eval: String,
+    pub sample: String,
+    pub model: String,
+    #[serde(default, skip_serializing_if = "Metadata::is_empty")]
+    pub params: Metadata,
+    pub transcript: Transcript,
 }
 
 /// `run` result for one cell. Also the unit persisted in checkpoints.

@@ -133,7 +133,8 @@ global cap.
 bump is additive. Every payload tolerates unknown fields (no
 `deny_unknown_fields`) and adds new fields as `#[serde(default)]`, so a newer
 study and an older host interoperate. Hosts feature-detect additively via
-`capabilities` (`axes`, `events`, `usage`) rather than version sniffing.
+`capabilities` (`axes`, `events`, `usage`, `execute`, `score`) rather than
+version sniffing.
 
 ## 5. Crate architecture
 
@@ -224,7 +225,51 @@ attribute macro (`mira-macros`), the self-contained HTML transcript viewer,
 arbitrary matrix axes (`Eval::axis`), protocol versioning + capability
 negotiation, and the operational metrics above.
 
-## 11. Deferred (seams defined above)
+## 11. Split execution and scoring (execute / score / rescore)
+
+Running a subject and scoring its transcript are **separable phases**. The
+`Scorer` trait already depends only on `(Sample, Transcript)`, never on the
+subject — so the only coupling was operational: `run_cell` did both in one call,
+and the only persisted artifact (the checkpoint) carried a *summary* transcript
+with the raw `events`/`files` dropped, so a stored cell could be resumed but
+never re-scored.
+
+This matters for two real workflows:
+
+- **Long-running subjects.** An agent run can take minutes to hours. We want to
+  execute once, durably capture the *full* transcript (events, files, usage),
+  and score later — without holding the subject process open or risking losing
+  the run if scoring changes.
+- **Re-scoring.** Scorers evolve (a rubric is tightened, a judge model swapped,
+  a bug fixed). We want to re-run scoring over already-captured transcripts
+  without paying to re-execute the subject.
+
+**Design.** Keep execution artifacts separate from eval results, and split the
+protocol's single `run` into two additive methods (`run` stays as the fused
+convenience path):
+
+- **`execute`** ([`RunParams`] → [`ExecuteResult`]) — runs the subject only and
+  returns the **full** [`Transcript`] (events and files included). No scoring.
+- **`score`** ([`ScoreParams`] = cell identity + a full transcript →
+  [`RunResult`]) — runs the eval's scorers over a supplied transcript and
+  returns the scored result. Stateless w.r.t. execution: the transcript comes in
+  over the wire, so the host can replay a stored one.
+
+Both are advertised via new capability tokens (`execute`, `score`) and land as a
+**minor** protocol bump (`1.1`) — older studies that only implement `run` keep
+working. The shared in-process seam is `runner::execute_cell` +
+`runner::score_transcript`, with `run_cell` composing the two so in-process and
+over-the-wire runs score identically (as before).
+
+**Artifacts.** The host owns persistence (as with checkpoints). `mira run
+--execute-only --artifacts <dir>` writes one full-transcript `ExecuteResult`
+JSON per cell into `<dir>` (resumable: an existing artifact is skipped unless
+`--fresh`). `mira score --artifacts <dir>` loads those, replays each through
+`score`, and produces the normal report — re-running it is a re-score. Execution
+artifacts (full transcripts) are thus stored **separately** from eval results
+(scores), and either can be regenerated from the other's inputs.
+
+## 12. Deferred (seams defined above)
 
 Cost caps as a hard run limit (vs. a scorer), historical trend aggregation
 across runs, and a live-streaming transcript view. Each has a defined seam and

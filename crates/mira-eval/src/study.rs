@@ -29,11 +29,12 @@ use tokio::task::JoinSet;
 
 use crate::eval::Eval;
 use crate::protocol::{
-    AxisInfo, EvalInfo, InitializeResult, ListResult, ModelInfo, Notification, PROTOCOL_VERSION,
-    Request, Response, RunParams, RunResult, SampleInfo, TranscriptSummary, capabilities,
+    AxisInfo, EvalInfo, ExecuteResult, InitializeResult, ListResult, ModelInfo, Notification,
+    PROTOCOL_VERSION, Request, Response, RunParams, RunResult, SampleInfo, ScoreParams,
+    TranscriptSummary, capabilities,
 };
 use crate::registry::registered_evals;
-use crate::runner::run_cell;
+use crate::runner::{aggregate_value, execute_cell, run_cell, score_transcript, verdict};
 
 /// Your eval program: a named bundle of [`Eval`]s exposed to the host over the
 /// protocol. Build one, then [`serve`](Study::serve) it.
@@ -136,6 +137,8 @@ impl Study {
                         capabilities::AXES.into(),
                         capabilities::EVENTS.into(),
                         capabilities::USAGE.into(),
+                        capabilities::EXECUTE.into(),
+                        capabilities::SCORE.into(),
                     ],
                 }),
             ),
@@ -152,6 +155,31 @@ impl Study {
                 )
                 .await;
                 match self.run(&params).await {
+                    Ok(result) => Response::ok(request.id, json(&result)),
+                    Err(e) => Response::err(request.id, e),
+                }
+            }
+            "execute" => {
+                let params: RunParams = match serde_json::from_value(request.params.clone()) {
+                    Ok(p) => p,
+                    Err(e) => return Response::err(request.id, format!("bad execute params: {e}")),
+                };
+                let _ = write_line(
+                    stdout,
+                    &event_notification(&params.eval, &params.sample, &params.model, "started"),
+                )
+                .await;
+                match self.execute(&params).await {
+                    Ok(result) => Response::ok(request.id, json(&result)),
+                    Err(e) => Response::err(request.id, e),
+                }
+            }
+            "score" => {
+                let params: ScoreParams = match serde_json::from_value(request.params.clone()) {
+                    Ok(p) => p,
+                    Err(e) => return Response::err(request.id, format!("bad score params: {e}")),
+                };
+                match self.score(&params).await {
                     Ok(result) => Response::ok(request.id, json(&result)),
                     Err(e) => Response::err(request.id, e),
                 }
@@ -203,36 +231,11 @@ impl Study {
     }
 
     async fn run(&self, params: &RunParams) -> Result<RunResult, String> {
-        let eval = self
-            .evals
-            .iter()
-            .find(|e| e.name == params.eval)
-            .ok_or_else(|| format!("no such eval: {}", params.eval))?;
-        let sample = eval
-            .dataset
-            .samples
-            .iter()
-            .find(|s| s.id == params.sample)
-            .ok_or_else(|| format!("no such sample: {}/{}", params.eval, params.sample))?;
-        let model = eval
-            .models
-            .iter()
-            .find(|m| m.label == params.model)
-            .ok_or_else(|| format!("no such model: {}@{}", params.eval, params.model))?;
+        let (eval, sample, model) = self.locate(&params.eval, &params.sample, &params.model)?;
 
         // Don't burn time on an unrunnable cell; report it as skipped.
         if !model.available {
-            return Ok(RunResult {
-                eval: params.eval.clone(),
-                sample: params.sample.clone(),
-                model: params.model.clone(),
-                params: params.params.clone(),
-                passed: false,
-                aggregate: 0.0,
-                scores: Vec::new(),
-                transcript: TranscriptSummary::default(),
-                skipped: true,
-            });
+            return Ok(skipped_result(params));
         }
 
         let outcome = run_cell(eval, sample, model, &params.params).await;
@@ -244,18 +247,105 @@ impl Study {
             passed: outcome.passed,
             aggregate: outcome.aggregate,
             scores: outcome.scores,
-            transcript: TranscriptSummary {
-                final_response: outcome.transcript.final_response,
-                iterations: outcome.transcript.iterations,
-                tool_calls_count: outcome.transcript.tool_calls_count,
-                tool_calls: outcome.transcript.tool_calls,
-                usage: outcome.transcript.usage,
-                timing: outcome.transcript.timing,
-                metadata: outcome.transcript.metadata,
-                error: outcome.transcript.error,
-            },
+            transcript: TranscriptSummary::of(&outcome.transcript),
             skipped: false,
         })
+    }
+
+    /// Execute a cell's subject only, returning the **full** transcript with no
+    /// scoring (the run-now-score-later half of `run`).
+    async fn execute(&self, params: &RunParams) -> Result<ExecuteResult, String> {
+        let (eval, sample, model) = self.locate(&params.eval, &params.sample, &params.model)?;
+        if !model.available {
+            return Ok(ExecuteResult {
+                eval: params.eval.clone(),
+                sample: params.sample.clone(),
+                model: params.model.clone(),
+                params: params.params.clone(),
+                transcript: Default::default(),
+                skipped: true,
+            });
+        }
+        let transcript = execute_cell(eval, sample, model, &params.params).await;
+        Ok(ExecuteResult {
+            eval: params.eval.clone(),
+            sample: params.sample.clone(),
+            model: params.model.clone(),
+            params: params.params.clone(),
+            transcript,
+            skipped: false,
+        })
+    }
+
+    /// Score a supplied transcript with an eval's scorers, without re-executing
+    /// the subject (the deferred-/re-scoring half of `run`). The model label
+    /// need not still exist — scoring depends only on the eval + sample.
+    async fn score(&self, params: &ScoreParams) -> Result<RunResult, String> {
+        let eval = self
+            .evals
+            .iter()
+            .find(|e| e.name == params.eval)
+            .ok_or_else(|| format!("no such eval: {}", params.eval))?;
+        let sample = eval
+            .dataset
+            .samples
+            .iter()
+            .find(|s| s.id == params.sample)
+            .ok_or_else(|| format!("no such sample: {}/{}", params.eval, params.sample))?;
+
+        let scores = score_transcript(eval, sample, &params.transcript).await;
+        Ok(RunResult {
+            eval: params.eval.clone(),
+            sample: params.sample.clone(),
+            model: params.model.clone(),
+            params: params.params.clone(),
+            passed: verdict(&scores),
+            aggregate: aggregate_value(&scores),
+            scores,
+            transcript: TranscriptSummary::of(&params.transcript),
+            skipped: false,
+        })
+    }
+
+    /// Resolve a cell to its `(eval, sample, model)` definitions.
+    fn locate(
+        &self,
+        eval: &str,
+        sample: &str,
+        model: &str,
+    ) -> Result<(&Eval, &crate::Sample, &crate::ModelSpec), String> {
+        let e = self
+            .evals
+            .iter()
+            .find(|e| e.name == eval)
+            .ok_or_else(|| format!("no such eval: {eval}"))?;
+        let s = e
+            .dataset
+            .samples
+            .iter()
+            .find(|s| s.id == sample)
+            .ok_or_else(|| format!("no such sample: {eval}/{sample}"))?;
+        let m = e
+            .models
+            .iter()
+            .find(|m| m.label == model)
+            .ok_or_else(|| format!("no such model: {eval}@{model}"))?;
+        Ok((e, s, m))
+    }
+}
+
+/// A skipped (unexecuted) cell result, e.g. when the model is unavailable.
+fn skipped_result(params: &RunParams) -> RunResult {
+    RunResult {
+        eval: params.eval.clone(),
+        sample: params.sample.clone(),
+        model: params.model.clone(),
+        params: params.params.clone(),
+        passed: false,
+        aggregate: 0.0,
+        scores: Vec::new(),
+        transcript: TranscriptSummary::default(),
+        skipped: true,
     }
 }
 
@@ -347,5 +437,77 @@ mod tests {
             params: Default::default(),
         };
         assert!(study().run(&params).await.is_err());
+    }
+
+    #[tokio::test]
+    async fn execute_returns_full_transcript_without_scoring() {
+        let params = RunParams {
+            eval: "greet".into(),
+            sample: "hi".into(),
+            model: "sim".into(),
+            params: Default::default(),
+        };
+        let captured = study().execute(&params).await.unwrap();
+        assert!(!captured.skipped);
+        assert_eq!(captured.transcript.final_response, "hi there");
+    }
+
+    #[tokio::test]
+    async fn execute_then_score_matches_run() {
+        let s = study();
+        let rp = RunParams {
+            eval: "greet".into(),
+            sample: "hi".into(),
+            model: "sim".into(),
+            params: Default::default(),
+        };
+        let fused = s.run(&rp).await.unwrap();
+
+        // Split path: execute, then score the captured transcript.
+        let captured = s.execute(&rp).await.unwrap();
+        let sp = ScoreParams {
+            eval: captured.eval.clone(),
+            sample: captured.sample.clone(),
+            model: captured.model.clone(),
+            params: captured.params.clone(),
+            transcript: captured.transcript.clone(),
+        };
+        let split = s.score(&sp).await.unwrap();
+
+        assert_eq!(split.passed, fused.passed);
+        assert_eq!(split.aggregate, fused.aggregate);
+        assert_eq!(split.scores, fused.scores);
+        assert_eq!(
+            split.transcript.final_response,
+            fused.transcript.final_response
+        );
+    }
+
+    #[tokio::test]
+    async fn score_is_repeatable_for_rescoring() {
+        let s = study();
+        let sp = ScoreParams {
+            eval: "greet".into(),
+            sample: "hi".into(),
+            model: "sim".into(),
+            params: Default::default(),
+            transcript: Transcript::response("hi there"),
+        };
+        let first = s.score(&sp).await.unwrap();
+        let second = s.score(&sp).await.unwrap();
+        assert_eq!(first.scores, second.scores);
+        assert!(first.passed && second.passed);
+    }
+
+    #[tokio::test]
+    async fn score_rejects_unknown_eval() {
+        let sp = ScoreParams {
+            eval: "nope".into(),
+            sample: "hi".into(),
+            model: "sim".into(),
+            params: Default::default(),
+            transcript: Transcript::response("x"),
+        };
+        assert!(study().score(&sp).await.is_err());
     }
 }

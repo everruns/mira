@@ -22,8 +22,8 @@ use tokio::sync::{Mutex, oneshot};
 
 use crate::Metadata;
 use crate::protocol::{
-    InitializeResult, ListResult, Notification, PROTOCOL_VERSION, Request, Response, RunParams,
-    RunResult,
+    ExecuteResult, InitializeResult, ListResult, Notification, PROTOCOL_VERSION, Request, Response,
+    RunParams, RunResult, ScoreParams,
 };
 
 /// Callback invoked for each progress notification (e.g. to render a live log).
@@ -85,6 +85,45 @@ impl HostHandle {
         };
         let value = self
             .request("run", serde_json::to_value(params).unwrap())
+            .await?;
+        serde_json::from_value(value).map_err(|e| e.to_string())
+    }
+
+    /// Execute one cell's subject without scoring, returning the full transcript
+    /// (for run-now, score-later). Requires the study to advertise the `execute`
+    /// capability. Safe to call concurrently from clones.
+    pub async fn execute(
+        &self,
+        eval: &str,
+        sample: &str,
+        model: &str,
+        params: &Metadata,
+    ) -> Result<ExecuteResult, String> {
+        let params = RunParams {
+            eval: eval.into(),
+            sample: sample.into(),
+            model: model.into(),
+            params: params.clone(),
+        };
+        let value = self
+            .request("execute", serde_json::to_value(params).unwrap())
+            .await?;
+        serde_json::from_value(value).map_err(|e| e.to_string())
+    }
+
+    /// Score a previously-captured transcript without re-executing the subject
+    /// (deferred scoring / re-scoring). Requires the study to advertise the
+    /// `score` capability. Safe to call concurrently from clones.
+    pub async fn score(&self, captured: &ExecuteResult) -> Result<RunResult, String> {
+        let params = ScoreParams {
+            eval: captured.eval.clone(),
+            sample: captured.sample.clone(),
+            model: captured.model.clone(),
+            params: captured.params.clone(),
+            transcript: captured.transcript.clone(),
+        };
+        let value = self
+            .request("score", serde_json::to_value(params).unwrap())
             .await?;
         serde_json::from_value(value).map_err(|e| e.to_string())
     }
@@ -213,6 +252,24 @@ impl Host {
         params: &Metadata,
     ) -> Result<RunResult, String> {
         self.handle.run(eval, sample, model, params).await
+    }
+
+    /// Execute one cell's subject without scoring (sequential convenience; see
+    /// [`HostHandle::execute`]).
+    pub async fn execute(
+        &self,
+        eval: &str,
+        sample: &str,
+        model: &str,
+        params: &Metadata,
+    ) -> Result<ExecuteResult, String> {
+        self.handle.execute(eval, sample, model, params).await
+    }
+
+    /// Score a captured transcript without re-executing (sequential convenience;
+    /// see [`HostHandle::score`]).
+    pub async fn score(&self, captured: &ExecuteResult) -> Result<RunResult, String> {
+        self.handle.score(captured).await
     }
 
     /// Close stdin and wait for the study to exit. Drops the host's own handle so

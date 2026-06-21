@@ -11,27 +11,54 @@ use crate::eval::Eval;
 use crate::model::ModelSpec;
 use crate::{Metadata, RunCx, Sample, Score, Transcript, cell_key};
 
+/// Execute a single matrix cell's subject, returning the full [`Transcript`]
+/// **without scoring**. The first half of [`run_cell`]; used directly by the
+/// protocol `execute` method so a long-running subject can be run once and
+/// scored later from its stored transcript.
+pub async fn execute_cell(
+    eval: &Eval,
+    sample: &Sample,
+    model: &ModelSpec,
+    params: &Metadata,
+) -> Transcript {
+    let cx = RunCx {
+        model: model.clone(),
+        max_turns: eval.max_turns,
+        params: params.clone(),
+    };
+    eval.subject.run(sample, &cx).await
+}
+
+/// Score a (possibly previously stored) `transcript` with an eval's scorers,
+/// independent of how it was produced. The second half of [`run_cell`]; used by
+/// the protocol `score` method to (re-)score without re-executing the subject.
+pub async fn score_transcript(eval: &Eval, sample: &Sample, transcript: &Transcript) -> Vec<Score> {
+    let mut scores = Vec::with_capacity(eval.scorers.len());
+    for scorer in &eval.scorers {
+        scores.push(scorer.score(sample, transcript).await);
+    }
+    scores
+}
+
+/// True iff at least one scorer ran and all passed (the cell verdict).
+pub fn verdict(scores: &[Score]) -> bool {
+    !scores.is_empty() && scores.iter().all(|s| s.pass)
+}
+
 /// Run a single matrix cell: one sample, one model, one set of axis `params`.
-/// Shared by the in-process [`Runner`] and the protocol study.
+/// Composes [`execute_cell`] + [`score_transcript`] so the fused path scores
+/// identically to the split `execute`/`score` path. Shared by the in-process
+/// [`Runner`] and the protocol study.
 pub async fn run_cell(
     eval: &Eval,
     sample: &Sample,
     model: &ModelSpec,
     params: &Metadata,
 ) -> CaseOutcome {
-    let cx = RunCx {
-        model: model.clone(),
-        max_turns: eval.max_turns,
-        params: params.clone(),
-    };
-    let transcript = eval.subject.run(sample, &cx).await;
+    let transcript = execute_cell(eval, sample, model, params).await;
+    let scores = score_transcript(eval, sample, &transcript).await;
 
-    let mut scores = Vec::with_capacity(eval.scorers.len());
-    for scorer in &eval.scorers {
-        scores.push(scorer.score(sample, &transcript).await);
-    }
-
-    let passed = !scores.is_empty() && scores.iter().all(|s| s.pass);
+    let passed = verdict(&scores);
     let aggregate = aggregate_value(&scores);
 
     CaseOutcome {

@@ -29,8 +29,22 @@ adheres to [Semantic Versioning](https://semver.org/).
   back as cells succeed — so a busy provider is throttled instead of hammered.
 - `mira::exec` module (`Concurrency`, `CellSpec`, `run_cells`), `mira::HostHandle`
   (cheaply-cloneable concurrent client), and `mira::is_rate_limited`.
-- Protocol `1.1`: optional `ModelInfo.provider` so the host can bucket concurrency
-  per provider. Additive — a `1.0` study that omits it still interoperates.
+- **Split execution and scoring** (additive). Execution and scoring are now
+  separable phases, for long-running subjects and re-scoring:
+  - Protocol gains `execute` (run the subject only, returning the **full**
+    transcript) and `score` (score a supplied transcript without re-executing),
+    advertised via the `execute` / `score` capabilities. A `1.0`/`run`-only
+    study still interoperates.
+  - `mira run --execute-only --artifacts <dir>` captures one full-transcript
+    artifact per cell (resumable; skips existing artifacts unless `--fresh`).
+  - `mira score --artifacts <dir>` (re-)scores captured artifacts and reports —
+    re-running it is a re-score, with no subject re-execution.
+  - Library: `runner::execute_cell` / `runner::score_transcript` (with `run_cell`
+    composing them), `Host::execute` / `Host::score`, and the `ExecuteResult` /
+    `ScoreParams` protocol types.
+- Protocol bumped to `1.1` (additive over `1.0`): adds the optional
+  `ModelInfo.provider` field (concurrency bucketing) and the `execute`/`score`
+  methods + capabilities. A `1.0` study still interoperates.
 
 ## [0.1.0] - 2026-06-20
 

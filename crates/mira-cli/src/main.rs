@@ -10,7 +10,13 @@
 //! mira --bin greet run --tag smoke
 //! mira --bin greet run --models sim --format junit --out results.xml
 //! mira --bin greet run --checkpoint ck.json     # resumable
+//! mira --bin greet run --execute-only --artifacts art/  # capture transcripts
+//! mira --bin greet score --artifacts art/        # score (or re-score) them
 //! ```
+//!
+//! Execution and scoring can be split: `run --execute-only` captures one
+//! full-transcript artifact per cell (for long-running subjects), and `score`
+//! (re-)scores those artifacts without re-executing the subject.
 //!
 //! Each Rust example is a crate exposing a like-named binary, so `--bin <name>`
 //! resolves it across the workspace. Point it at any study: `--bin NAME`,
@@ -19,6 +25,7 @@
 
 use std::collections::BTreeMap;
 use std::io::IsTerminal;
+use std::path::Path;
 use std::str::FromStr;
 use std::sync::Arc;
 
@@ -28,7 +35,9 @@ use tokio::process::Command;
 
 use mira::Host;
 use mira::exec::{self, CellSpec, Concurrency};
-use mira::protocol::{InitializeResult, ListResult, RunResult};
+use mira::protocol::{
+    ExecuteResult, InitializeResult, ListResult, RunResult, TranscriptSummary, capabilities,
+};
 use mira::report::{self, Format};
 use mira::session::{self, Session};
 
@@ -67,6 +76,8 @@ enum Cmd {
     List,
     /// Run selected cells and report.
     Run(RunArgs),
+    /// Score (or re-score) previously captured execution artifacts.
+    Score(ScoreArgs),
 }
 
 #[derive(Args)]
@@ -88,7 +99,7 @@ struct RunArgs {
     /// Persist/resume results here; completed cells are skipped on re-run.
     #[arg(long)]
     checkpoint: Option<String>,
-    /// Ignore an existing checkpoint and run everything fresh.
+    /// Ignore an existing checkpoint/artifact and run everything fresh.
     #[arg(long)]
     fresh: bool,
     /// Max cells to run in parallel across all providers.
@@ -105,6 +116,30 @@ struct RunArgs {
     /// Times a rate-limited cell is retried (after backoff) before it's failed.
     #[arg(long, default_value_t = 4)]
     max_retries: u32,
+    /// Execute subjects only (no scoring), writing full transcripts to
+    /// --artifacts for later `mira score`. For long-running subjects.
+    /// --checkpoint/--out don't apply in this mode (no scores are produced).
+    #[arg(long, requires = "artifacts", conflicts_with_all = ["checkpoint", "out"])]
+    execute_only: bool,
+    /// Directory for full-transcript execution artifacts (one JSON per cell).
+    /// Written when --execute-only; read by `mira score`.
+    #[arg(long)]
+    artifacts: Option<String>,
+}
+
+#[derive(Args)]
+struct ScoreArgs {
+    /// Substring filter on the case key `eval/sample@model`.
+    filter: Option<String>,
+    /// Directory of execution artifacts written by `run --execute-only`.
+    #[arg(long)]
+    artifacts: String,
+    /// Write a report file (see --format).
+    #[arg(long)]
+    out: Option<String>,
+    /// Report file format: json | junit | md | html.
+    #[arg(long, default_value = "json")]
+    format: String,
 }
 
 #[tokio::main]
@@ -142,6 +177,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             Ok(())
         }
         Cmd::Run(args) => run(host, info, listing, args, progress).await,
+        Cmd::Score(args) => score(host, info, args).await,
     }
 }
 
@@ -192,6 +228,13 @@ async fn run(
     let plan = plan_grid(&listing, &args, &model_filter);
     if plan.is_empty() {
         eprintln!("no cells matched the selection");
+    }
+
+    // Execute-only: run subjects, persist full transcripts, defer scoring.
+    if args.execute_only {
+        require_capability(&info, capabilities::EXECUTE, "--execute-only")?;
+        let dir = args.artifacts.as_ref().expect("clap requires artifacts");
+        return execute_only(host, &plan, dir, args.fresh).await;
     }
 
     // Fingerprint the advertised definitions so a resume can detect stale caches.
@@ -344,6 +387,159 @@ fn concurrency(args: &RunArgs) -> Concurrency {
         }
     }
     cfg
+}
+
+/// Error out if the study didn't advertise `cap`, naming the `feature` that needs
+/// it — so a `1.0`/`run`-only study fails fast with a clear message rather than a
+/// generic RPC error mid-run.
+fn require_capability(
+    info: &InitializeResult,
+    cap: &str,
+    feature: &str,
+) -> Result<(), Box<dyn std::error::Error>> {
+    if info.capabilities.iter().any(|c| c == cap) {
+        return Ok(());
+    }
+    Err(format!(
+        "study {} doesn't support {feature}: it doesn't advertise the `{cap}` capability \
+         (needs protocol >= 1.1)",
+        info.study
+    )
+    .into())
+}
+
+/// `run --execute-only`: run each cell's subject, persist the full transcript as
+/// an artifact, and skip scoring. Resumable — a cell whose artifact already
+/// exists is skipped unless `--fresh`.
+async fn execute_only(
+    host: Host,
+    plan: &[CellSpec],
+    dir: &str,
+    fresh: bool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    std::fs::create_dir_all(dir)?;
+    let mut wrote = 0usize;
+    for cell in plan {
+        let path = artifact_path(dir, &cell.key());
+        if !fresh && path.exists() {
+            continue;
+        }
+        let result = host
+            .execute(&cell.eval, &cell.sample, &cell.model, &cell.params)
+            .await?;
+        std::fs::write(&path, serde_json::to_string_pretty(&result)?)?;
+        wrote += 1;
+    }
+    host.shutdown().await?;
+    eprintln!("executed {wrote} cell(s); artifacts in {dir}");
+    eprintln!("score them with: mira score --artifacts {dir}");
+    Ok(())
+}
+
+/// `score`: load execution artifacts, (re-)score each via the study, and report.
+/// Re-running this over the same artifacts is a re-score (e.g. after a scorer
+/// change) — no subject is re-executed.
+async fn score(
+    host: Host,
+    info: InitializeResult,
+    args: ScoreArgs,
+) -> Result<(), Box<dyn std::error::Error>> {
+    require_capability(&info, capabilities::SCORE, "mira score")?;
+    let format = Format::from_str(&args.format)?;
+    let mut artifacts = load_artifacts(&args.artifacts);
+    if let Some(f) = &args.filter {
+        artifacts.retain(|a| a.key().contains(f.as_str()));
+    }
+    if artifacts.is_empty() {
+        eprintln!("no artifacts in {}", args.artifacts);
+    }
+
+    let mut results = Vec::with_capacity(artifacts.len());
+    for artifact in &artifacts {
+        // A skipped (unexecuted) cell has no transcript to score; pass it through.
+        if artifact.skipped {
+            results.push(skipped_result(artifact));
+        } else {
+            results.push(host.score(artifact).await?);
+        }
+    }
+    host.shutdown().await?;
+
+    report::print_results(&results);
+
+    if let Some(path) = &args.out {
+        std::fs::write(path, report::render(&results, format))?;
+        eprintln!("\nwrote {path} ({:?})", format);
+    }
+
+    let failed = results.iter().any(|r| !r.skipped && !r.passed);
+    std::process::exit(if failed { 1 } else { 0 });
+}
+
+/// A skipped (unexecuted) artifact carried straight to a `RunResult`.
+fn skipped_result(a: &ExecuteResult) -> RunResult {
+    RunResult {
+        eval: a.eval.clone(),
+        sample: a.sample.clone(),
+        model: a.model.clone(),
+        params: a.params.clone(),
+        passed: false,
+        aggregate: 0.0,
+        scores: Vec::new(),
+        transcript: TranscriptSummary::of(&a.transcript),
+        skipped: true,
+    }
+}
+
+/// Filesystem path for a cell's artifact under `dir`. The cell key is encoded
+/// reversibly — `[A-Za-z0-9]` kept verbatim, every other byte escaped as `_HH`
+/// (hex) — so distinct keys can never collide onto the same filename (which would
+/// overwrite an artifact or wrongly skip execution on resume).
+fn artifact_path(dir: &str, key: &str) -> std::path::PathBuf {
+    let mut safe = String::with_capacity(key.len());
+    for b in key.bytes() {
+        if b.is_ascii_alphanumeric() {
+            safe.push(b as char);
+        } else {
+            safe.push('_');
+            safe.push_str(&format!("{b:02x}"));
+        }
+    }
+    Path::new(dir).join(format!("{safe}.json"))
+}
+
+/// Load every execution artifact in `dir`, sorted by cell key for stable order.
+/// Unreadable or invalid files are skipped with a warning, so a corrupted or
+/// partially-written artifact is visible rather than silently dropped.
+fn load_artifacts(dir: &str) -> Vec<ExecuteResult> {
+    let mut out = Vec::new();
+    let entries = match std::fs::read_dir(dir) {
+        Ok(entries) => entries,
+        Err(e) => {
+            eprintln!("warning: cannot read artifacts dir {dir}: {e}");
+            return out;
+        }
+    };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.extension().and_then(|e| e.to_str()) != Some("json") {
+            continue;
+        }
+        match std::fs::read_to_string(&path) {
+            Ok(text) => match serde_json::from_str::<ExecuteResult>(&text) {
+                Ok(result) => out.push(result),
+                Err(e) => {
+                    eprintln!(
+                        "warning: skipping {}: invalid artifact JSON: {e}",
+                        path.display()
+                    )
+                }
+            },
+            Err(e) => eprintln!("warning: skipping {}: {e}", path.display()),
+        }
+    }
+    out.sort_by_key(|a| a.key());
+    out
 }
 
 /// Every combination of axis values for an eval, as `params` maps (cross
