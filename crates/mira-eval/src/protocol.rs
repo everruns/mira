@@ -70,6 +70,7 @@ pub fn version_compatible(other: &str) -> bool {
 
 /// host → study.
 #[derive(Clone, Debug, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub struct Request {
     pub id: u64,
     pub method: String,
@@ -79,6 +80,7 @@ pub struct Request {
 
 /// study → host, correlated to a [`Request`] by `id`.
 #[derive(Clone, Debug, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub struct Response {
     pub id: u64,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -107,6 +109,7 @@ impl Response {
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub struct RpcError {
     pub message: String,
 }
@@ -115,6 +118,7 @@ pub struct RpcError {
 /// turn started, a tool was called, tokens spent) so the host can render
 /// progress and, later, stream into a transcript viewer.
 #[derive(Clone, Debug, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub struct Notification {
     pub method: String,
     #[serde(default)]
@@ -125,6 +129,7 @@ pub struct Notification {
 
 /// `initialize` result.
 #[derive(Clone, Debug, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub struct InitializeResult {
     pub protocol_version: String,
     pub study: String,
@@ -157,6 +162,7 @@ pub mod capabilities {
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub struct SampleInfo {
     pub id: String,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -164,6 +170,7 @@ pub struct SampleInfo {
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub struct ModelInfo {
     pub label: String,
     /// Provider id (e.g. `sim`, `anthropic`, `openai`). Lets the host bucket
@@ -179,6 +186,7 @@ pub struct ModelInfo {
 /// One extra matrix axis advertised by `list`, so the host can plan the full
 /// cross-product without running anything.
 #[derive(Clone, Debug, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub struct AxisInfo {
     pub name: String,
     pub values: Vec<String>,
@@ -187,6 +195,7 @@ pub struct AxisInfo {
 /// One eval, as advertised by `list`. Enough for the host to plan the full
 /// `samples × models` grid and apply selection without running anything.
 #[derive(Clone, Debug, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub struct EvalInfo {
     pub name: String,
     #[serde(default, skip_serializing_if = "String::is_empty")]
@@ -207,6 +216,7 @@ pub struct EvalInfo {
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub struct ListResult {
     pub evals: Vec<EvalInfo>,
 }
@@ -214,6 +224,7 @@ pub struct ListResult {
 /// `run` params: address one matrix cell by `(eval, sample, model label)` plus
 /// any extra axis `params` (axis name → chosen value).
 #[derive(Clone, Debug, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub struct RunParams {
     pub eval: String,
     pub sample: String,
@@ -227,6 +238,7 @@ pub struct RunParams {
 /// Lightweight transcript carried in results and checkpoints (the raw event
 /// stream is omitted to keep the artifact small).
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub struct TranscriptSummary {
     pub final_response: String,
     pub iterations: usize,
@@ -247,6 +259,16 @@ pub struct TranscriptSummary {
     /// infra-errored cells. Defaulted/omitted for the common subject case.
     #[serde(default, skip_serializing_if = "crate::ErrorKind::is_subject")]
     pub error_kind: crate::ErrorKind,
+    /// EXPERIMENTAL (gated behind `protocol-unstable`): reserved staging slot for
+    /// the next *structural* wire addition — the kind the open `metrics`/`metadata`
+    /// maps can't express (those carry numeric/string key-values; a new typed
+    /// field or nested shape still needs staging). The worked example of the
+    /// unstable convention: present on the wire and in the generated schema only
+    /// when the feature is enabled, so it can be trialled before promotion. A
+    /// placeholder — replace it with the real addition; don't depend on it.
+    #[cfg(feature = "protocol-unstable")]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub experimental: Option<String>,
 }
 
 impl TranscriptSummary {
@@ -264,6 +286,9 @@ impl TranscriptSummary {
             metadata: t.metadata.clone(),
             error: t.error.clone(),
             error_kind: t.error_kind,
+            // No source on the core `Transcript` yet — left unset until promoted.
+            #[cfg(feature = "protocol-unstable")]
+            experimental: None,
         }
     }
 }
@@ -273,6 +298,7 @@ impl TranscriptSummary {
 /// artifact and `score` it later. Distinct from [`RunResult`], which carries the
 /// lightweight [`TranscriptSummary`] plus scores.
 #[derive(Clone, Debug, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub struct ExecuteResult {
     pub eval: String,
     pub sample: String,
@@ -298,6 +324,7 @@ impl ExecuteResult {
 /// transcript travels over the wire so the host can replay a stored one — the
 /// study scores it without re-running the subject.
 #[derive(Clone, Debug, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub struct ScoreParams {
     pub eval: String,
     pub sample: String,
@@ -309,6 +336,7 @@ pub struct ScoreParams {
 
 /// `run` result for one cell. Also the unit persisted in checkpoints.
 #[derive(Clone, Debug, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub struct RunResult {
     pub eval: String,
     pub sample: String,
@@ -336,6 +364,23 @@ impl RunResult {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // Exercises the `protocol-unstable` staging mechanism: when the feature is
+    // on, the experimental field is part of the wire type and round-trips. The
+    // committed schema (generated *without* the feature) must not contain it —
+    // see `unstable_field_absent_from_stable_schema` in mira-schema-gen.
+    #[cfg(feature = "protocol-unstable")]
+    #[test]
+    fn unstable_field_roundtrips_when_enabled() {
+        let t = TranscriptSummary {
+            experimental: Some("staged".into()),
+            ..Default::default()
+        };
+        let line = serde_json::to_string(&t).unwrap();
+        assert!(line.contains("experimental"));
+        let back: TranscriptSummary = serde_json::from_str(&line).unwrap();
+        assert_eq!(back.experimental.as_deref(), Some("staged"));
+    }
 
     #[test]
     fn request_response_roundtrip() {

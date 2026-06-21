@@ -62,6 +62,17 @@ jobs:
 
       - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
 
+      # The committed JSON Schema under schema/ is generated from the protocol
+      # types; fail if a protocol change landed without regenerating it. The
+      # validation suite (mira-schema-gen) runs under `cargo test --workspace`.
+      - name: Protocol schema is up to date
+        run: cargo run -q -p mira-schema-gen -- --check
+
+      # Experimental protocol fields are staged behind `protocol-unstable`;
+      # build/test that path so staged additions can't rot.
+      - name: Test staged (unstable) protocol
+        run: cargo test -p mira-eval --features protocol-unstable
+
       # Fast core tests first so failures surface before the heavy everruns
       # adapter (which pulls the full runtime dependency tree) compiles.
       - name: Test core crates

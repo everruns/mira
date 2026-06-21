@@ -1,0 +1,30 @@
+# Dedicated, non-published tool that generates the machine-readable JSON Schema
+# artifacts under `schema/` from the `mira-eval` protocol types. Kept separate
+# from the library (rather than a lib bin) so the published `mira-eval` crate
+# carries no generator code, mirroring ACP's standalone `schema-generator`.
+[package]
+name = "mira-schema-gen"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+publish = false
+
+[dependencies]
+# The protocol types, with their `schemars::JsonSchema` derives enabled. Note:
+# `protocol-unstable` is deliberately NOT enabled, so the generated schema only
+# ever describes the stable wire format. Pathed directly (not via workspace
+# inheritance) so `default-features = false` can drop the `macros` proc-macro.
+mira-eval = { path = "../mira-eval", default-features = false, features = ["schema"] }
+schemars.workspace = true
+serde_json.workspace = true
+
+[dev-dependencies]
+# Validates real serialized messages against the committed schema (draft 2020-12).
+# No default features: the schema is self-contained ($defs only), so we don't
+# need the HTTP/file reference resolvers (and their reqwest/TLS dep tree).
+jsonschema = { version = "0.26", default-features = false }
+serde.workspace = true
+serde_json.workspace = true

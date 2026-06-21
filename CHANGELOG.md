@@ -23,6 +23,19 @@ adheres to [Semantic Versioning](https://semver.org/).
   issues, docs). Bare `mira` and `mira --help` now point to it in a footer so an
   agent can self-orient. The default tagline was reworded — the CLI is the
   *host*, not just a runner.
+- **Machine-readable protocol schema** — the host↔study wire format is now
+  emitted as JSON Schema (2020-12) artifacts under `schema/v1/` (`schema.json`,
+  `meta.json`), generated from the `mira::protocol` types by the dedicated
+  non-published `mira-schema-gen` tool (`just schema`). Polyglot studies can
+  validate against these instead of hand-mirroring the Rust structs. CI fails if
+  a protocol change lands without regenerating them (`--check`), and a validation
+  suite checks real serialized messages against the committed schema.
+- **`protocol-unstable` feature** — staging ground for *structural* protocol
+  additions (a new typed field or method, which the open `metrics`/`metadata`/
+  `capabilities` vocabularies can't express). Such additions land behind
+  `#[cfg(feature = "protocol-unstable")]` and are excluded from the generated
+  schema until promoted, so they can be trialled in-tree without freezing the
+  stable contract.
 - `CONTRIBUTING.md` guidance for the `main` branch-protection gate: require a PR
   and the `CI / Check` status check so a red CI run can no longer be merged.
 - **Infrastructure errors → N/A, not failures.** A run now distinguishes a

@@ -1,0 +1,643 @@
+{
+  "$defs": {
+    "AxisInfo": {
+      "description": "One extra matrix axis advertised by `list`, so the host can plan the full\ncross-product without running anything.",
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "values": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "name",
+        "values"
+      ],
+      "type": "object"
+    },
+    "ErrorKind": {
+      "description": "Why a run failed, when it did — set alongside [`Transcript::error`].\n\nA [`Subject`](ErrorKind::Subject) error is the model/agent *under test*\ngetting it wrong: it ran but crashed on the input, produced garbage, or blew\nits turn budget — a real failure the eval should catch. An\n[`Infra`](ErrorKind::Infra) error is the scaffolding *around* the run breaking\n(out of budget/quota, rate-limited, a provider 5xx/outage, a network/timeout\nfault): not the model's fault. Infra failures are surfaced as **N/A**\n([`Score::na`]) so they are excluded from the cell verdict and aggregate\n(neither pass nor fail, like [`Score::na`] for a single scorer), and the host\nretries them up to `--max-retries`. See [`Transcript::infra_error`].",
+      "oneOf": [
+        {
+          "const": "subject",
+          "description": "The subject/model under test errored: a real, scoreable failure.",
+          "type": "string"
+        },
+        {
+          "const": "infra",
+          "description": "The infrastructure around the run errored: not the model's fault, scored\nN/A (not failed), and retryable.",
+          "type": "string"
+        }
+      ]
+    },
+    "EvalInfo": {
+      "description": "One eval, as advertised by `list`. Enough for the host to plan the full\n`samples × models` grid and apply selection without running anything.",
+      "properties": {
+        "axes": {
+          "description": "Extra matrix axes beyond the model. Defaulted so older servers that omit\nthe field still parse (forward compatibility).",
+          "items": {
+            "$ref": "#/$defs/AxisInfo"
+          },
+          "type": "array"
+        },
+        "description": {
+          "type": "string"
+        },
+        "max_turns": {
+          "default": 0,
+          "description": "Defaulted so a foreign/older study that omits it still parses, per the\nprotocol's forward-compatibility contract (see docs/protocol.md).",
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "metadata": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "type": "object"
+        },
+        "models": {
+          "items": {
+            "$ref": "#/$defs/ModelInfo"
+          },
+          "type": "array"
+        },
+        "name": {
+          "type": "string"
+        },
+        "samples": {
+          "items": {
+            "$ref": "#/$defs/SampleInfo"
+          },
+          "type": "array"
+        },
+        "scorers": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "name",
+        "samples",
+        "scorers",
+        "models"
+      ],
+      "type": "object"
+    },
+    "ExecuteResult": {
+      "description": "`execute` result for one cell: the **full** [`Transcript`] (raw events and\ncaptured files included), so the host can persist it as an execution\nartifact and `score` it later. Distinct from [`RunResult`], which carries the\nlightweight [`TranscriptSummary`] plus scores.",
+      "properties": {
+        "eval": {
+          "type": "string"
+        },
+        "model": {
+          "type": "string"
+        },
+        "params": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "description": "Extra matrix-axis values for this cell (empty for a model-only matrix).",
+          "type": "object"
+        },
+        "sample": {
+          "type": "string"
+        },
+        "skipped": {
+          "default": false,
+          "description": "True when the cell was not executed (e.g. model unavailable).",
+          "type": "boolean"
+        },
+        "transcript": {
+          "$ref": "#/$defs/Transcript",
+          "description": "The complete transcript, unlike the summary carried in [`RunResult`]."
+        }
+      },
+      "required": [
+        "eval",
+        "sample",
+        "model",
+        "transcript"
+      ],
+      "type": "object"
+    },
+    "InitializeResult": {
+      "description": "`initialize` result.",
+      "properties": {
+        "capabilities": {
+          "description": "Named capabilities this study supports beyond the base methods, so hosts\ncan feature-detect additively (e.g. `\"axes\"`, `\"events\"`). Defaulted, so\nan older study that omits it is treated as base-only.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "evals": {
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "protocol_version": {
+          "type": "string"
+        },
+        "study": {
+          "type": "string"
+        },
+        "study_version": {
+          "description": "Optional study version string (e.g. the study crate's version). For\ndiagnostics; defaulted for forward/backward compatibility.",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "protocol_version",
+        "study",
+        "evals"
+      ],
+      "type": "object"
+    },
+    "ListResult": {
+      "properties": {
+        "evals": {
+          "items": {
+            "$ref": "#/$defs/EvalInfo"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "evals"
+      ],
+      "type": "object"
+    },
+    "ModelInfo": {
+      "properties": {
+        "available": {
+          "description": "False when a real provider's API key is absent in the study's env.",
+          "type": "boolean"
+        },
+        "label": {
+          "type": "string"
+        },
+        "provider": {
+          "description": "Provider id (e.g. `sim`, `anthropic`, `openai`). Lets the host bucket\nconcurrency per provider so one provider's rate limits can't be flooded.\nDefaulted (empty) so an older/foreign study that omits it still parses;\nsuch cells share the empty-provider bucket.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "label",
+        "available"
+      ],
+      "type": "object"
+    },
+    "Notification": {
+      "description": "study → host, fire-and-forget progress (no `id`). Carries live events (a\nturn started, a tool was called, tokens spent) so the host can render\nprogress and, later, stream into a transcript viewer.",
+      "properties": {
+        "method": {
+          "type": "string"
+        },
+        "params": {
+          "default": null
+        }
+      },
+      "required": [
+        "method"
+      ],
+      "type": "object"
+    },
+    "Request": {
+      "description": "host → study.",
+      "properties": {
+        "id": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "method": {
+          "type": "string"
+        },
+        "params": {
+          "default": null
+        }
+      },
+      "required": [
+        "id",
+        "method"
+      ],
+      "type": "object"
+    },
+    "Response": {
+      "description": "study → host, correlated to a [`Request`] by `id`.",
+      "properties": {
+        "error": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/RpcError"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "id": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "result": true
+      },
+      "required": [
+        "id"
+      ],
+      "type": "object"
+    },
+    "RpcError": {
+      "properties": {
+        "message": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "message"
+      ],
+      "type": "object"
+    },
+    "RunParams": {
+      "description": "`run` params: address one matrix cell by `(eval, sample, model label)` plus\nany extra axis `params` (axis name → chosen value).",
+      "properties": {
+        "eval": {
+          "type": "string"
+        },
+        "model": {
+          "type": "string"
+        },
+        "params": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "description": "Chosen value per extra matrix axis. Empty/omitted for a model-only\nmatrix; defaulted so older hosts/servers interoperate.",
+          "type": "object"
+        },
+        "sample": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "eval",
+        "sample",
+        "model"
+      ],
+      "type": "object"
+    },
+    "RunResult": {
+      "description": "`run` result for one cell. Also the unit persisted in checkpoints.",
+      "properties": {
+        "aggregate": {
+          "format": "double",
+          "type": "number"
+        },
+        "eval": {
+          "type": "string"
+        },
+        "model": {
+          "type": "string"
+        },
+        "params": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "description": "Extra matrix-axis values for this cell (empty for a model-only matrix).",
+          "type": "object"
+        },
+        "passed": {
+          "type": "boolean"
+        },
+        "sample": {
+          "type": "string"
+        },
+        "scores": {
+          "items": {
+            "$ref": "#/$defs/Score"
+          },
+          "type": "array"
+        },
+        "skipped": {
+          "default": false,
+          "description": "True when the cell was not executed (e.g. model unavailable).",
+          "type": "boolean"
+        },
+        "transcript": {
+          "$ref": "#/$defs/TranscriptSummary"
+        }
+      },
+      "required": [
+        "eval",
+        "sample",
+        "model",
+        "passed",
+        "aggregate",
+        "scores",
+        "transcript"
+      ],
+      "type": "object"
+    },
+    "SampleInfo": {
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "tags": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "id"
+      ],
+      "type": "object"
+    },
+    "Score": {
+      "description": "Outcome of a single [`Scorer`] on a [`Transcript`].\n\n`value` is a continuous score in `0.0..=1.0`; `pass` is the boolean verdict\n(often `value >= threshold`). Keeping both lets a scorer report a graded\nsignal while still contributing a pass/fail to the matrix.\n\nA third state — **N/A** ([`na`](Score::na)) — lets a scorer say \"I couldn't\nevaluate this\" (an unreachable judge, a missing API key, any infra hiccup)\nrather than crashing the run or lying with a `fail`. An N/A score is excluded\nfrom the cell verdict and the aggregate: it neither passes nor fails.",
+      "properties": {
+        "na": {
+          "description": "True when the scorer did not apply / could not run (infra issue, missing\ncredentials, …). Excluded from the cell verdict and aggregate.",
+          "type": "boolean"
+        },
+        "pass": {
+          "type": "boolean"
+        },
+        "reason": {
+          "type": "string"
+        },
+        "scorer": {
+          "type": "string"
+        },
+        "value": {
+          "format": "double",
+          "type": "number"
+        }
+      },
+      "required": [
+        "scorer",
+        "value",
+        "pass",
+        "reason"
+      ],
+      "type": "object"
+    },
+    "ScoreParams": {
+      "description": "`score` params: a cell identity plus the full [`Transcript`] to score. The\ntranscript travels over the wire so the host can replay a stored one — the\nstudy scores it without re-running the subject.",
+      "properties": {
+        "eval": {
+          "type": "string"
+        },
+        "model": {
+          "type": "string"
+        },
+        "params": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "type": "object"
+        },
+        "sample": {
+          "type": "string"
+        },
+        "transcript": {
+          "$ref": "#/$defs/Transcript"
+        }
+      },
+      "required": [
+        "eval",
+        "sample",
+        "model",
+        "transcript"
+      ],
+      "type": "object"
+    },
+    "Timing": {
+      "description": "Wall-clock timing for a run. Subjects that can measure it populate these;\nthe rest leave them at their defaults.",
+      "properties": {
+        "duration_ms": {
+          "description": "Total wall-clock duration of the run, in milliseconds.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "time_to_first_token_ms": {
+          "description": "Time from run start to the first streamed token/event, in milliseconds,\nwhen the subject can measure it (latency a user perceives first).",
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        }
+      },
+      "type": "object"
+    },
+    "Transcript": {
+      "description": "Normalized result of running a [`Subject`] on one\n[`Sample`].\n\nEvery subject — in-process, CLI, or a custom integration — produces this same\nshape, so scorers and reporting never depend on a subject's internals. The\n`events` field carries the raw transcript (e.g. everruns' canonical JSONL\n`Event`s) for structural scorers to search.",
+      "properties": {
+        "error": {
+          "description": "Set when the subject failed to complete the run.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "error_kind": {
+          "$ref": "#/$defs/ErrorKind",
+          "description": "Classifies `error`: a [`Subject`](ErrorKind::Subject) failure (the model\nunder test got it wrong — scored as a failure) vs. an\n[`Infra`](ErrorKind::Infra) failure (budget, rate limit, provider outage,\ntimeout — not the model's fault). Defaulted/omitted for the common subject\ncase; meaningless when `error` is `None`."
+        },
+        "events": {
+          "description": "Raw serialized events (e.g. the everruns `Event` JSONL transcript).",
+          "items": true,
+          "type": "array"
+        },
+        "files": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "description": "Files present in the subject's workspace after the run (path → contents).",
+          "type": "object"
+        },
+        "final_response": {
+          "description": "The subject's final response text.",
+          "type": "string"
+        },
+        "iterations": {
+          "description": "Reasoning iterations / turns taken.",
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "metadata": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "description": "Free-form metadata: observability links, run ids, etc.",
+          "type": "object"
+        },
+        "metrics": {
+          "additionalProperties": {
+            "format": "double",
+            "type": "number"
+          },
+          "description": "Extensible **numeric** metrics a subject measured that the core doesn't\nmodel as a typed field (recall@k, energy_joules, p95 latency, …).\n\nDesign: `Usage`/`Timing` stay typed because shared budget scorers depend\non their exact shape; everything else is an *open vocabulary* keyed by\nname so a subject can report a *new metric key* and grade it with\n[`metric_within`]/[`metric_at_least`] without a new protocol version (the\n`metrics` map itself is a versioned, additive part of the wire). Use this\n(not `metadata`) for anything you want to compare numerically — values\nstay `f64`, surface in the JSON/HTML reports, and feed generic scorers.\n\n[`metric_within`]: crate::scorer::metric_within\n[`metric_at_least`]: crate::scorer::metric_at_least",
+          "type": "object"
+        },
+        "timing": {
+          "$ref": "#/$defs/Timing",
+          "description": "Wall-clock timing (duration, time-to-first-token)."
+        },
+        "tool_calls": {
+          "description": "Best-effort list of tool names invoked, in order.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "tool_calls_count": {
+          "description": "Number of tool calls made.",
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "usage": {
+          "$ref": "#/$defs/Usage",
+          "description": "Token / cost usage."
+        }
+      },
+      "required": [
+        "final_response",
+        "iterations",
+        "tool_calls_count",
+        "usage"
+      ],
+      "type": "object"
+    },
+    "TranscriptSummary": {
+      "description": "Lightweight transcript carried in results and checkpoints (the raw event\nstream is omitted to keep the artifact small).",
+      "properties": {
+        "error": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "error_kind": {
+          "$ref": "#/$defs/ErrorKind",
+          "description": "Classifies `error` (subject vs. infrastructure). Lets the host retry\ninfra-errored cells. Defaulted/omitted for the common subject case."
+        },
+        "final_response": {
+          "type": "string"
+        },
+        "iterations": {
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "metadata": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "type": "object"
+        },
+        "metrics": {
+          "additionalProperties": {
+            "format": "double",
+            "type": "number"
+          },
+          "description": "Custom open-vocabulary numeric metrics (see `Transcript::metrics`).",
+          "type": "object"
+        },
+        "timing": {
+          "$ref": "#/$defs/Timing"
+        },
+        "tool_calls": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "tool_calls_count": {
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "usage": {
+          "$ref": "#/$defs/Usage"
+        }
+      },
+      "required": [
+        "final_response",
+        "iterations",
+        "tool_calls_count",
+        "usage"
+      ],
+      "type": "object"
+    },
+    "Usage": {
+      "description": "Token / cost accounting, summed across all turns of a run.\n\nBeyond raw input/output tokens, `cache_read_tokens` and `reasoning_tokens`\ncapture the breakdowns modern providers report; they default to zero for\nsubjects that don't surface them.",
+      "properties": {
+        "cache_read_tokens": {
+          "description": "Prompt tokens served from cache (a subset of `input_tokens` for providers\nthat bill them separately). Zero when not reported.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "cost_usd": {
+          "format": "double",
+          "type": "number"
+        },
+        "input_tokens": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "output_tokens": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "reasoning_tokens": {
+          "description": "Reasoning / thinking tokens (a subset of `output_tokens`). Zero when not\nreported.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "input_tokens",
+        "output_tokens",
+        "cost_usd"
+      ],
+      "type": "object"
+    }
+  },
+  "$id": "https://everruns.com/mira/schema/v1/schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "anyOf": [
+    {
+      "$ref": "#/$defs/Request"
+    },
+    {
+      "$ref": "#/$defs/Response"
+    },
+    {
+      "$ref": "#/$defs/Notification"
+    }
+  ],
+  "description": "Wire schema for the Mira host<->study protocol (newline-delimited JSON over stdio). Protocol version 1.3. Generated from mira::protocol by `mira-schema-gen` (`just schema`); do not edit by hand.",
+  "title": "Mira Eval Protocol"
+}
