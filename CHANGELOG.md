@@ -59,6 +59,22 @@ adheres to [Semantic Versioning](https://semver.org/).
   `ModelInfo.provider` field (concurrency bucketing) and the `execute`/`score`
   methods + capabilities; `1.2` adds the optional `transcript.metrics` map. A
   `1.0` study still interoperates; `MIN_PROTOCOL_VERSION` stays `1.0`.
+- **`Score::na` — a third scorer state.** Scorers can now report **N/A**
+  ("couldn't evaluate", e.g. an unreachable judge or missing credentials)
+  instead of crashing or scoring a misleading `fail`. N/A scores are excluded
+  from the cell verdict (`verdict`) and aggregate; combinators ignore them and
+  become N/A only when all inputs are; reports render them with a `–` glyph and
+  an all-N/A cell counts as skipped in JUnit (never an empty failure).
+- **`mira-judge` crate — provider-backed LLM-as-judge scorers.** An `LlmJudge`
+  wired to real endpoints and exposed as an ordinary `Scorer`, over three
+  transports: OpenAI Chat Completions (`openai_completions`), OpenAI Responses
+  (`openai_responses`), and Anthropic Messages (`claude`). `Include` selects the
+  graded surface (response / transcript+tools / full+metrics). Infra failures
+  (no key, non-2xx, transport error, unparseable reply) degrade to N/A, so
+  key-free runs stay green. Live-API tests are `#[ignore]`d and run in CI with
+  keys from Doppler.
+- **`examples/llm_judge`** — runnable example wiring `LlmJudge` alongside
+  deterministic scorers (green offline, where the judge is N/A).
 
 ## [0.1.0] - 2026-06-20
 

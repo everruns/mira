@@ -291,12 +291,25 @@ impl Transcript {
 /// `value` is a continuous score in `0.0..=1.0`; `pass` is the boolean verdict
 /// (often `value >= threshold`). Keeping both lets a scorer report a graded
 /// signal while still contributing a pass/fail to the matrix.
+///
+/// A third state — **N/A** ([`na`](Score::na)) — lets a scorer say "I couldn't
+/// evaluate this" (an unreachable judge, a missing API key, any infra hiccup)
+/// rather than crashing the run or lying with a `fail`. An N/A score is excluded
+/// from the cell verdict and the aggregate: it neither passes nor fails.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Score {
     pub scorer: String,
     pub value: f64,
     pub pass: bool,
+    /// True when the scorer did not apply / could not run (infra issue, missing
+    /// credentials, …). Excluded from the cell verdict and aggregate.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub na: bool,
     pub reason: String,
+}
+
+fn is_false(b: &bool) -> bool {
+    !*b
 }
 
 impl Score {
@@ -306,6 +319,7 @@ impl Score {
             scorer: scorer.into(),
             value: 1.0,
             pass: true,
+            na: false,
             reason: reason.into(),
         }
     }
@@ -316,6 +330,21 @@ impl Score {
             scorer: scorer.into(),
             value: 0.0,
             pass: false,
+            na: false,
+            reason: reason.into(),
+        }
+    }
+
+    /// A not-applicable score: the scorer could not be evaluated (e.g. the judge
+    /// model was unreachable or unconfigured). Counts as neither pass nor fail —
+    /// the cell verdict and aggregate ignore it. This is the sanctioned way to
+    /// handle infra failures: return N/A instead of crashing or failing.
+    pub fn na(scorer: impl Into<String>, reason: impl Into<String>) -> Self {
+        Self {
+            scorer: scorer.into(),
+            value: 0.0,
+            pass: false,
+            na: true,
             reason: reason.into(),
         }
     }
@@ -332,8 +361,14 @@ impl Score {
             scorer: scorer.into(),
             value,
             pass: value >= threshold,
+            na: false,
             reason: reason.into(),
         }
+    }
+
+    /// True when this score did not apply (see [`Score::na`]).
+    pub fn is_na(&self) -> bool {
+        self.na
     }
 }
 
@@ -435,6 +470,19 @@ mod tests {
         assert!(!s.pass);
         // Out-of-range values clamp.
         assert_eq!(Score::graded("s", 2.0, 0.7, "").value, 1.0);
+    }
+
+    #[test]
+    fn na_score_is_neither_pass_nor_fail() {
+        let s = Score::na("judge", "model unreachable");
+        assert!(s.is_na());
+        assert!(!s.pass);
+        // N/A is carried through serialization so consumers can distinguish it.
+        let json = serde_json::to_string(&s).unwrap();
+        assert!(json.contains("\"na\":true"));
+        // A normal score omits the flag.
+        let p = Score::pass("s", "ok");
+        assert!(!serde_json::to_string(&p).unwrap().contains("na"));
     }
 
     #[test]

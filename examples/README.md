@@ -30,6 +30,7 @@ cargo run -p mira-cli -- --cmd "python3 examples/greet-python/study.py" run
 | [`matrix`](matrix) | Rust | A multi-axis matrix: models × a custom `effort` axis (cross-product). |
 | [`swe_bench`](swe_bench) | Rust | A SWE-bench-style bug-fix eval with a `FAIL_TO_PASS` gate scorer. |
 | [`llmsim`](llmsim) | Rust | Driving a real `everruns-runtime` session against the offline `LlmSim` driver. |
+| [`llm_judge`](llm_judge) | Rust | Provider-backed LLM-as-judge (`mira-judge`); the judge is N/A without a key, so it stays green offline. |
 | [`greet-python`](greet-python) | Python | A whole eval **study** in another language — the protocol seam, no Mira dependency. |
 
 Render a self-contained HTML report from any of them:

@@ -1362,6 +1362,7 @@ dependencies = [
  "hyper",
  "hyper-util",
  "rustls",
+ "rustls-native-certs",
  "tokio",
  "tokio-rustls",
  "tower-service",
@@ -1967,6 +1968,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "mira-example-llm-judge"
+version = "0.1.0"
+dependencies = [
+ "mira-eval",
+ "mira-judge",
+ "tokio",
+]
+
+[[package]]
 name = "mira-example-llmsim"
 version = "0.1.0"
 dependencies = [
@@ -1998,6 +2008,18 @@ name = "mira-example-swe_bench"
 version = "0.1.0"
 dependencies = [
  "mira-eval",
+ "tokio",
+]
+
+[[package]]
+name = "mira-judge"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "mira-eval",
+ "reqwest 0.12.28",
+ "serde",
+ "serde_json",
  "tokio",
 ]
 
@@ -2689,7 +2711,9 @@ dependencies = [
  "mime",
  "percent-encoding",
  "pin-project-lite",
+ "quinn",
  "rustls",
+ "rustls-native-certs",
  "rustls-pki-types",
  "serde",
  "serde_json",

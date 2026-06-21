@@ -16,6 +16,7 @@ members = [
     "examples/matrix",
     "examples/swe_bench",
     "examples/llmsim",
+    "examples/llm_judge",
 ]
 
 [workspace.package]
@@ -38,6 +39,8 @@ mira-eval = { version = "0.1.0", path = "crates/mira-eval" }
 mira-macros = { version = "0.1.0", path = "crates/mira-macros" }
 # everruns runtime adapter (used by the examples crate for the llmsim example).
 mira-everruns = { version = "0.1.0", path = "crates/mira-everruns" }
+# LLM-as-judge scorers backed by real providers (OpenAI, Anthropic).
+mira-judge = { version = "0.1.0", path = "crates/mira-judge" }
 
 # Async runtime. The core stays runtime-light (io + process); servers pull what
 # they need.
@@ -65,6 +68,11 @@ proc-macro2 = "1"
 # Integration crate: the published everruns runtime (optional, separate crate).
 everruns-core = "0.15"
 everruns-runtime = "0.15"
+
+# HTTP client for provider-backed judge scorers (mira-judge). rustls keeps the
+# build free of a system OpenSSL dependency; native-roots trusts the OS cert
+# store so the judge also works behind TLS-intercepting corporate proxies.
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls-native-roots"] }
 
 # Testing.
 tempfile = "3"
