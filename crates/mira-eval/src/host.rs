@@ -111,10 +111,19 @@ impl HostHandle {
         };
         let mut line = serde_json::to_vec(&request).map_err(|e| e.to_string())?;
         line.push(b'\n');
-        {
+        // If the write fails, drop the pending slot too — otherwise the entry
+        // leaks and the reader holds a sender for a request that never completes.
+        let write = async {
             let mut stdin = self.stdin.lock().await;
-            stdin.write_all(&line).await.map_err(|e| e.to_string())?;
-            stdin.flush().await.map_err(|e| e.to_string())?;
+            stdin.write_all(&line).await?;
+            stdin.flush().await
+        };
+        if let Err(e) = write.await {
+            self.pending
+                .lock()
+                .expect("pending mutex poisoned")
+                .remove(&id);
+            return Err(e.to_string());
         }
 
         match rx.await {

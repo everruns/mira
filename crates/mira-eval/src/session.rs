@@ -238,6 +238,7 @@ mod tests {
             scorers: scorers.iter().map(|s| s.to_string()).collect(),
             models: vec![ModelInfo {
                 label: "sim".into(),
+                provider: "sim".into(),
                 available: true,
             }],
             axes: vec![AxisInfo {

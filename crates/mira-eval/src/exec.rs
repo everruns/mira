@@ -265,7 +265,10 @@ pub async fn run_cells<F, Fut>(
 {
     let mut limiter = Limiter::new(cfg);
     let mut pending: VecDeque<(CellSpec, u32)> = cells.into_iter().map(|c| (c, 0)).collect();
-    let mut tasks: JoinSet<(CellSpec, u32, Result<RunResult, String>)> = JoinSet::new();
+    let mut tasks: JoinSet<Result<RunResult, String>> = JoinSet::new();
+    // Side table so a finished (or panicked) task can be attributed back to its
+    // cell: a JoinError carries only the task id, not the cell.
+    let mut inflight: HashMap<tokio::task::Id, (CellSpec, u32)> = HashMap::new();
 
     loop {
         // Start as many cells as the global + per-provider budgets allow.
@@ -279,7 +282,8 @@ pub async fn run_cells<F, Fut>(
             limiter.start(&cell.provider);
             let task_cell = cell.clone();
             let fut = run(cell);
-            tasks.spawn(async move { (task_cell, attempts, fut.await) });
+            let id = tasks.spawn(fut).id();
+            inflight.insert(id, (task_cell, attempts));
         }
 
         if tasks.is_empty() {
@@ -297,13 +301,20 @@ pub async fn run_cells<F, Fut>(
             }
         }
 
-        let Some(joined) = tasks.join_next().await else {
+        let Some(joined) = tasks.join_next_with_id().await else {
             continue;
         };
+        // Map the task back to its cell either way, so the limiter's in-flight
+        // counts are always released — even when the cell's future panicked.
         let (cell, attempts, res) = match joined {
-            Ok(triple) => triple,
-            // A task panicked; nothing to attribute, so move on.
-            Err(_) => continue,
+            Ok((id, res)) => {
+                let (cell, attempts) = inflight.remove(&id).expect("task id tracked");
+                (cell, attempts, res)
+            }
+            Err(join_err) => {
+                let (cell, attempts) = inflight.remove(&join_err.id()).expect("task id tracked");
+                (cell, attempts, Err(format!("task panicked: {join_err}")))
+            }
         };
 
         let rate_limited = outcome_rate_limited(&res);
@@ -483,6 +494,40 @@ mod tests {
         assert_eq!(*attempts.lock().await, 2);
         assert_eq!(results.len(), 1);
         assert!(results[0].passed);
+    }
+
+    #[tokio::test]
+    async fn panicking_cell_is_recorded_and_frees_its_slot() {
+        // Global cap of 1: if a panic leaked the in-flight count, the second
+        // cell could never start and this test would hang.
+        let cfg = Concurrency::new(1);
+        let cells = vec![cell("sim", "boom"), cell("sim", "ok")];
+        let mut results = Vec::new();
+        run_cells(
+            cells,
+            &cfg,
+            move |c| async move {
+                if c.sample == "boom" {
+                    panic!("subject blew up");
+                }
+                Ok(ok_result(&c))
+            },
+            |c, r| results.push((c.sample.clone(), r)),
+        )
+        .await;
+        assert_eq!(results.len(), 2);
+        let boom = results.iter().find(|(s, _)| s == "boom").unwrap();
+        assert!(!boom.1.passed);
+        assert!(
+            boom.1
+                .transcript
+                .error
+                .as_deref()
+                .unwrap()
+                .contains("panic")
+        );
+        let ok = results.iter().find(|(s, _)| s == "ok").unwrap();
+        assert!(ok.1.passed);
     }
 
     #[tokio::test]
