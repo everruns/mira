@@ -46,8 +46,10 @@ use crate::{Metadata, Score, Timing, Transcript, Usage};
 /// adding a field is a minor, non-breaking change.
 ///
 /// History (all additive over `1.0`): `1.1` added `ModelInfo.provider`; `1.2`
-/// added the optional `transcript.metrics` map.
-pub const PROTOCOL_VERSION: &str = "1.2";
+/// added the optional `transcript.metrics` map; `1.3` added the optional
+/// `transcript.error_kind` (subject vs. infrastructure) so the host can retry
+/// infra-errored cells.
+pub const PROTOCOL_VERSION: &str = "1.3";
 
 /// The oldest protocol version this build can still talk to.
 pub const MIN_PROTOCOL_VERSION: &str = "1.0";
@@ -241,6 +243,10 @@ pub struct TranscriptSummary {
     pub metadata: Metadata,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub error: Option<String>,
+    /// Classifies `error` (subject vs. infrastructure). Lets the host retry
+    /// infra-errored cells. Defaulted/omitted for the common subject case.
+    #[serde(default, skip_serializing_if = "crate::ErrorKind::is_subject")]
+    pub error_kind: crate::ErrorKind,
 }
 
 impl TranscriptSummary {
@@ -257,6 +263,7 @@ impl TranscriptSummary {
             metrics: t.metrics.clone(),
             metadata: t.metadata.clone(),
             error: t.error.clone(),
+            error_kind: t.error_kind,
         }
     }
 }

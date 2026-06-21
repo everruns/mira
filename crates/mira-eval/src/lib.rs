@@ -215,6 +215,43 @@ pub struct Transcript {
     /// Set when the subject failed to complete the run.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub error: Option<String>,
+    /// Classifies `error`: a [`Subject`](ErrorKind::Subject) failure (the model
+    /// under test got it wrong — scored as a failure) vs. an
+    /// [`Infra`](ErrorKind::Infra) failure (budget, rate limit, provider outage,
+    /// timeout — not the model's fault). Defaulted/omitted for the common subject
+    /// case; meaningless when `error` is `None`.
+    #[serde(default, skip_serializing_if = "ErrorKind::is_subject")]
+    pub error_kind: ErrorKind,
+}
+
+/// Why a run failed, when it did — set alongside [`Transcript::error`].
+///
+/// A [`Subject`](ErrorKind::Subject) error is the model/agent *under test*
+/// getting it wrong: it ran but crashed on the input, produced garbage, or blew
+/// its turn budget — a real failure the eval should catch. An
+/// [`Infra`](ErrorKind::Infra) error is the scaffolding *around* the run breaking
+/// (out of budget/quota, rate-limited, a provider 5xx/outage, a network/timeout
+/// fault): not the model's fault. Infra failures are surfaced as **N/A**
+/// ([`Score::na`]) so they are excluded from the cell verdict and aggregate
+/// (neither pass nor fail, like [`Score::na`] for a single scorer), and the host
+/// retries them up to `--max-retries`. See [`Transcript::infra_error`].
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ErrorKind {
+    /// The subject/model under test errored: a real, scoreable failure.
+    #[default]
+    Subject,
+    /// The infrastructure around the run errored: not the model's fault, scored
+    /// N/A (not failed), and retryable.
+    Infra,
+}
+
+impl ErrorKind {
+    /// True for the default ([`Subject`](ErrorKind::Subject)); lets serde skip
+    /// the field on the wire for the common case.
+    pub fn is_subject(&self) -> bool {
+        matches!(self, ErrorKind::Subject)
+    }
 }
 
 impl Transcript {
@@ -227,7 +264,10 @@ impl Transcript {
         }
     }
 
-    /// A failed transcript carrying an error message.
+    /// A failed transcript carrying an error message, attributed to the subject
+    /// under test ([`ErrorKind::Subject`]) — a real, scoreable failure. For an
+    /// *infrastructure* failure that should not be scored against the model, use
+    /// [`Transcript::infra_error`].
     pub fn failed(error: impl Into<String>) -> Self {
         Self {
             error: Some(error.into()),
@@ -235,9 +275,26 @@ impl Transcript {
         }
     }
 
+    /// A transcript that failed for an *infrastructure* reason ([`ErrorKind::Infra`]):
+    /// budget/quota, rate limit, provider outage, network/timeout — not the
+    /// model's fault. Scoring short-circuits to **N/A** so the cell is excluded
+    /// from pass/fail, and the host retries it.
+    pub fn infra_error(error: impl Into<String>) -> Self {
+        Self {
+            error: Some(error.into()),
+            error_kind: ErrorKind::Infra,
+            ..Default::default()
+        }
+    }
+
     /// True when no error was recorded.
     pub fn succeeded(&self) -> bool {
         self.error.is_none()
+    }
+
+    /// True when this run hit an infrastructure error (see [`ErrorKind::Infra`]).
+    pub fn errored_infra(&self) -> bool {
+        self.error.is_some() && self.error_kind == ErrorKind::Infra
     }
 
     /// Distinct tool names invoked, in first-seen order. `tool_calls` keeps every
@@ -489,6 +546,27 @@ mod tests {
     fn transcript_helpers() {
         assert!(Transcript::response("hi").succeeded());
         assert!(!Transcript::failed("boom").succeeded());
+    }
+
+    #[test]
+    fn infra_error_is_distinct_from_subject_error() {
+        let infra = Transcript::infra_error("budget exhausted");
+        assert!(!infra.succeeded());
+        assert!(infra.errored_infra());
+        assert_eq!(infra.error_kind, ErrorKind::Infra);
+
+        let subject = Transcript::failed("wrong answer");
+        assert!(!subject.succeeded());
+        assert!(!subject.errored_infra()); // a real failure, not infra
+        assert_eq!(subject.error_kind, ErrorKind::Subject);
+
+        assert!(!Transcript::response("ok").errored_infra());
+
+        // Subject (default) kind is omitted on the wire; Infra is serialized.
+        let subj = serde_json::to_string(&Transcript::failed("x")).unwrap();
+        assert!(!subj.contains("error_kind"));
+        let inf = serde_json::to_string(&Transcript::infra_error("x")).unwrap();
+        assert!(inf.contains("\"error_kind\":\"infra\""));
     }
 
     #[test]

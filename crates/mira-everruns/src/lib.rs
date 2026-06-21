@@ -46,7 +46,7 @@ use everruns_core::{InputMessage, ResolvedModel};
 use everruns_runtime::InProcessRuntime;
 
 use mira::subject::summarize_events;
-use mira::{ModelSpec, RunCx, Sample, Subject, Transcript};
+use mira::{ErrorKind, ModelSpec, RunCx, Sample, Subject, Transcript};
 
 /// A built runtime plus the session to drive for one matrix cell.
 pub type RuntimeHandle = (InProcessRuntime, SessionId);
@@ -84,8 +84,10 @@ impl Subject for RuntimeSubject {
     async fn run(&self, sample: &Sample, cx: &RunCx) -> Transcript {
         let started = std::time::Instant::now();
         let (runtime, session_id) = match (self.factory)(cx.model.clone()).await {
+            // Building the runtime failed before the model ran a turn — that's
+            // scaffolding (config/transport), so attribute it to infrastructure.
+            Err(e) => return Transcript::infra_error(format!("runtime build failed: {e}")),
             Ok(handle) => handle,
-            Err(e) => return Transcript::failed(format!("runtime build failed: {e}")),
         };
 
         let mut transcript = Transcript::default();
@@ -99,12 +101,18 @@ impl Subject for RuntimeSubject {
                     transcript.iterations += result.iterations;
                     transcript.tool_calls_count += result.tool_calls_count;
                     if !result.success {
-                        transcript.error = result.error;
+                        // A failed turn may be the model's doing or the
+                        // provider's; classify by the error text.
+                        let msg = result.error.unwrap_or_else(|| "turn failed".into());
+                        transcript.error_kind = classify_runtime_error(&msg);
+                        transcript.error = Some(msg);
                         break;
                     }
                 }
                 Err(e) => {
-                    transcript.error = Some(e.to_string());
+                    let msg = e.to_string();
+                    transcript.error_kind = classify_runtime_error(&msg);
+                    transcript.error = Some(msg);
                     break;
                 }
             }
@@ -123,6 +131,50 @@ impl Subject for RuntimeSubject {
         transcript.tool_calls_count = transcript.tool_calls.len();
         transcript.timing.duration_ms = started.elapsed().as_millis() as u64;
         transcript
+    }
+}
+
+/// Classify a runtime/provider error string as infrastructure vs. subject.
+///
+/// The runtime surfaces a string, not a typed error, so this is a deliberately
+/// conservative keyword heuristic: rate limits (via [`mira::is_rate_limited`])
+/// plus the unambiguous "not the model's fault" signals — quota/budget,
+/// provider 5xx, and network/timeout faults — map to [`ErrorKind::Infra`]
+/// (scored N/A and retried). Everything else stays [`ErrorKind::Subject`] (a
+/// real, scoreable failure), so a genuine model error is never silently excused.
+pub fn classify_runtime_error(message: &str) -> ErrorKind {
+    if mira::is_rate_limited(message) {
+        return ErrorKind::Infra;
+    }
+    let m = message.to_ascii_lowercase();
+    const INFRA_SIGNALS: &[&str] = &[
+        "budget",
+        "billing",
+        "out of credit",
+        "insufficient funds",
+        "service unavailable",
+        "503",
+        "502",
+        "500",
+        "bad gateway",
+        "gateway timeout",
+        "timed out",
+        "timeout",
+        "connection refused",
+        "connection reset",
+        "connection closed",
+        "broken pipe",
+        "network unreachable",
+        "network error",
+        "dns error",
+        "tls handshake",
+        "econnreset",
+        "temporarily unavailable",
+    ];
+    if INFRA_SIGNALS.iter().any(|s| m.contains(s)) {
+        ErrorKind::Infra
+    } else {
+        ErrorKind::Subject
     }
 }
 
@@ -167,11 +219,44 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn factory_error_yields_failed_transcript() {
+    async fn factory_error_yields_infra_errored_transcript() {
+        // A runtime that can't even be built is infrastructure, not a model
+        // failure: it must be scored N/A and retried, not penalized.
         let subject = RuntimeSubject::new(|_| async { Err("nope".to_string()) });
         let cx = RunCx::new(ModelSpec::sim());
         let t = subject.run(&Sample::new("a", "hi"), &cx).await;
         assert!(!t.succeeded());
+        assert!(t.errored_infra());
         assert!(t.error.unwrap().contains("nope"));
+    }
+
+    #[test]
+    fn classify_runtime_error_flags_transient_faults() {
+        for msg in [
+            "HTTP 429 Too Many Requests",
+            "rate limit exceeded",
+            "insufficient_quota: you exceeded your budget",
+            "anthropic: overloaded_error",
+            "503 Service Unavailable",
+            "connection reset by peer",
+            "request timed out",
+        ] {
+            assert_eq!(
+                classify_runtime_error(msg),
+                ErrorKind::Infra,
+                "expected infra for: {msg}"
+            );
+        }
+        for msg in [
+            "the assistant produced invalid JSON",
+            "tool call failed: file not found",
+            "max turns exceeded",
+        ] {
+            assert_eq!(
+                classify_runtime_error(msg),
+                ErrorKind::Subject,
+                "expected subject for: {msg}"
+            );
+        }
     }
 }

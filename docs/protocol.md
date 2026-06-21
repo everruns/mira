@@ -285,8 +285,22 @@ scorer change). Advertised by the `score` capability.
 ```
 
 `value` is a continuous score in `0.0..=1.0`; `pass` is the boolean verdict (for
-graded scorers, typically `value >= threshold`). Keeping both lets a scorer
-report a graded signal while still contributing a pass/fail to the matrix.
+graded scorers, typically `value >= threshold`). A score may also carry
+`"na": true` — the scorer **could not be evaluated** (an unreachable judge, an
+infra hiccup). N/A scores are excluded from the cell verdict and aggregate:
+neither pass nor fail.
+
+#### Infrastructure errors
+
+A subject that fails for an **infrastructure** reason (budget/quota, rate limit,
+provider 5xx/outage, network/timeout — not the model's fault) sets
+`transcript.error` and `transcript.error_kind: "infra"` (the default,
+`"subject"`, is omitted). The study then scores the cell with a single N/A score,
+so it is excluded from the pass-rate — neither passed nor failed, like a skip.
+The host **retries** infra-errored cells (keyed off `error_kind`) up to
+`--max-retries`, and a cell whose every score is N/A is reported as N/A, not a
+failure. `error_kind` is optional and defaulted (added in `1.3`), so a study that
+omits it still interoperates.
 
 ## Run lifecycle
 

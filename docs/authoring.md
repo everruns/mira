@@ -88,6 +88,44 @@ A cell whose model is **unavailable** (missing API key) is skipped, never failed
 `provider` and `model` fields are passed to the subject via `cx.model`; how
 they're used is the subject's business.
 
+## Infrastructure errors vs. failures
+
+A run can go wrong two ways, and Mira keeps them apart so you measure the model,
+not the weather:
+
+- A **failure** is the model/agent under test getting it wrong — a scorer
+  doesn't pass. It counts against the pass-rate; that's the eval's job.
+- An **infrastructure error** is the scaffolding around the run breaking: out of
+  budget/quota, rate-limited, a provider 5xx/outage, a network/timeout fault.
+  *Not the model's fault.*
+
+A subject signals the latter with `Transcript::infra_error(..)` instead of the
+subject-attributed `Transcript::failed(..)`:
+
+```rust
+.subject(subject_fn(|sample, _cx| async move {
+    match call_provider(&sample.input).await {
+        Ok(text) => Transcript::response(text),
+        // The model answered, but wrongly — a real, scored failure.
+        Err(ApiError::BadOutput(e)) => Transcript::failed(e.to_string()),
+        // The provider was down / out of budget — not the model's fault.
+        Err(ApiError::RateLimited | ApiError::Outage) =>
+            Transcript::infra_error("provider unavailable"),
+    }
+}))
+```
+
+An infra error **short-circuits scoring to a single N/A score** — the cell-level
+dual of a scorer returning [`Score::na`](scorers.md). The cell is then excluded
+from the pass-rate (neither pass nor fail, like a skip), and is **retry-eligible**:
+the host's concurrent executor re-queues it (alongside rate-limited cells) up to
+`--max-retries`. A cell that stays broken is reported **N/A**, never counted
+against the model, so an outage can't turn a green suite red.
+
+The `mira-everruns` adapter does this for you: `classify_runtime_error`
+recognises rate-limit, quota, 5xx, timeout, and network phrases as infra, leaving
+ambiguous errors attributed to the subject.
+
 ## Extra matrix axes
 
 Beyond the model, add arbitrary discrete axes with `.axis(name, values)`. The

@@ -81,6 +81,19 @@ samples` into independently-addressable cells. Missing API keys mark a cell
 `available: false`, so it is **skipped, not failed** — the default run is green
 offline.
 
+**Infrastructure errors vs. failures.** A cell can go wrong two ways, kept apart
+so evals measure the model, not the weather. A **failure** is the model under
+test getting it wrong (a scorer doesn't pass). An **infrastructure error** is the
+scaffolding breaking (budget/quota, rate limit, provider 5xx/outage,
+network/timeout): a subject signals it with `Transcript::infra_error` (vs.
+`failed`), setting `error_kind = Infra`. Scoring then **short-circuits to a single
+N/A score** — the cell-level dual of a scorer's `Score::na` — so the cell is
+excluded from the verdict and aggregate (neither pass nor fail, like a skip) and
+reported N/A across every renderer. The host's concurrent executor **retries**
+infra-errored cells (alongside rate-limited ones) up to `--max-retries`; one that
+stays broken stays N/A, never counted against the model. `mira-everruns`
+classifies provider error strings into `Infra` conservatively.
+
 **Arbitrary axes** beyond the model ship in v0.1: `Eval::axis(name, values)`
 adds a discrete axis (e.g. reasoning `effort`, harness variant), and the runner
 crosses every axis with the model matrix. The chosen value per cell reaches the

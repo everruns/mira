@@ -58,6 +58,7 @@ pub struct Transcript {
     pub events: Vec<serde_json::Value>,   // free-form structured stream
     pub metadata: Metadata,               // free-form string → string
     pub error: Option<String>,
+    pub error_kind: ErrorKind,            // Subject (default) | Infra (→ N/A, retried)
 }
 ```
 

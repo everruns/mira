@@ -1968,6 +1968,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "mira-example-infra"
+version = "0.1.0"
+dependencies = [
+ "mira-eval",
+ "tokio",
+]
+
+[[package]]
 name = "mira-example-llm-judge"
 version = "0.1.0"
 dependencies = [

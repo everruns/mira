@@ -27,6 +27,7 @@ pub struct Transcript {
     pub events: Vec<serde_json::Value>,   // raw transcript (e.g. JSONL Events)
     pub metadata: Metadata,
     pub error: Option<String>,
+    pub error_kind: ErrorKind,            // Subject (default) | Infra (→ N/A, retried)
 }
 ```
 
@@ -118,6 +119,12 @@ The contract:
   scorers have signal. Anything you can't measure stays at its default.
 - **Record failures, don't panic.** Put the error in `Transcript.error` (or use
   `Transcript::failed(msg)`); a panicking subject takes down the whole run.
+- **Separate infra errors from failures.** When the fault is the scaffolding —
+  budget/quota, rate limit, provider outage, network/timeout — use
+  `Transcript::infra_error(msg)` instead. Scoring short-circuits to a single
+  **N/A** score, so the cell is excluded from the pass-rate (neither pass nor
+  fail, like a scorer's `Score::na`) and the host retries it. See
+  [authoring](authoring.md#infrastructure-errors-vs-failures).
 
 ```rust
 use async_trait::async_trait;
@@ -144,9 +151,11 @@ impl Subject for HttpAgent {
                 "max_turns": cx.max_turns,
             }));
 
+        // A transport/outage fault is infrastructure, not the model's fault:
+        // scored N/A (excluded from pass/fail) and retried by the host.
         let resp = match req.send().await.and_then(|r| r.error_for_status()) {
             Ok(r) => r,
-            Err(e) => return Transcript::failed(format!("agent request failed: {e}")),
+            Err(e) => return Transcript::infra_error(format!("agent request failed: {e}")),
         };
         let body: serde_json::Value = match resp.json().await {
             Ok(b) => b,
