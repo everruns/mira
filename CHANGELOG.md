@@ -8,6 +8,15 @@ adheres to [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- **Python SDK** (`sdks/python`) — a native, pure-stdlib library for authoring
+  Mira eval studies in Python (no Rust dependency). Speaks the protocol over
+  stdio; its wire types are **generated from `schema/v1/`** (the same contract
+  the Rust host is generated from) so they can't drift, with a `codegen --check`
+  drift guard mirroring the Rust one. Ergonomic authoring (`Study`,
+  `@study.eval`, `Sample`, `model`, scorers, `transcript`) and a `serve()` loop
+  handling `initialize`/`list`/`run`/`execute`/`score`. `examples/greet-python`
+  now uses it. Design of record: `specs/sdks.md`. (TypeScript SDK planned, same
+  shape.)
 - **Environment metadata in saved runs** — `meta.json` now records the context a
   run came from in an `environment` block: git checkout (`HEAD` commit, branch,
   `dirty` flag), the box (`os`, `arch`, `hostname`, `cpus`, `mem_total_mib`), the

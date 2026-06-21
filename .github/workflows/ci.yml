@@ -114,6 +114,29 @@ jobs:
           cargo run -q -p mira-cli -- --bin metrics run --format html --out report.html
           test -s report.html && grep -q "Mira eval report" report.html
 
+  sdks:
+    name: SDKs
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      # The Python SDK's wire types are generated from schema/v1/; fail if a
+      # protocol change landed without regenerating them (the Python dual of the
+      # Rust `--check` drift guard). Then run the schema-conformance + serve-loop
+      # tests against the committed schema.
+      - name: Python SDK is in sync with the schema
+        run: python3 sdks/python/codegen.py --check
+
+      - name: Python SDK tests
+        run: |
+          python3 -m pip install --quiet jsonschema pytest
+          cd sdks/python && python3 -m pytest -q
+
   # Live LLM-as-judge integration tests (mira-judge). These hit real provider
   # APIs and cost money, so they run only on pushes to main and manual dispatch —
   # never on PRs (fork safety + spend) — and are NOT part of the "Check" gate, so
@@ -154,7 +177,7 @@ jobs:
   check:
     name: Check
     if: always()
-    needs: [lint, audit, test, examples]
+    needs: [lint, audit, test, examples, sdks]
     runs-on: ubuntu-latest
     steps:
       - name: Verify all jobs passed
@@ -162,7 +185,8 @@ jobs:
           if [[ "${{ needs.lint.result }}" != "success" ]] || \
              [[ "${{ needs.audit.result }}" != "success" ]] || \
              [[ "${{ needs.test.result }}" != "success" ]] || \
-             [[ "${{ needs.examples.result }}" != "success" ]]; then
+             [[ "${{ needs.examples.result }}" != "success" ]] || \
+             [[ "${{ needs.sdks.result }}" != "success" ]]; then
             echo "One or more required jobs failed"
             exit 1
           fi
