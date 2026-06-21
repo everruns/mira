@@ -293,3 +293,13 @@ artifacts (full transcripts) are thus stored **separately** from eval results
 Cost caps as a hard run limit (vs. a scorer), historical trend aggregation
 across runs, and a live-streaming transcript view. Each has a defined seam and
 does not require a breaking change to land.
+
+**Run archive (landed seam).** `mira run --save` / `mira score --save` archive
+each invocation into `<results_dir>/<run_id>/` (`report.json`, `report.html`, and
+`meta.json` = `mira::run::RunMeta`: a sortable `YYYYMMDDThhmmssZ-xxxx` run id,
+study, start/finish timestamps, and the rolled-up summary). The results dir
+resolves from `--save <dir>`, else `[results].dir` in the nearest `mira.toml`,
+else `./results`. A run id is per *invocation* (not per checkpoint), so resuming
+a `--checkpoint` is still a fresh run with its own id/timestamps. This is the
+data foundation for *historical trend aggregation*: the deferred `list`/`compare`
+commands read these `meta.json` records and don't change their shape.

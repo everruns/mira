@@ -1,0 +1,7 @@
+# Mira host configuration. Picked up by the `mira` CLI from the nearest
+# directory walking up from the working directory. All sections are optional.
+
+[results]
+# Where `mira run --save` / `mira score --save` archive runs. Each run lands in
+# `<dir>/<run_id>/` (report.json, report.html, meta.json). Defaults to ./results.
+dir = "./results"

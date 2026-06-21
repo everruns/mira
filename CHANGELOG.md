@@ -8,6 +8,15 @@ adheres to [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- **Saved run archive** (`mira run --save` / `mira score --save`) — archives a
+  run into a timestamped, self-contained folder so runs accumulate in a stable
+  place and can be compared over time. Each run lands in
+  `<results_dir>/<run_id>/` (run id `YYYYMMDDThhmmssZ-xxxx`, sortable by time)
+  with `report.json`, `report.html`, and `meta.json` (run id, study,
+  start/finish timestamps, and summary — `mira::run::RunMeta`). The results dir
+  comes from `--save <dir>`, else `[results].dir` in the nearest `mira.toml`,
+  else `./results`. Foundation for listing/diffing past runs (see
+  `specs/architecture.md` §12).
 - `CONTRIBUTING.md` guidance for the `main` branch-protection gate: require a PR
   and the `CI / Check` status check so a red CI run can no longer be merged.
 - **Infrastructure errors → N/A, not failures.** A run now distinguishes a

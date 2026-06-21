@@ -95,6 +95,7 @@ mira --example my_evals run --models sim           # restrict the matrix
 mira --example my_evals run --format junit --out results.xml   # CI artifact
 mira --example my_evals run --format html  --out report.html   # self-contained viewer
 mira --example my_evals run --checkpoint ck.json   # resumable; re-run skips done cells
+mira --example my_evals run --save                 # archive this run under ./results/<run_id>/
 ```
 
 The exit code is non-zero if any cell failed, so `mira ... run` drops straight
@@ -111,6 +112,27 @@ are skipped and the progress bar starts at the right `done/total`. The session
 fingerprints each eval's definition, so if you change an eval's scorers, axes,
 models, or metadata, a resume **warns that the cached cells are stale** — re-run
 with `--fresh` to recompute from scratch.
+
+`--save` **archives a run** into a timestamped folder so runs accumulate in a
+stable place and can be compared later. Each run lands in
+`<results_dir>/<run_id>/` (run id is `YYYYMMDDThhmmssZ-xxxx`, sortable by time)
+with three files:
+
+- `report.json` — the canonical machine-readable record (summary + per case),
+- `report.html` — the self-contained transcript viewer,
+- `meta.json` — run identity: id, study, start/finish timestamps, and summary.
+
+With no value, `--save` writes under `./results` (or `[results].dir` from the
+nearest `mira.toml`); pass `--save <dir>` to override. A `mira.toml` at the repo
+root sets the default for everyone:
+
+```toml
+[results]
+dir = "./results"   # where `mira run --save` archives runs
+```
+
+`mira score --save` archives a re-score the same way. (Listing and diffing past
+runs from these records is a planned follow-up.)
 
 ## Next steps
 

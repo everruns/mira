@@ -10,6 +10,7 @@
 //! mira --bin greet run --tag smoke
 //! mira --bin greet run --models sim --format junit --out results.xml
 //! mira --bin greet run --checkpoint ck.json     # resumable
+//! mira --bin greet run --save                   # archive run under ./results/<run_id>/
 //! mira --bin greet run --execute-only --artifacts art/  # capture transcripts
 //! mira --bin greet score --artifacts art/        # score (or re-score) them
 //! ```
@@ -33,13 +34,16 @@ use clap::{Args, Parser, Subcommand};
 use indicatif::{ProgressBar, ProgressDrawTarget, ProgressStyle};
 use tokio::process::Command;
 
+mod config;
+
 use mira::Host;
 use mira::exec::{self, CellSpec, Concurrency};
 use mira::protocol::{
     ExecuteResult, InitializeResult, ListResult, RunResult, TranscriptSummary, capabilities,
 };
 use mira::report::{self, Format};
-use mira::session::{self, Session};
+use mira::run::{RUN_META_FORMAT, RunMeta, RunSummary, new_run_id_at};
+use mira::session::{self, Session, now_unix};
 
 #[derive(Parser)]
 #[command(name = "mira", version, about = "Host runner for code-defined evals")]
@@ -93,6 +97,12 @@ struct RunArgs {
     /// Write a report file (see --format).
     #[arg(long)]
     out: Option<String>,
+    /// Save a timestamped run folder (report.json/html + meta.json) under the
+    /// results dir, so runs accumulate and can be compared later. With no value
+    /// uses `[results].dir` from mira.toml, else `./results`; pass a dir to
+    /// override.
+    #[arg(long, num_args = 0..=1, default_missing_value = "", value_name = "DIR")]
+    save: Option<String>,
     /// Report file format: json | junit | md | html.
     #[arg(long, default_value = "json")]
     format: String,
@@ -119,7 +129,7 @@ struct RunArgs {
     /// Execute subjects only (no scoring), writing full transcripts to
     /// --artifacts for later `mira score`. For long-running subjects.
     /// --checkpoint/--out don't apply in this mode (no scores are produced).
-    #[arg(long, requires = "artifacts", conflicts_with_all = ["checkpoint", "out"])]
+    #[arg(long, requires = "artifacts", conflicts_with_all = ["checkpoint", "out", "save"])]
     execute_only: bool,
     /// Directory for full-transcript execution artifacts (one JSON per cell).
     /// Written when --execute-only; read by `mira score`.
@@ -137,6 +147,9 @@ struct ScoreArgs {
     /// Write a report file (see --format).
     #[arg(long)]
     out: Option<String>,
+    /// Save a timestamped run folder under the results dir (see `run --save`).
+    #[arg(long, num_args = 0..=1, default_missing_value = "", value_name = "DIR")]
+    save: Option<String>,
     /// Report file format: json | junit | md | html.
     #[arg(long, default_value = "json")]
     format: String,
@@ -218,6 +231,11 @@ async fn run(
     progress: Arc<ProgressBar>,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let format = Format::from_str(&args.format)?;
+    // Capture run identity at invocation start so the sortable run-id timestamp
+    // matches `started_unix` (not the later finish time).
+    let started_unix = now_unix();
+    let run_id = new_run_id_at(started_unix);
+    let save_dir = config::resolve_save_dir(&args.save);
     let model_filter: Option<Vec<String>> = args
         .models
         .as_ref()
@@ -362,12 +380,39 @@ async fn run(
         eprintln!("\nwrote {path} ({:?})", format);
     }
 
+    if let Some(base) = &save_dir {
+        save_results(base, &run_id, &info, started_unix, &results)?;
+    }
+
     // A cell that's N/A (all scores N/A — e.g. an infra failure) is neither
     // passed nor failed, so it doesn't make CI red.
     let failed = results
         .iter()
         .any(|r| !r.skipped && !report::is_na(r) && !r.passed);
     std::process::exit(if failed { 1 } else { 0 });
+}
+
+/// Write a timestamped run folder under `base` and report where it landed. The
+/// `run_id` is captured at invocation start so it sorts by start time.
+fn save_results(
+    base: &str,
+    run_id: &str,
+    info: &InitializeResult,
+    started_unix: u64,
+    results: &[RunResult],
+) -> Result<(), Box<dyn std::error::Error>> {
+    let meta = RunMeta {
+        format: RUN_META_FORMAT,
+        run_id: run_id.to_string(),
+        study: info.study.clone(),
+        study_version: info.study_version.clone(),
+        started_unix,
+        finished_unix: now_unix(),
+        summary: RunSummary::of(results),
+    };
+    let dir = config::save_run(base, &meta, results)?;
+    eprintln!("\nsaved run {} to {}", meta.run_id, dir.display());
+    Ok(())
 }
 
 /// Build the concurrency policy from the run flags.
@@ -450,6 +495,9 @@ async fn score(
 ) -> Result<(), Box<dyn std::error::Error>> {
     require_capability(&info, capabilities::SCORE, "mira score")?;
     let format = Format::from_str(&args.format)?;
+    let started_unix = now_unix();
+    let run_id = new_run_id_at(started_unix);
+    let save_dir = config::resolve_save_dir(&args.save);
     let mut artifacts = load_artifacts(&args.artifacts);
     if let Some(f) = &args.filter {
         artifacts.retain(|a| a.key().contains(f.as_str()));
@@ -474,6 +522,10 @@ async fn score(
     if let Some(path) = &args.out {
         std::fs::write(path, report::render(&results, format))?;
         eprintln!("\nwrote {path} ({:?})", format);
+    }
+
+    if let Some(base) = &save_dir {
+        save_results(base, &run_id, &info, started_unix, &results)?;
     }
 
     // A cell that's N/A (all scores N/A — e.g. an infra failure) is neither
