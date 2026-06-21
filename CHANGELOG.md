@@ -8,6 +8,8 @@ adheres to [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- `CONTRIBUTING.md` guidance for the `main` branch-protection gate: require a PR
+  and the `CI / Check` status check so a red CI run can no longer be merged.
 - **Live progress bar** for `mira run` — shows `done/total`, elapsed time, ETA,
   and the current cell on an interactive terminal. The total is exact (the host
   plans the full grid up front). Hidden under CI/non-TTY so it doesn't pollute
