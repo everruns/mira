@@ -14,15 +14,15 @@
 
 use std::collections::HashMap;
 use std::sync::Arc;
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 
-use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader, Lines};
-use tokio::process::{Child, ChildStdin, ChildStdout, Command};
+use tokio::io::{AsyncBufReadExt, AsyncRead, AsyncWrite, AsyncWriteExt, BufReader, Lines};
+use tokio::process::{Child, Command};
 use tokio::sync::{Mutex, oneshot};
 
 use crate::protocol::{
-    ExecuteResult, InitializeResult, ListResult, Notification, PROTOCOL_VERSION, Request, Response,
-    RpcError, RunParams, RunResult, ScoreParams,
+    CancelResult, ExecuteResult, InitializeResult, ListResult, Notification, PROTOCOL_VERSION,
+    Request, Response, RpcError, RunParams, RunResult, ScoreParams, capabilities,
 };
 use crate::{Params, Trial};
 
@@ -35,14 +35,23 @@ type EventCb = Arc<dyn Fn(&Notification) + Send + Sync>;
 type Pending =
     Arc<std::sync::Mutex<HashMap<u64, oneshot::Sender<Result<serde_json::Value, RpcError>>>>>;
 
+/// Boxed transports so the host works over both a child process's stdio and
+/// in-memory pipes (the latter for in-process host↔study tests).
+type BoxedWriter = Box<dyn AsyncWrite + Send + Unpin>;
+type BoxedReader = Box<dyn AsyncRead + Send + Unpin>;
+
 /// A cheaply-cloneable client over the study's framed stdio channel. Every method
 /// takes `&self`, so clones can issue requests concurrently — responses are
 /// demultiplexed by request `id`. Obtain one with [`Host::handle`].
 #[derive(Clone)]
 pub struct HostHandle {
-    stdin: Arc<Mutex<ChildStdin>>,
+    stdin: Arc<Mutex<BoxedWriter>>,
     pending: Pending,
     next_id: Arc<AtomicU64>,
+    /// Set once `initialize` sees the study advertise the `cancel` capability.
+    /// Gates both explicit [`cancel`](HostHandle::cancel) and cancel-on-drop, so
+    /// the host never sends `cancel` to a study that wouldn't understand it.
+    supports_cancel: Arc<AtomicBool>,
 }
 
 impl HostHandle {
@@ -51,6 +60,7 @@ impl HostHandle {
             .request(
                 "initialize",
                 serde_json::json!({ "protocol_version": PROTOCOL_VERSION, "host": host_name }),
+                false,
             )
             .await?;
         let info: InitializeResult =
@@ -63,12 +73,40 @@ impl HostHandle {
                 info.protocol_version, PROTOCOL_VERSION
             )));
         }
+        // Remember whether cancellation is available for later runs.
+        let can_cancel = info.capabilities.iter().any(|c| c == capabilities::CANCEL);
+        self.supports_cancel.store(can_cancel, Ordering::Relaxed);
         Ok(info)
     }
 
     pub async fn list(&self) -> Result<ListResult, RpcError> {
-        let value = self.request("list", serde_json::Value::Null).await?;
+        let value = self.request("list", serde_json::Value::Null, false).await?;
         serde_json::from_value(value).map_err(|e| RpcError::new(e.to_string()))
+    }
+
+    /// Whether the study advertised the `cancel` capability at `initialize`.
+    pub fn supports_cancel(&self) -> bool {
+        self.supports_cancel.load(Ordering::Relaxed)
+    }
+
+    /// Ask the study to abort an in-flight `run`/`execute`/`score` by its request
+    /// `id`. Returns whether the study found and cancelled it (`false` if it had
+    /// already finished, was never in flight, or the study can't cancel).
+    ///
+    /// Most callers don't need the id: dropping a `run` future (e.g. via
+    /// [`tokio::time::timeout`] or `select!` for fail-fast) already sends a
+    /// best-effort cancel for that run. This is the explicit lever for when you
+    /// hold the id and want the study's acknowledgement.
+    pub async fn cancel(&self, run_id: u64) -> Result<bool, RpcError> {
+        if !self.supports_cancel.load(Ordering::Relaxed) {
+            return Ok(false);
+        }
+        let value = self
+            .request("cancel", serde_json::json!({ "id": run_id }), false)
+            .await?;
+        let result: CancelResult =
+            serde_json::from_value(value).map_err(|e| RpcError::new(e.to_string()))?;
+        Ok(result.cancelled)
     }
 
     /// Run one matrix cell. `params` carries the chosen value per extra axis
@@ -85,7 +123,7 @@ impl HostHandle {
     ) -> Result<RunResult, RpcError> {
         let params = run_params(eval, sample, model, params, trial);
         let value = self
-            .request("run", serde_json::to_value(params).unwrap())
+            .request("run", serde_json::to_value(params).unwrap(), true)
             .await?;
         serde_json::from_value(value).map_err(|e| RpcError::new(e.to_string()))
     }
@@ -103,7 +141,7 @@ impl HostHandle {
     ) -> Result<ExecuteResult, RpcError> {
         let params = run_params(eval, sample, model, params, trial);
         let value = self
-            .request("execute", serde_json::to_value(params).unwrap())
+            .request("execute", serde_json::to_value(params).unwrap(), true)
             .await?;
         serde_json::from_value(value).map_err(|e| RpcError::new(e.to_string()))
     }
@@ -123,7 +161,7 @@ impl HostHandle {
             transcript: captured.transcript.clone(),
         };
         let value = self
-            .request("score", serde_json::to_value(params).unwrap())
+            .request("score", serde_json::to_value(params).unwrap(), true)
             .await?;
         serde_json::from_value(value).map_err(|e| RpcError::new(e.to_string()))
     }
@@ -131,10 +169,16 @@ impl HostHandle {
     /// Send one request and await its correlated response. Concurrency-safe: the
     /// `id` is registered before the line is written, and the reader task routes
     /// the reply back here.
+    ///
+    /// `cancelable` arms cancel-on-drop: if the caller drops this future before
+    /// the response arrives (a per-cell `timeout`, a fail-fast `select!`), the
+    /// guard best-effort tells the study to abort the run — so an abandoned run
+    /// stops burning cost instead of running to completion unobserved.
     async fn request(
         &self,
         method: &str,
         params: serde_json::Value,
+        cancelable: bool,
     ) -> Result<serde_json::Value, RpcError> {
         let id = self.next_id.fetch_add(1, Ordering::SeqCst) + 1;
         let (tx, rx) = oneshot::channel();
@@ -143,6 +187,15 @@ impl HostHandle {
             .expect("pending mutex poisoned")
             .insert(id, tx);
 
+        // The guard frees the pending slot on every exit path (including the
+        // caller dropping this future), so a leaked id can't pin the reader.
+        let mut guard = RequestGuard {
+            id,
+            pending: self.pending.clone(),
+            cancel: None,
+            completed: false,
+        };
+
         let request = Request {
             id,
             method: method.into(),
@@ -150,30 +203,63 @@ impl HostHandle {
         };
         let mut line = serde_json::to_vec(&request).map_err(|e| RpcError::new(e.to_string()))?;
         line.push(b'\n');
-        // If the write fails, drop the pending slot too — otherwise the entry
-        // leaks and the reader holds a sender for a request that never completes.
-        let write = async {
+        {
             let mut stdin = self.stdin.lock().await;
-            stdin.write_all(&line).await?;
-            stdin.flush().await
-        };
-        if let Err(e) = write.await {
-            self.pending
-                .lock()
-                .expect("pending mutex poisoned")
-                .remove(&id);
-            return Err(RpcError::new(e.to_string()));
+            stdin
+                .write_all(&line)
+                .await
+                .map_err(|e| RpcError::new(e.to_string()))?;
+            stdin
+                .flush()
+                .await
+                .map_err(|e| RpcError::new(e.to_string()))?;
         }
 
-        match rx.await {
+        // The request is genuinely in flight now: arm cancel-on-drop (only for a
+        // cancelable method against a study that supports it).
+        if cancelable && self.supports_cancel.load(Ordering::Relaxed) {
+            guard.cancel = Some((self.stdin.clone(), self.next_id.clone()));
+        }
+
+        let out = match rx.await {
             Ok(result) => result,
             // Reader dropped the sender without replying ⇒ the channel closed.
-            Err(_) => {
-                self.pending
-                    .lock()
-                    .expect("pending mutex poisoned")
-                    .remove(&id);
-                Err(RpcError::new("study closed the connection"))
+            Err(_) => Err(RpcError::new("study closed the connection")),
+        };
+        guard.completed = true;
+        out
+    }
+}
+
+/// Cleans up an in-flight request when its [`HostHandle::request`] future exits.
+/// Always frees the pending slot; if armed and the future was dropped before the
+/// response arrived, it also fires a best-effort `cancel` so the study aborts the
+/// abandoned run.
+struct RequestGuard {
+    id: u64,
+    pending: Pending,
+    cancel: Option<(Arc<Mutex<BoxedWriter>>, Arc<AtomicU64>)>,
+    completed: bool,
+}
+
+impl Drop for RequestGuard {
+    fn drop(&mut self) {
+        self.pending
+            .lock()
+            .expect("pending mutex poisoned")
+            .remove(&self.id);
+        if self.completed {
+            return;
+        }
+        // Dropped before the response arrived. Fire-and-forget a cancel for this
+        // run id (a fresh request id, no reply awaited). Needs a runtime to spawn
+        // the write; if there isn't one (e.g. drop during shutdown), skip it.
+        if let Some((stdin, next_id)) = self.cancel.take() {
+            let run_id = self.id;
+            if let Ok(rt) = tokio::runtime::Handle::try_current() {
+                rt.spawn(async move {
+                    let _ = send_cancel(&stdin, &next_id, run_id).await;
+                });
             }
         }
     }
@@ -194,9 +280,32 @@ fn run_params(eval: &str, sample: &str, model: &str, params: &Params, trial: Tri
     }
 }
 
-/// A spawned study process and the framed stdio channel to it.
+/// Write a fire-and-forget `cancel { id: run_id }` line. No pending slot is
+/// registered: the study's ack arrives with an unknown id and the reader ignores
+/// it, which is exactly what best-effort cancellation wants.
+async fn send_cancel(
+    stdin: &Arc<Mutex<BoxedWriter>>,
+    next_id: &Arc<AtomicU64>,
+    run_id: u64,
+) -> std::io::Result<()> {
+    let id = next_id.fetch_add(1, Ordering::SeqCst) + 1;
+    let request = Request {
+        id,
+        method: "cancel".into(),
+        params: serde_json::json!({ "id": run_id }),
+    };
+    let mut line = serde_json::to_vec(&request).unwrap_or_default();
+    line.push(b'\n');
+    let mut stdin = stdin.lock().await;
+    stdin.write_all(&line).await?;
+    stdin.flush().await
+}
+
+/// A study connection and the framed channel to it. Usually a spawned child
+/// process ([`spawn`](Host::spawn)); also constructible over arbitrary pipes
+/// ([`connect`](Host::connect)) for in-process tests.
 pub struct Host {
-    child: Child,
+    child: Option<Child>,
     handle: HostHandle,
     reader: Option<tokio::task::JoinHandle<()>>,
     /// Swappable progress callback, read by the reader task per notification.
@@ -215,27 +324,48 @@ impl Host {
         let mut child = command.spawn()?;
         let stdin = child.stdin.take().expect("piped stdin");
         let stdout = child.stdout.take().expect("piped stdout");
+        Ok(Self::with_io(
+            Some(child),
+            Box::new(stdout),
+            Box::new(stdin),
+        ))
+    }
 
+    /// Connect to a study over arbitrary transports: `reader` carries the study's
+    /// responses/notifications (host→study), `writer` carries the host's requests.
+    /// The process-spawning [`spawn`](Host::spawn) is this over a child's stdio.
+    pub fn connect<R, W>(reader: R, writer: W) -> Self
+    where
+        R: AsyncRead + Send + Unpin + 'static,
+        W: AsyncWrite + Send + Unpin + 'static,
+    {
+        Self::with_io(None, Box::new(reader), Box::new(writer))
+    }
+
+    /// Shared constructor: wire the reader task and the cheaply-cloneable handle
+    /// over the boxed transports.
+    fn with_io(child: Option<Child>, reader: BoxedReader, writer: BoxedWriter) -> Self {
         let pending: Pending = Arc::new(std::sync::Mutex::new(HashMap::new()));
         let on_event: Arc<std::sync::Mutex<EventCb>> =
             Arc::new(std::sync::Mutex::new(Arc::new(|_: &Notification| {})));
 
         let reader = tokio::spawn(reader_loop(
-            BufReader::new(stdout).lines(),
+            BufReader::new(reader).lines(),
             pending.clone(),
             on_event.clone(),
         ));
 
-        Ok(Self {
+        Self {
             child,
             handle: HostHandle {
-                stdin: Arc::new(Mutex::new(stdin)),
+                stdin: Arc::new(Mutex::new(writer)),
                 pending,
                 next_id: Arc::new(AtomicU64::new(0)),
+                supports_cancel: Arc::new(AtomicBool::new(false)),
             },
             reader: Some(reader),
             on_event,
-        })
+        }
     }
 
     /// Register a callback for progress notifications.
@@ -291,6 +421,11 @@ impl Host {
         self.handle.score(captured).await
     }
 
+    /// Abort an in-flight run by its request `id` (see [`HostHandle::cancel`]).
+    pub async fn cancel(&self, run_id: u64) -> Result<bool, RpcError> {
+        self.handle.cancel(run_id).await
+    }
+
     /// Close stdin and wait for the study to exit. Drops the host's own handle so
     /// that — once any outstanding [`HostHandle`] clones are gone — the study's
     /// stdin pipe closes and it sees EOF.
@@ -299,14 +434,17 @@ impl Host {
         if let Some(reader) = self.reader.take() {
             let _ = reader.await;
         }
-        self.child.wait().await.map(|_| ())
+        match self.child.take() {
+            Some(mut child) => child.wait().await.map(|_| ()),
+            None => Ok(()),
+        }
     }
 }
 
 /// Read framed lines until EOF: route responses to their waiters by `id`, hand
 /// notifications to `on_event`. On EOF, fail any still-pending requests.
 async fn reader_loop(
-    mut lines: Lines<BufReader<ChildStdout>>,
+    mut lines: Lines<BufReader<BoxedReader>>,
     pending: Pending,
     on_event: Arc<std::sync::Mutex<EventCb>>,
 ) {

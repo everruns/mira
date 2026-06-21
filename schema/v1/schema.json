@@ -19,6 +19,32 @@
       ],
       "type": "object"
     },
+    "CancelParams": {
+      "description": "`cancel` params: the `id` of the in-flight `run`/`execute`/`score` [`Request`]\nto abort. It is the request's own `id` (the one the host assigned and awaits a\nresponse on), not a cell key — so a host can cancel a specific outstanding call\neven when several runs of the same cell are in flight.",
+      "properties": {
+        "id": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "id"
+      ],
+      "type": "object"
+    },
+    "CancelResult": {
+      "description": "`cancel` result: whether a matching in-flight request was found and aborted.\n`false` is normal and benign — the targeted request had already completed (or\nwas never in flight) by the time the cancel arrived. Cancellation is therefore\nbest-effort: a `run` that finishes first still returns its real result.",
+      "properties": {
+        "cancelled": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "cancelled"
+      ],
+      "type": "object"
+    },
     "ErrorKind": {
       "description": "Why a run failed, when it did — set alongside [`Transcript::error`].\n\nA [`Subject`](ErrorKind::Subject) error is the model/agent *under test*\ngetting it wrong: it ran but crashed on the input, produced garbage, or blew\nits turn budget — a real failure the eval should catch. An\n[`Infra`](ErrorKind::Infra) error is the scaffolding *around* the run breaking\n(out of budget/quota, rate-limited, a provider 5xx/outage, a network/timeout\nfault): not the model's fault. Infra failures are surfaced as **N/A**\n([`Score::na`]) so they are excluded from the cell verdict and aggregate\n(neither pass nor fail, like [`Score::na`] for a single scorer), and the host\nretries them up to `--max-retries`. See [`Transcript::infra_error`].",
       "oneOf": [
@@ -757,6 +783,6 @@
       "$ref": "#/$defs/Notification"
     }
   ],
-  "description": "Wire schema for the Mira host<->study protocol (newline-delimited JSON over stdio). Protocol version 1.7. Generated from mira::protocol by `mira-schema-gen` (`just schema`); do not edit by hand.",
+  "description": "Wire schema for the Mira host<->study protocol (newline-delimited JSON over stdio). Protocol version 1.8. Generated from mira::protocol by `mira-schema-gen` (`just schema`); do not edit by hand.",
   "title": "Mira Eval Protocol"
 }

@@ -43,6 +43,7 @@ def test_handled_methods_actually_dispatch():
     payloads = {
         "initialize": {}, "list": {}, "run": base, "execute": base,
         "score": {**base, "transcript": ex["transcript"]},
+        "cancel": {"id": 1},
     }
     for method in HANDLED_METHODS:
         s.handle(method, payloads[method])  # must not raise "unknown method"

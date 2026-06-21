@@ -15,6 +15,16 @@ class AxisInfo:
     values: List[str] = field(default_factory=list)
     __required__ = ("name", "values")
 
+@dataclass
+class CancelParams:
+    id: int = 0
+    __required__ = ("id",)
+
+@dataclass
+class CancelResult:
+    cancelled: bool = False
+    __required__ = ("cancelled",)
+
 ErrorKind = Literal["subject", "infra"]
 
 @dataclass

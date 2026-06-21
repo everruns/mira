@@ -5,16 +5,18 @@
     "usage",
     "execute",
     "score",
-    "trials"
+    "trials",
+    "cancel"
   ],
   "methods": [
     "initialize",
     "list",
     "run",
     "execute",
-    "score"
+    "score",
+    "cancel"
   ],
   "min_version": "1.0",
   "schema": "schema.json",
-  "version": "1.7"
+  "version": "1.8"
 }

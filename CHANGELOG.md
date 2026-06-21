@@ -8,6 +8,16 @@ adheres to [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- **Run cancellation** (`cancel`, protocol `1.8`) — a host can now abort one
+  in-flight `run`/`execute`/`score` by its request `id` without tearing down the
+  connection (previously the only lever was closing stdin, which ended *every*
+  run at once). The aborted run resolves promptly with a `cancelled` error. This
+  is the foundation for per-cell timeouts, hard cost caps, and fail-fast. New
+  `cancel` capability; additive, so a study that doesn't implement it still
+  interoperates. The Rust host exposes an explicit `HostHandle::cancel(id)` and
+  also sends a best-effort `cancel` automatically when a `run` future is dropped
+  (e.g. via `tokio::time::timeout` or a fail-fast `select!`). See
+  [`docs/protocol.md`](docs/protocol.md#cancel).
 - **Trials / repetitions + seed** — first-class N-sampling for pass@k, pass-rate,
   variance, and reproducibility, instead of faking them through an axis. Declare
   `Eval::trials(n)` (+ optional `Eval::seed(base)`) or override per-run with
