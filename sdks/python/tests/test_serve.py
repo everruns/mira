@@ -42,6 +42,53 @@ def test_full_session_over_stdio():
     assert msgs[2]["result"]["aggregate"] == 1.0
 
 
+def _paged_study(samples, page):
+    s = mira.Study("big", page_size=page)
+
+    @s.eval(name="big", samples=[mira.Sample(f"s{i}", prompt="go") for i in range(samples)],
+            models=[mira.model("sim")], scorers=[mira.succeeded()])
+    def big(sample, cx):
+        return mira.transcript("ok")
+
+    return s
+
+
+def test_list_paginates_and_list_samples_walks_pages():
+    s = _paged_study(250, 100)
+    listing = s.handle("list", {})
+    e = listing["evals"][0]
+    assert len(e["samples"]) == 100
+    assert e["next_cursor"] == "100"
+    assert "paginate" in s.handle("initialize", {})["capabilities"]
+
+    # Reassemble the dataset by following cursors, as the host does.
+    ids = [x["id"] for x in e["samples"]]
+    cursor = e["next_cursor"]
+    while cursor is not None:
+        page = s.handle("list_samples", {"eval": "big", "cursor": cursor})
+        ids.extend(x["id"] for x in page["samples"])
+        cursor = page.get("next_cursor")
+    assert len(ids) == 250
+    assert ids[0] == "s0" and ids[249] == "s249"
+
+
+def test_pagination_disabled_inlines_all_samples():
+    s = _paged_study(250, 0)
+    e = s.handle("list", {})["evals"][0]
+    assert len(e["samples"]) == 250
+    assert e.get("next_cursor") is None
+
+
+def test_list_samples_rejects_unknown_eval_and_bad_cursor():
+    s = _paged_study(10, 5)
+    for params in ({"eval": "nope", "cursor": "0"}, {"eval": "big", "cursor": "xyz"}):
+        try:
+            s._list_samples(params)
+            assert False, "expected error"
+        except ValueError:
+            pass
+
+
 def test_bad_json_logs_and_continues():
     msgs = _drive(_study(), ["{ not json",
                              json.dumps({"id": 1, "method": "initialize"})])

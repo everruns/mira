@@ -31,8 +31,9 @@ use tokio::task::JoinSet;
 use crate::eval::Eval;
 use crate::protocol::{
     AxisInfo, CancelParams, CancelResult, EvalInfo, EventParams, ExecuteResult, InitializeResult,
-    ListResult, ModelInfo, Notification, PROTOCOL_VERSION, Request, Response, RpcError, RunParams,
-    RunResult, SampleInfo, ScoreParams, TranscriptSummary, capabilities, codes, event,
+    ListResult, ListSamplesParams, ListSamplesResult, ModelInfo, Notification, PROTOCOL_VERSION,
+    Request, Response, RpcError, RunParams, RunResult, SampleInfo, ScoreParams, TranscriptSummary,
+    capabilities, codes, event,
 };
 use crate::registry::registered_evals;
 use crate::runner::{aggregate_value, execute_cell, run_cell, score_transcript, verdict};
@@ -46,12 +47,21 @@ type SharedWriter = Arc<Mutex<Box<dyn AsyncWrite + Send + Unpin>>>;
 /// (never across an `.await`), like the host's pending map.
 type Inflight = Arc<std::sync::Mutex<HashMap<u64, oneshot::Sender<()>>>>;
 
+/// Default samples-per-page when paginating `list`. Chosen so realistic small
+/// studies (examples, smoke tests) fit in one page — `list` then behaves exactly
+/// as before `1.10` — while a thousands-of-samples dataset (e.g. SWE-bench full)
+/// is chunked across `list` + `list_samples` instead of one giant line.
+pub const DEFAULT_PAGE_SIZE: usize = 500;
+
 /// Your eval program: a named bundle of [`Eval`]s exposed to the host over the
 /// protocol. Build one, then [`serve`](Study::serve) it.
 pub struct Study {
     /// Name advertised to the host in `initialize` (defaults to the crate name).
     name: String,
     evals: Vec<Eval>,
+    /// Max samples per `list`/`list_samples` page. `None` disables pagination
+    /// (every sample is enumerated inline in `list`, the pre-`1.5` behaviour).
+    page_size: Option<usize>,
 }
 
 impl Default for Study {
@@ -67,6 +77,7 @@ impl Study {
         Self {
             name: env!("CARGO_PKG_NAME").into(),
             evals: Vec::new(),
+            page_size: Some(DEFAULT_PAGE_SIZE),
         }
     }
 
@@ -91,6 +102,15 @@ impl Study {
     /// Override the name advertised to the host (defaults to the crate name).
     pub fn named(mut self, name: impl Into<String>) -> Self {
         self.name = name.into();
+        self
+    }
+
+    /// Set the samples-per-page for `list` pagination. `0` disables pagination
+    /// (all samples are enumerated inline in `list`). Defaults to
+    /// [`DEFAULT_PAGE_SIZE`]; lower it to chunk a very large dataset more
+    /// aggressively, or raise it to send bigger pages.
+    pub fn page_size(mut self, size: usize) -> Self {
+        self.page_size = (size > 0).then_some(size);
         self
     }
 
@@ -195,6 +215,7 @@ impl Study {
                         capabilities::SCORE.into(),
                         capabilities::TRIALS.into(),
                         capabilities::CANCEL.into(),
+                        capabilities::PAGINATE.into(),
                     ],
                     // EXPERIMENTAL: structured config for the advertised
                     // capabilities (event kinds, supported modalities). Gated —
@@ -204,6 +225,19 @@ impl Study {
                 }),
             ),
             "list" => Response::ok(request.id, json(&self.list())),
+            "list_samples" => {
+                let params: ListSamplesParams = match serde_json::from_value(request.params.clone())
+                {
+                    Ok(p) => p,
+                    Err(e) => {
+                        return Response::err(request.id, format!("bad list_samples params: {e}"));
+                    }
+                };
+                match self.list_samples(&params) {
+                    Ok(result) => Response::ok(request.id, json(&result)),
+                    Err(e) => Response::err(request.id, e),
+                }
+            }
             "run" => {
                 let params: RunParams = match serde_json::from_value(request.params.clone()) {
                     Ok(p) => p,
@@ -269,50 +303,90 @@ impl Study {
         }
     }
 
-    /// Build the `list` advertisement from this study's evals.
+    /// Build the `list` advertisement from this study's evals. Each eval carries
+    /// the **first page** of its samples plus a `next_cursor` when more remain;
+    /// the host fetches the rest with `list_samples`.
     pub fn list(&self) -> ListResult {
         let evals = self
             .evals
             .iter()
-            .map(|eval| EvalInfo {
-                name: eval.name.clone(),
-                description: eval.description.clone(),
-                samples: eval
-                    .dataset
-                    .samples
-                    .iter()
-                    .map(|s| SampleInfo {
-                        id: s.id.clone(),
-                        tags: s.tags.clone(),
-                        metadata: s.metadata.clone(),
-                    })
-                    .collect(),
-                scorers: eval.scorers.iter().map(|s| s.name()).collect(),
-                models: eval
-                    .models
-                    .iter()
-                    .map(|m| ModelInfo {
-                        label: m.label.clone(),
-                        provider: m.provider.clone(),
-                        available: m.available,
-                        metadata: m.metadata.clone(),
-                    })
-                    .collect(),
-                axes: eval
-                    .axes
-                    .iter()
-                    .map(|a| AxisInfo {
-                        name: a.name.clone(),
-                        values: a.values.clone(),
-                    })
-                    .collect(),
-                max_turns: eval.max_turns,
-                trials: eval.trials,
-                seed: eval.seed,
-                metadata: eval.metadata.clone(),
+            .map(|eval| {
+                let (samples, next_cursor) = self.sample_page(eval, 0);
+                EvalInfo {
+                    name: eval.name.clone(),
+                    description: eval.description.clone(),
+                    samples,
+                    next_cursor,
+                    scorers: eval.scorers.iter().map(|s| s.name()).collect(),
+                    models: eval
+                        .models
+                        .iter()
+                        .map(|m| ModelInfo {
+                            label: m.label.clone(),
+                            provider: m.provider.clone(),
+                            available: m.available,
+                            metadata: m.metadata.clone(),
+                        })
+                        .collect(),
+                    axes: eval
+                        .axes
+                        .iter()
+                        .map(|a| AxisInfo {
+                            name: a.name.clone(),
+                            values: a.values.clone(),
+                        })
+                        .collect(),
+                    max_turns: eval.max_turns,
+                    trials: eval.trials,
+                    seed: eval.seed,
+                    metadata: eval.metadata.clone(),
+                }
             })
             .collect();
         ListResult { evals }
+    }
+
+    /// Answer `list_samples`: the page of `eval`'s samples beginning at `cursor`.
+    /// The cursor is the opaque token from a prior page (we encode it as the
+    /// next sample offset); an unknown eval or malformed cursor is an error.
+    pub fn list_samples(&self, params: &ListSamplesParams) -> Result<ListSamplesResult, String> {
+        let eval = self
+            .evals
+            .iter()
+            .find(|e| e.name == params.eval)
+            .ok_or_else(|| format!("no such eval: {}", params.eval))?;
+        let offset: usize = params
+            .cursor
+            .parse()
+            .map_err(|_| format!("bad cursor: {}", params.cursor))?;
+        let (samples, next_cursor) = self.sample_page(eval, offset);
+        Ok(ListSamplesResult {
+            samples,
+            next_cursor,
+        })
+    }
+
+    /// One page of an eval's samples starting at `offset`, plus the cursor for
+    /// the page after it (`None` once the dataset is exhausted). With pagination
+    /// disabled (`page_size == None`) a single page holds every remaining sample
+    /// and there is never a next cursor — the pre-`1.10` behaviour.
+    fn sample_page(&self, eval: &Eval, offset: usize) -> (Vec<SampleInfo>, Option<String>) {
+        let all = &eval.dataset.samples;
+        let start = offset.min(all.len());
+        let end = match self.page_size {
+            Some(p) => start.saturating_add(p).min(all.len()),
+            None => all.len(),
+        };
+        let page = all[start..end]
+            .iter()
+            .map(|s| SampleInfo {
+                id: s.id.clone(),
+                tags: s.tags.clone(),
+                metadata: s.metadata.clone(),
+            })
+            .collect();
+        let next = (end < all.len()).then(|| end.to_string());
+        (page, next)
     }
 
     async fn run(&self, params: &RunParams) -> Result<RunResult, String> {
@@ -585,6 +659,96 @@ mod tests {
         assert_eq!(e.models[0].label, "sim");
         assert!(e.models[0].available);
         assert_eq!(e.models[0].metadata.get("agent").unwrap(), "demo");
+    }
+
+    fn big_study(samples: usize, page: usize) -> Study {
+        let mut eval = Eval::new("big")
+            .subject(subject_fn(|_, _| async { Transcript::response("ok") }))
+            .scorer(contains("ok"));
+        for i in 0..samples {
+            eval = eval.sample(Sample::new(format!("s{i}"), "go"));
+        }
+        Study::new().page_size(page).eval(eval.build())
+    }
+
+    #[test]
+    fn list_paginates_first_page_with_cursor() {
+        let s = big_study(250, 100);
+        let listing = s.list();
+        let e = &listing.evals[0];
+        assert_eq!(e.samples.len(), 100);
+        assert_eq!(e.samples[0].id, "s0");
+        assert_eq!(e.next_cursor.as_deref(), Some("100"));
+    }
+
+    #[test]
+    fn list_samples_walks_every_page_then_stops() {
+        let s = big_study(250, 100);
+        // Reassemble the dataset by following cursors, as the host does.
+        let mut ids: Vec<String> = s.list().evals[0]
+            .samples
+            .iter()
+            .map(|x| x.id.clone())
+            .collect();
+        let mut cursor = s.list().evals[0].next_cursor.clone();
+        while let Some(c) = cursor {
+            let page = s
+                .list_samples(&ListSamplesParams {
+                    eval: "big".into(),
+                    cursor: c,
+                })
+                .unwrap();
+            ids.extend(page.samples.into_iter().map(|x| x.id));
+            cursor = page.next_cursor;
+        }
+        assert_eq!(ids.len(), 250);
+        assert_eq!(ids[0], "s0");
+        assert_eq!(ids[249], "s249");
+        // The final page (s200..s249, exactly one page) reports no continuation.
+        let last = s
+            .list_samples(&ListSamplesParams {
+                eval: "big".into(),
+                cursor: "200".into(),
+            })
+            .unwrap();
+        assert_eq!(last.samples.len(), 50);
+        assert!(last.next_cursor.is_none());
+    }
+
+    #[test]
+    fn page_size_zero_disables_pagination() {
+        let s = big_study(250, 0);
+        let e = &s.list().evals[0];
+        assert_eq!(e.samples.len(), 250);
+        assert!(e.next_cursor.is_none());
+    }
+
+    #[test]
+    fn list_samples_rejects_unknown_eval_and_bad_cursor() {
+        let s = big_study(10, 5);
+        assert!(
+            s.list_samples(&ListSamplesParams {
+                eval: "nope".into(),
+                cursor: "0".into(),
+            })
+            .is_err()
+        );
+        assert!(
+            s.list_samples(&ListSamplesParams {
+                eval: "big".into(),
+                cursor: "xyz".into(),
+            })
+            .is_err()
+        );
+        // An offset past the end is benign: an empty final page, no next cursor.
+        let past = s
+            .list_samples(&ListSamplesParams {
+                eval: "big".into(),
+                cursor: "999".into(),
+            })
+            .unwrap();
+        assert!(past.samples.is_empty());
+        assert!(past.next_cursor.is_none());
     }
 
     #[tokio::test]

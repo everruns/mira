@@ -100,6 +100,18 @@ adheres to [Semantic Versioning](https://semver.org/).
   indexed in `meta.json` as `event_kinds`. Fully backward-compatible: a pre-`1.9`
   study's untyped events still parse (`request_id` defaults to `0`). Foundation
   for the live-streaming transcript view (`specs/architecture.md` §12).
+- **Paginated sample listing** (protocol `1.10`) — a study can now advertise a
+  large or lazily generated dataset (e.g. SWE-bench full) without enumerating
+  every sample in one `list` line. `list` returns the **first page** of an
+  eval's samples plus an opaque `EvalInfo.next_cursor`; the host follows it with
+  the new `list_samples` method until exhausted, reconstructing the full grid
+  before planning. Advertised by the `paginate` capability. Studies set the page
+  size with `Study::page_size(n)` (`0` disables; default
+  `mira::DEFAULT_PAGE_SIZE = 500`, so realistic small studies stay single-page
+  and behave exactly as before). The host's `list_complete()` does the paging;
+  small/non-paginated studies cost no extra round-trips. Mirrored in the Python
+  SDK (`Study(page_size=…)`, `list_samples`) and the generated `schema/v1/`.
+  `examples/swe_bench` paginates to demonstrate the path.
 - **Python SDK** (`sdks/python`) — a native, pure-stdlib library for authoring
   Mira eval studies in Python (no Rust dependency). Speaks the protocol over
   stdio; its wire types are **generated from `schema/v1/`** (the same contract

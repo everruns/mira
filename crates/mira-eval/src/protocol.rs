@@ -18,7 +18,11 @@
 //!
 //! ## Methods
 //! * `initialize` → [`InitializeResult`]
-//! * `list` → [`ListResult`]
+//! * `list` → [`ListResult`] — the eval catalogue, with the **first page** of
+//!   each eval's samples inline
+//! * `list_samples` ([`ListSamplesParams`]) → [`ListSamplesResult`] — the next
+//!   page of one eval's samples, for datasets too large (or too lazy) to
+//!   enumerate in one `list` (advertised by the `paginate` capability)
 //! * `run` ([`RunParams`]) → [`RunResult`] — execute + score in one call
 //! * `execute` ([`RunParams`]) → [`ExecuteResult`] — execute the subject only,
 //!   returning the **full** transcript (for run-now, score-later)
@@ -69,8 +73,12 @@ use crate::{Metadata, Params, Score, Timing, Transcript, Usage};
 /// payload ([`EventParams`]/[`LogParams`]) and a `request_id` correlating each
 /// progress event to its originating `run` request (the envelope `id` classifies
 /// a line as a Response, so the request id rides in the payload). Both fields
-/// default, so an older study's untyped events still parse.
-pub const PROTOCOL_VERSION: &str = "1.9";
+/// default, so an older study's untyped events still parse; `1.10` added
+/// cursor-paginated sample listing — the optional `EvalInfo.next_cursor` plus the
+/// `list_samples` method and the `paginate` capability — so a study can advertise
+/// thousands of (or lazily generated) samples without enumerating them all in one
+/// `list`.
+pub const PROTOCOL_VERSION: &str = "1.10";
 
 /// The oldest protocol version this build can still talk to.
 pub const MIN_PROTOCOL_VERSION: &str = "1.0";
@@ -382,6 +390,10 @@ pub mod capabilities {
     /// Without it, a host can only stop work by closing stdin, which ends every
     /// in-flight run at once.
     pub const CANCEL: &str = "cancel";
+    /// Study answers `list_samples` and may return a non-empty
+    /// `EvalInfo.next_cursor` from `list`, so the host pages large or lazily
+    /// generated sample sets instead of receiving them all in one `list`.
+    pub const PAGINATE: &str = "paginate";
 }
 
 /// Defined `event` notification kinds — the value of [`EventParams::kind`].
@@ -458,7 +470,18 @@ pub struct EvalInfo {
     pub name: String,
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub description: String,
+    /// The **first page** of this eval's samples. When `next_cursor` is `Some`,
+    /// more pages follow — fetch them with `list_samples` (see
+    /// [`ListSamplesParams`]) until the cursor runs out. A study that fits its
+    /// whole dataset here leaves `next_cursor` empty, exactly as before `1.10`.
     pub samples: Vec<SampleInfo>,
+    /// Opaque continuation token: present iff more samples remain beyond
+    /// `samples`. Pass it back via `list_samples` to fetch the next page. The
+    /// host treats it as an opaque blob — only the study interprets it.
+    /// Defaulted/omitted, so an older study that sends all samples inline (and a
+    /// host that ignores pagination) interoperate unchanged.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub next_cursor: Option<String>,
     pub scorers: Vec<String>,
     pub models: Vec<ModelInfo>,
     /// Extra matrix axes beyond the model. Defaulted so older servers that omit
@@ -499,6 +522,29 @@ fn is_zero(n: &usize) -> bool {
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub struct ListResult {
     pub evals: Vec<EvalInfo>,
+}
+
+/// `list_samples` params: ask for one more page of `eval`'s samples, continuing
+/// from the opaque `cursor` last handed back (in [`EvalInfo::next_cursor`] or a
+/// prior [`ListSamplesResult::next_cursor`]). Only studies advertising the
+/// `paginate` capability answer this.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+pub struct ListSamplesParams {
+    pub eval: String,
+    /// Opaque token from the previous page. The host echoes it verbatim.
+    pub cursor: String,
+}
+
+/// `list_samples` result: one page of samples plus the cursor for the page after
+/// it (`None` once the dataset is exhausted).
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+pub struct ListSamplesResult {
+    pub samples: Vec<SampleInfo>,
+    /// Opaque token for the next page, or `None` when this was the last page.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub next_cursor: Option<String>,
 }
 
 /// `run` params: address one matrix cell by `(eval, sample, model label)` plus
@@ -913,6 +959,65 @@ mod tests {
         let log = legacy.as_log().unwrap();
         assert_eq!(log.message, "hi");
         assert_eq!(log.request_id, 0);
+    }
+
+    #[test]
+    fn eval_info_without_cursor_omits_it_and_defaults_on_read() {
+        // A study that fits all samples inline must not emit `next_cursor`, and
+        // an older study that never knew the field still parses (defaults None).
+        let info = EvalInfo {
+            name: "greet".into(),
+            description: String::new(),
+            samples: vec![SampleInfo {
+                id: "hi".into(),
+                tags: vec![],
+                metadata: Metadata::default(),
+            }],
+            next_cursor: None,
+            scorers: vec![],
+            models: vec![],
+            axes: vec![],
+            max_turns: 0,
+            trials: 0,
+            seed: None,
+            metadata: Metadata::default(),
+        };
+        let line = serde_json::to_string(&info).unwrap();
+        assert!(!line.contains("next_cursor"));
+        let pre_1_5 = r#"{"name":"greet","samples":[{"id":"hi"}],
+            "scorers":[],"models":[]}"#;
+        let back: EvalInfo = serde_json::from_str(pre_1_5).unwrap();
+        assert!(back.next_cursor.is_none());
+    }
+
+    #[test]
+    fn list_samples_roundtrips_with_and_without_next() {
+        let params = ListSamplesParams {
+            eval: "swe".into(),
+            cursor: "500".into(),
+        };
+        let back: ListSamplesParams =
+            serde_json::from_str(&serde_json::to_string(&params).unwrap()).unwrap();
+        assert_eq!(back.eval, "swe");
+        assert_eq!(back.cursor, "500");
+
+        let last = ListSamplesResult {
+            samples: vec![SampleInfo {
+                id: "case-999".into(),
+                tags: vec![],
+                metadata: Metadata::default(),
+            }],
+            next_cursor: None,
+        };
+        let line = serde_json::to_string(&last).unwrap();
+        assert!(!line.contains("next_cursor")); // omitted on the final page
+        let more = ListSamplesResult {
+            samples: vec![],
+            next_cursor: Some("1000".into()),
+        };
+        let back: ListSamplesResult =
+            serde_json::from_str(&serde_json::to_string(&more).unwrap()).unwrap();
+        assert_eq!(back.next_cursor.as_deref(), Some("1000"));
     }
 
     #[test]

@@ -251,7 +251,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         "study {} · protocol {} · {} evals",
         info.study, info.protocol_version, info.evals
     );
-    let listing = host.list().await?;
+    // `list_complete` pages `list_samples` so the planner sees every sample even
+    // when a study paginates a large/lazy dataset; small studies cost no extra
+    // round-trips (no cursor ⇒ no follow-up calls).
+    let listing = host.list_complete().await?;
 
     match cli.cmd {
         Some(Cmd::List) => {

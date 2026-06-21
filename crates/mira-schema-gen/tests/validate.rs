@@ -5,9 +5,9 @@
 //! actually describes the messages studies emit.
 
 use mira::protocol::{
-    CancelParams, CancelResult, EvalInfo, ExecuteResult, InitializeResult, ListResult, ModelInfo,
-    Notification, Request, Response, RunParams, RunResult, SampleInfo, ScoreParams,
-    TranscriptSummary,
+    CancelParams, CancelResult, EvalInfo, ExecuteResult, InitializeResult, ListResult,
+    ListSamplesParams, ListSamplesResult, ModelInfo, Notification, Request, Response, RunParams,
+    RunResult, SampleInfo, ScoreParams, TranscriptSummary,
 };
 use mira::{Score, Transcript, Usage};
 use mira_schema_gen::schema_dir;
@@ -105,6 +105,8 @@ fn payloads_validate_against_their_defs() {
                 tags: vec!["smoke".into()],
                 metadata: Default::default(),
             }],
+            // A paginated listing: the first page advertises a continuation token.
+            next_cursor: Some("1".into()),
             scorers: vec!["succeeded".into()],
             models: vec![ModelInfo {
                 label: "sim".into(),
@@ -120,6 +122,24 @@ fn payloads_validate_against_their_defs() {
         }],
     };
     assert_valid_against_def("ListResult", &to_value(&list));
+
+    // The paginated sample-listing round-trip: a follow-up page request and the
+    // page it returns (with and without a further cursor).
+    let list_samples_params = ListSamplesParams {
+        eval: "greet".into(),
+        cursor: "1".into(),
+    };
+    assert_valid_against_def("ListSamplesParams", &to_value(&list_samples_params));
+
+    let list_samples_result = ListSamplesResult {
+        samples: vec![SampleInfo {
+            id: "bye".into(),
+            tags: vec![],
+            metadata: Default::default(),
+        }],
+        next_cursor: None,
+    };
+    assert_valid_against_def("ListSamplesResult", &to_value(&list_samples_result));
 
     let params = RunParams {
         eval: "greet".into(),

@@ -128,5 +128,10 @@ fn swe_bench() -> Eval {
 
 #[tokio::main]
 async fn main() -> std::io::Result<()> {
-    mira::Study::registered().serve().await
+    // A real SWE-bench dataset is thousands of instances — far too many to
+    // enumerate in one `list` line. We force a tiny page size here so even this
+    // two-instance demo paginates: `list` returns the first page plus a cursor,
+    // and the host pages the rest via `list_samples`. Drop this call to send the
+    // whole dataset inline (the default page size handles realistic studies).
+    mira::Study::registered().page_size(1).serve().await
 }

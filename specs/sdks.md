@@ -116,14 +116,16 @@ max_turns/axis params); a `Transcript` builder with `Usage`/`Timing`; built-in
 scorers (`succeeded`, `contains`, `equals`, `regex`) plus a `scorer(name, fn)`
 escape hatch returning a bool or a full `Score` (incl. `na`); `axis(name,
 values)` for extra matrix axes; and `serve()` handling
-`initialize`/`list`/`run`/`execute`/`score`. Scoring semantics match
+`initialize`/`list`/`list_samples`/`run`/`execute`/`score` (with
+`Study(page_size=…)` paging large datasets). Scoring semantics match
 `crate::runner` exactly: an N/A score is excluded from the cell verdict and
 aggregate; an unavailable model / infra error short-circuits to a single N/A.
 
 ## 6. Status & deferred
 
 - **Python** (`sdks/python`) — implemented: schema-driven codegen, full serve
-  loop (incl. the `execute`/`score` split), conformance + behaviour tests.
+  loop (incl. the `execute`/`score` split and `list_samples` pagination),
+  conformance + behaviour tests.
 - **TypeScript** (`sdks/typescript`) — planned, same shape: codegen from
   `schema/v1/` (`json-schema-to-typescript`), a `serve()` loop, parity authoring
   API, npm package with zero runtime deps.

@@ -54,9 +54,11 @@ A complete, runnable example lives in
 
 ## API
 
-- `Study(name, version=None)` — the registry; `@study.eval(...)` registers a
-  subject `fn(sample, cx) -> Transcript`; `study.serve()` runs the stdio loop
-  (handling `initialize`/`list`/`run`/`execute`/`score`).
+- `Study(name, version=None, page_size=500)` — the registry; `@study.eval(...)`
+  registers a subject `fn(sample, cx) -> Transcript`; `study.serve()` runs the
+  stdio loop (handling
+  `initialize`/`list`/`list_samples`/`run`/`execute`/`score`). `page_size`
+  paginates large datasets across `list` + `list_samples` (`0` disables).
 - `Sample(id, prompt=…|input=[…], tags=…, target=…, files=…, metadata=…)` —
   `sample.text` joins the input turns for the subject.
 - `model(label, provider="", available=True)` — a matrix cell. An unavailable

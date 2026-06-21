@@ -35,6 +35,7 @@ class EvalInfo:
     metadata: Dict[str, Any] = field(default_factory=dict)
     models: List["ModelInfo"] = field(default_factory=list)
     name: str = ""
+    next_cursor: Optional[str] = None
     samples: List["SampleInfo"] = field(default_factory=list)
     scorers: List[str] = field(default_factory=list)
     seed: Optional[int] = None
@@ -80,6 +81,18 @@ class InitializeResult:
 class ListResult:
     evals: List["EvalInfo"] = field(default_factory=list)
     __required__ = ("evals",)
+
+@dataclass
+class ListSamplesParams:
+    cursor: str = ""
+    eval: str = ""
+    __required__ = ("cursor", "eval")
+
+@dataclass
+class ListSamplesResult:
+    next_cursor: Optional[str] = None
+    samples: List["SampleInfo"] = field(default_factory=list)
+    __required__ = ("samples",)
 
 @dataclass
 class LogParams:

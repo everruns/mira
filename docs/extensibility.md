@@ -112,8 +112,8 @@ forward-compatible payloads**, you can extend across the process line too:
 - **New fields.** Payloads ignore unknown fields and default missing ones, so a
   study can add fields an older host won't break on.
 - **Optional behaviours.** Advertise `capabilities` tokens (`axes`, `events`,
-  `usage`) at `initialize` so hosts feature-detect additively instead of
-  sniffing versions.
+  `usage`, `execute`, `score`, `paginate`) at `initialize` so hosts
+  feature-detect additively instead of sniffing versions.
 
 ## What is *not* (yet) pluggable
 

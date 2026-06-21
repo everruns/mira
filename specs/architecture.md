@@ -139,10 +139,14 @@ decision. Full wire reference: [`docs/protocol.md`](../docs/protocol.md).
   (`initialize` + `list`), plans the run (selection × matrix), drives execution
   (`run`), then aggregates / saves / checkpoints / renders.
 
-Three methods (`initialize`, `list`, `run`) plus fire-and-forget `event`/`log`
-notifications. Models are addressed by **label**; an unavailable cell is skipped.
-The boundary is the natural seam for **polyglot studies** — any program in any
-language that speaks the protocol is a valid study.
+Three core methods (`initialize`, `list`, `run`) plus fire-and-forget
+`event`/`log` notifications, and optional capability-gated extensions
+(`execute`/`score` for run-now-score-later; `list_samples` to page a large or
+lazily generated dataset whose samples don't fit one `list` line — the host
+follows `EvalInfo.next_cursor` until exhausted). Models are addressed by
+**label**; an unavailable cell is skipped. The boundary is the natural seam for
+**polyglot studies** — any program in any language that speaks the protocol is a
+valid study.
 
 **Concurrency & adaptive throttling.** The host multiplexes many `run`s over the
 single pipe (responses correlate by `id`; progress `event` notifications correlate
@@ -164,8 +168,8 @@ global cap.
 bump is additive. Every payload tolerates unknown fields (no
 `deny_unknown_fields`) and adds new fields as `#[serde(default)]`, so a newer
 study and an older host interoperate. Hosts feature-detect additively via
-`capabilities` (`axes`, `events`, `usage`, `execute`, `score`) rather than
-version sniffing.
+`capabilities` (`axes`, `events`, `usage`, `execute`, `score`, `paginate`)
+rather than version sniffing.
 
 ## 5. Crate architecture
 

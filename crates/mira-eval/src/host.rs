@@ -21,8 +21,9 @@ use tokio::process::{Child, Command};
 use tokio::sync::{Mutex, oneshot};
 
 use crate::protocol::{
-    CancelResult, ExecuteResult, InitializeResult, ListResult, Notification, PROTOCOL_VERSION,
-    Request, Response, RpcError, RunParams, RunResult, ScoreParams, capabilities,
+    CancelResult, ExecuteResult, InitializeResult, ListResult, ListSamplesParams,
+    ListSamplesResult, Notification, PROTOCOL_VERSION, Request, Response, RpcError, RunParams,
+    RunResult, ScoreParams, capabilities,
 };
 use crate::{Params, Trial};
 
@@ -79,9 +80,49 @@ impl HostHandle {
         Ok(info)
     }
 
+    /// The raw `list` response: the eval catalogue with the **first page** of
+    /// each eval's samples. When an eval's `next_cursor` is set, more samples
+    /// remain — use [`list_complete`](HostHandle::list_complete) to fetch them
+    /// all, or page manually with [`list_samples`](HostHandle::list_samples).
     pub async fn list(&self) -> Result<ListResult, RpcError> {
         let value = self.request("list", serde_json::Value::Null, false).await?;
         serde_json::from_value(value).map_err(|e| RpcError::new(e.to_string()))
+    }
+
+    /// Fetch one more page of an eval's samples, continuing from `cursor` (an
+    /// opaque token from a prior page). Studies advertising the `paginate`
+    /// capability answer this; the host treats the cursor as opaque.
+    pub async fn list_samples(
+        &self,
+        eval: &str,
+        cursor: &str,
+    ) -> Result<ListSamplesResult, RpcError> {
+        let params = ListSamplesParams {
+            eval: eval.into(),
+            cursor: cursor.into(),
+        };
+        let value = self
+            .request("list_samples", serde_json::to_value(params).unwrap(), false)
+            .await?;
+        serde_json::from_value(value).map_err(|e| RpcError::new(e.to_string()))
+    }
+
+    /// The full catalogue with **every** sample materialized: call `list`, then
+    /// follow each eval's `next_cursor` via `list_samples` until exhausted,
+    /// appending the pages onto `samples` and clearing the cursor. A study that
+    /// fits its whole dataset in `list` (no cursor) costs no extra round-trips,
+    /// so this is a safe drop-in for `list` on the host's planning path.
+    pub async fn list_complete(&self) -> Result<ListResult, RpcError> {
+        let mut listing = self.list().await?;
+        for eval in &mut listing.evals {
+            let mut cursor = eval.next_cursor.take();
+            while let Some(c) = cursor {
+                let page = self.list_samples(&eval.name, &c).await?;
+                eval.samples.extend(page.samples);
+                cursor = page.next_cursor;
+            }
+        }
+        Ok(listing)
     }
 
     /// Whether the study advertised the `cancel` capability at `initialize`.
@@ -385,6 +426,12 @@ impl Host {
 
     pub async fn list(&self) -> Result<ListResult, RpcError> {
         self.handle.list().await
+    }
+
+    /// The full catalogue with every sample materialized (pages `list_samples`
+    /// as needed). See [`HostHandle::list_complete`].
+    pub async fn list_complete(&self) -> Result<ListResult, RpcError> {
+        self.handle.list_complete().await
     }
 
     /// Run one matrix cell (sequential convenience; see [`Host::handle`] for the

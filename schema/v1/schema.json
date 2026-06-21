@@ -93,7 +93,15 @@
         "name": {
           "type": "string"
         },
+        "next_cursor": {
+          "description": "Opaque continuation token: present iff more samples remain beyond\n`samples`. Pass it back via `list_samples` to fetch the next page. The\nhost treats it as an opaque blob — only the study interprets it.\nDefaulted/omitted, so an older study that sends all samples inline (and a\nhost that ignores pagination) interoperate unchanged.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "samples": {
+          "description": "The **first page** of this eval's samples. When `next_cursor` is `Some`,\nmore pages follow — fetch them with `list_samples` (see\n[`ListSamplesParams`]) until the cursor runs out. A study that fits its\nwhole dataset here leaves `next_cursor` empty, exactly as before `1.10`.",
           "items": {
             "$ref": "#/$defs/SampleInfo"
           },
@@ -296,6 +304,45 @@
       },
       "required": [
         "evals"
+      ],
+      "type": "object"
+    },
+    "ListSamplesParams": {
+      "description": "`list_samples` params: ask for one more page of `eval`'s samples, continuing\nfrom the opaque `cursor` last handed back (in [`EvalInfo::next_cursor`] or a\nprior [`ListSamplesResult::next_cursor`]). Only studies advertising the\n`paginate` capability answer this.",
+      "properties": {
+        "cursor": {
+          "description": "Opaque token from the previous page. The host echoes it verbatim.",
+          "type": "string"
+        },
+        "eval": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "eval",
+        "cursor"
+      ],
+      "type": "object"
+    },
+    "ListSamplesResult": {
+      "description": "`list_samples` result: one page of samples plus the cursor for the page after\nit (`None` once the dataset is exhausted).",
+      "properties": {
+        "next_cursor": {
+          "description": "Opaque token for the next page, or `None` when this was the last page.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "samples": {
+          "items": {
+            "$ref": "#/$defs/SampleInfo"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "samples"
       ],
       "type": "object"
     },
@@ -864,6 +911,6 @@
       "$ref": "#/$defs/Notification"
     }
   ],
-  "description": "Wire schema for the Mira host<->study protocol (newline-delimited JSON over stdio). Protocol version 1.9. Generated from mira::protocol by `mira-schema-gen` (`just schema`); do not edit by hand.",
+  "description": "Wire schema for the Mira host<->study protocol (newline-delimited JSON over stdio). Protocol version 1.10. Generated from mira::protocol by `mira-schema-gen` (`just schema`); do not edit by hand.",
   "title": "Mira Eval Protocol"
 }

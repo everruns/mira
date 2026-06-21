@@ -59,7 +59,7 @@ A line is classified by its fields:
 | Field | Type | Notes |
 |-------|------|-------|
 | `id` | integer | Monotonic, unique per request. Correlates the response. |
-| `method` | string | One of `initialize`, `list`, `run`, `execute`, `score`, `cancel`. |
+| `method` | string | One of `initialize`, `list`, `list_samples`, `run`, `execute`, `score`, `cancel`. |
 | `params` | object | Method-specific; may be absent for parameterless methods. |
 
 ### Response (study → host)
@@ -123,41 +123,44 @@ study.
 **Params**
 
 ```json
-{ "protocol_version": "1.9", "host": "mira-cli" }
+{ "protocol_version": "1.10", "host": "mira-cli" }
 ```
 
 **Result**
 
 ```json
 {
-  "protocol_version": "1.9",
+  "protocol_version": "1.10",
   "study": "my-evals",
   "evals": 3,
   "study_version": "0.1.0",
-  "capabilities": ["axes", "events", "usage", "execute", "score", "trials", "cancel"]
+  "capabilities": ["axes", "events", "usage", "execute", "score", "trials", "cancel", "paginate"]
 }
 ```
 
 The study replies with the `protocol_version` it implements. Compatibility is
 by **major**: a host refuses a study whose major differs from its own; a
 differing minor is additive and tolerated (see [Versioning](#versioning)). The
-current version is **`1.9`**.
+current version is **`1.10`**.
 
 `capabilities` lets a host feature-detect additively instead of sniffing
 versions. Defined tokens: `axes` (study advertises extra axes and honours
 `run.params`), `events` (emits `event` notifications), `usage` (reports
 token/cost/timing), `execute` (answers `execute`), `score` (answers `score`),
 `trials` (threads the `seed` run param into the subject, so repetitions are
-reproducible), `cancel` (answers `cancel`). `study_version` and `capabilities`
-are optional and default to empty. A `1.0` study that only implements `run`
-interoperates unchanged — the host simply won't see the
-`execute`/`score`/`trials`/`cancel` capabilities.
+reproducible), `cancel` (answers `cancel`), `paginate` (answers `list_samples`
+and may return `EvalInfo.next_cursor` from `list`). `study_version` and
+`capabilities` are optional and default to empty. A `1.0` study that only
+implements `run` interoperates unchanged — the host simply won't see the
+`execute`/`score`/`trials`/`cancel`/`paginate` capabilities.
 
 ### `list`
 
 Enumerates every eval the study defines, with enough detail for the host to
 plan the full `samples × models` grid and apply selection — without running
-anything.
+anything. For large or lazily generated datasets, samples are **paginated**: an
+eval carries the first page inline and a `next_cursor` the host follows with
+[`list_samples`](#list_samples).
 
 **Result**
 
@@ -170,6 +173,7 @@ anything.
       "samples": [
         { "id": "hi", "tags": ["smoke"], "metadata": { "repo": "example/repo", "difficulty": "easy" } }
       ],
+      "next_cursor": null,
       "scorers": ["succeeded", "contains(\"42\")"],
       "models": [
         { "label": "sim", "provider": "sim", "available": true },
@@ -186,6 +190,12 @@ anything.
 }
 ```
 
+- `samples` is the **first page** of the eval's samples. `next_cursor`
+  (optional, default absent/`null`) is an **opaque** continuation token: present
+  iff more samples remain. The host pages the rest with `list_samples`, passing
+  the token back verbatim, until it comes back absent. A study that fits its
+  whole dataset inline omits `next_cursor` — identical to pre-`1.5` `list`, so an
+  older host that ignores the field still works for non-paginated studies.
 - `available: false` marks a cell the study cannot run (e.g. a missing API
   key). The host skips it rather than failing.
 - `provider` (optional, default empty) is the model's provider id (`sim`,
@@ -213,6 +223,44 @@ anything.
   host. `seed` (optional) is the study's base seed: trial `t` runs with `seed + t`,
   so the repetition set replays deterministically. The host may override both with
   `--trials` / `--seed`. See [`run`](#run) for how a trial is addressed.
+
+### `list_samples`
+
+Fetches the **next page** of one eval's samples, continuing from a cursor handed
+back by `list` (`EvalInfo.next_cursor`) or a prior `list_samples`. Lets a study
+advertise a dataset too large — or too lazily generated — to enumerate in a
+single `list` line (e.g. SWE-bench full). Advertised by the `paginate`
+capability.
+
+**Params**
+
+```json
+{ "eval": "greet", "cursor": "500" }
+```
+
+| Field | Type | Notes |
+|-------|------|-------|
+| `eval` | string | The eval whose samples to continue. |
+| `cursor` | string | Opaque token from the previous page; echoed back verbatim. |
+
+**Result**
+
+```json
+{
+  "samples": [ { "id": "case-500", "tags": [] } ],
+  "next_cursor": "1000"
+}
+```
+
+| Field | Type | Notes |
+|-------|------|-------|
+| `samples` | array | The next page of `SampleInfo` (`id` + optional `tags`). |
+| `next_cursor` | string | Token for the page after this one; **absent on the last page**. |
+
+The host loops `list_samples` until `next_cursor` is absent, concatenating the
+pages onto the eval's `samples` to reconstruct the full grid before planning. The
+cursor is opaque: only the study interprets it (the bundled study encodes a
+sample offset, but a study may use any token — a DB keyset, an API page token).
 
 ### `run`
 
@@ -419,7 +467,9 @@ host                                   study
  │ initialize ─────────────────────────▶│
  │◀──────────────── { protocol, evals } │
  │ list ───────────────────────────────▶│
- │◀───────────── { evals[…samples,…] }  │
+ │◀───────────── { evals[…page 1,cursor]}│
+ │ list_samples {greet, cursor} ───────▶ │   (only while a cursor remains)
+ │◀───────────── { samples, next_cursor }│
  │                                       │
  │  (host plans grid: selection×matrix,  │
  │   subtracts checkpointed cells)       │
@@ -463,7 +513,7 @@ stdin, by contrast, ends *every* in-flight run at once.)
 
 ## Versioning
 
-The protocol uses `MAJOR.MINOR` (`PROTOCOL_VERSION`, currently `1.9`), all minors
+The protocol uses `MAJOR.MINOR` (`PROTOCOL_VERSION`, currently `1.10`), all minors
 additive over `1.0`: `1.1` added the optional `ModelInfo.provider` field and the
 `execute`/`score` methods plus their capabilities; `1.2` added the optional
 `transcript.metrics` map; `1.3` added the optional `transcript.error_kind`
@@ -476,8 +526,10 @@ optional/defaulted); `1.6` added trials/repetitions — the optional
 map to `SampleInfo` and `ModelInfo`; `1.8` added the `cancel` method and
 capability; `1.9` gave `event`/`log` notifications a typed, schematized payload
 (`EventParams`/`LogParams`) and a `request_id` correlating each progress event to
-its originating `run` request. A `1.0` study (or any study implementing only
-`run`, emitting no notifications) interoperates with a `1.9` host.
+its originating `run` request; `1.10` added cursor-paginated sample listing (the
+optional `EvalInfo.next_cursor`, the `list_samples` method, and the `paginate`
+capability). A `1.0` study (or any study implementing only `run`, emitting no
+notifications) interoperates with a `1.10` host.
 
 - A **MINOR** bump is **additive**: new optional fields, new notification kinds,
   new capability tokens. A newer peer must keep talking to an older one.
@@ -493,7 +545,8 @@ Forward compatibility is a hard requirement on both sides:
    defaults (empty map/list, `0`, `null`), so an older study that omits them
    still validates against a newer host.
 3. **Feature-detect via `capabilities`**, not version sniffing, for optional
-   behaviour (`axes`, `events`, `usage`, `execute`, `score`, `trials`, `cancel`).
+   behaviour (`axes`, `events`, `usage`, `execute`, `score`, `trials`, `cancel`,
+   `paginate`).
 
 This is why a `0.x`-era study (no `axes`, no `timing`) and a `1.0` host
 interoperate: the host sees an empty `axes`/`capabilities` and a model-only
@@ -505,7 +558,8 @@ The wire types have a generated, language-neutral definition under `schema/`:
 
 - `schema/v1/schema.json` — a **JSON Schema 2020-12** document. The root is an
   `anyOf` over the three envelopes (`Request`, `Response`, `Notification`); every
-  payload type (`InitializeResult`, `ListResult`/`EvalInfo`, `RunParams`,
+  payload type (`InitializeResult`, `ListResult`/`EvalInfo`,
+  `ListSamplesParams`/`ListSamplesResult`, `RunParams`,
   `RunResult`/`TranscriptSummary`, `ExecuteResult`/`ScoreParams`, the notification
   payloads `EventParams`/`LogParams`, and the full `Transcript`, `Score`, …) is
   published under `$defs`.
