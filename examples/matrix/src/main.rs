@@ -4,9 +4,9 @@
 //! stable key like `reasoning/puzzle@sim[effort=high]`.
 //!
 //! ```bash
-//! mira --package mira-examples --example matrix list
-//! mira --package mira-examples --example matrix run
-//! mira --package mira-examples --example matrix run 'effort=high'   # substring filter
+//! mira --bin matrix list
+//! mira --bin matrix run
+//! mira --bin matrix run 'effort=high'   # substring filter
 //! ```
 //!
 //! The subject reads the chosen axis value with `cx.param("effort")` and varies

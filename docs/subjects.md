@@ -105,7 +105,67 @@ factory contract.
 
 ## Writing your own
 
-Implement `Subject` directly for a reusable adapter with state (a connection
-pool, a shared client). The contract: be side-effect-isolated per call, fill the
-`Transcript` with whatever you can measure, and record failures in `error`
-rather than panicking.
+Reach for a `subject_fn` closure first. Implement `Subject` directly when you
+want a **reusable adapter that holds state** — a connection pool, an HTTP client,
+an auth token shared across every cell.
+
+The contract:
+
+- **Isolated per call.** One invocation per `(sample, model, axis)` cell; never
+  let state from one sample leak into the next.
+- **Fill what you can measure.** Set `iterations`, `tool_calls` (names, in order)
+  and `tool_calls_count`, `usage`, `timing`, `files` so structural and budget
+  scorers have signal. Anything you can't measure stays at its default.
+- **Record failures, don't panic.** Put the error in `Transcript.error` (or use
+  `Transcript::failed(msg)`); a panicking subject takes down the whole run.
+
+```rust
+use async_trait::async_trait;
+use mira::{RunCx, Sample, Transcript, Usage, subject::Subject};
+
+/// Posts the prompt to an HTTP agent and normalizes the reply. The `reqwest`
+/// client is built once and shared across every matrix cell.
+struct HttpAgent {
+    client: reqwest::Client,
+    base_url: String,
+}
+
+#[async_trait]
+impl Subject for HttpAgent {
+    async fn run(&self, sample: &Sample, cx: &RunCx) -> Transcript {
+        let started = std::time::Instant::now();
+
+        // Route on the matrix cell's model (cx.model.provider / cx.model.model).
+        let req = self.client
+            .post(format!("{}/run", self.base_url))
+            .json(&serde_json::json!({
+                "prompt": sample.input.join("\n"),
+                "model":  cx.model.model,
+                "max_turns": cx.max_turns,
+            }));
+
+        let resp = match req.send().await.and_then(|r| r.error_for_status()) {
+            Ok(r) => r,
+            Err(e) => return Transcript::failed(format!("agent request failed: {e}")),
+        };
+        let body: serde_json::Value = match resp.json().await {
+            Ok(b) => b,
+            Err(e) => return Transcript::failed(format!("bad agent response: {e}")),
+        };
+
+        let mut t = Transcript::response(
+            body["answer"].as_str().unwrap_or_default().to_string(),
+        );
+        t.usage = Usage {
+            input_tokens:  body["usage"]["in"].as_u64().unwrap_or(0),
+            output_tokens: body["usage"]["out"].as_u64().unwrap_or(0),
+            ..Default::default()
+        };
+        t.timing.duration_ms = started.elapsed().as_millis() as u64;
+        t
+    }
+}
+```
+
+Attach it with `.subject(...)`, or share one instance across several evals with
+`.subject_arc(std::sync::Arc::new(agent))`.

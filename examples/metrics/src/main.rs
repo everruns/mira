@@ -5,8 +5,8 @@
 //! and has a budget scorer.
 //!
 //! ```bash
-//! mira --package mira-examples --example metrics run
-//! mira --package mira-examples --example metrics run --format html --out report.html
+//! mira --bin metrics run
+//! mira --bin metrics run --format html --out report.html
 //! ```
 //!
 //! Runs offline against `sim` with a deterministic fake agent, so the numbers

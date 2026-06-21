@@ -2,8 +2,8 @@
 //! file-based scorers — the shape that replaces a bespoke bench harness.
 //!
 //! ```bash
-//! mira --package mira-examples --example coding list
-//! mira --package mira-examples --example coding run --tag smoke
+//! mira --bin coding list
+//! mira --bin coding run --tag smoke
 //! ```
 //!
 //! The subject is an in-process closure that "edits" the seeded file; swap it
