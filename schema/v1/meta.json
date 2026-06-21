@@ -8,6 +8,13 @@
     "trials",
     "cancel"
   ],
+  "event_kinds": [
+    "started",
+    "turn",
+    "tool_call",
+    "output",
+    "finished"
+  ],
   "methods": [
     "initialize",
     "list",
@@ -18,5 +25,5 @@
   ],
   "min_version": "1.0",
   "schema": "schema.json",
-  "version": "1.8"
+  "version": "1.9"
 }

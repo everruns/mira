@@ -129,6 +129,68 @@
       ],
       "type": "object"
     },
+    "EventParams": {
+      "description": "Typed payload of an `event` progress [`Notification`] for one in-flight run.\n\nCorrelated to its originating `run`/`execute` request by `request_id` — the\nsame demultiplexing key responses use — so a host can bind progress to a\nspecific call even when many cells (including repeated trials of one cell)\nare multiplexed over the single pipe.",
+      "properties": {
+        "eval": {
+          "type": "string"
+        },
+        "kind": {
+          "description": "One of the [`event`] kinds. A future kind an older host doesn't recognise\nis carried through verbatim (forward-compat), not rejected.",
+          "type": "string"
+        },
+        "model": {
+          "type": "string"
+        },
+        "params": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "description": "Extra matrix-axis values for the cell (empty for a model-only matrix).",
+          "type": "object"
+        },
+        "request_id": {
+          "default": 0,
+          "description": "The `id` of the `run`/`execute` request this event belongs to. Defaulted\nto 0 (\"uncorrelated\") so a pre-`1.9` study that omits it still parses.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "sample": {
+          "type": "string"
+        },
+        "text": {
+          "description": "Streamed output delta, for an [`event::OUTPUT`] event.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "tool": {
+          "description": "Tool name, for an [`event::TOOL_CALL`] event.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "turn": {
+          "description": "Reasoning-turn index, for an [`event::TURN`] event.",
+          "format": "uint",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "eval",
+        "sample",
+        "model",
+        "kind"
+      ],
+      "type": "object"
+    },
     "ExecuteResult": {
       "description": "`execute` result for one cell: the **full** [`Transcript`] (raw events and\ncaptured files included), so the host can persist it as an execution\nartifact and `score` it later. Distinct from [`RunResult`], which carries the\nlightweight [`TranscriptSummary`] plus scores.",
       "properties": {
@@ -234,6 +296,25 @@
       },
       "required": [
         "evals"
+      ],
+      "type": "object"
+    },
+    "LogParams": {
+      "description": "Typed payload of a `log` [`Notification`] — a free-form diagnostic line.",
+      "properties": {
+        "message": {
+          "type": "string"
+        },
+        "request_id": {
+          "default": 0,
+          "description": "The request this log relates to (0 for connection-level logs). Same\n`#[serde(default)]` treatment as `EventParams::request_id`, so both carry a\nconsistent `default: 0` in the generated schema (no `skip_serializing_if`,\nwhich would suppress the schema default and desync SDK generators).",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "message"
       ],
       "type": "object"
     },
@@ -783,6 +864,6 @@
       "$ref": "#/$defs/Notification"
     }
   ],
-  "description": "Wire schema for the Mira host<->study protocol (newline-delimited JSON over stdio). Protocol version 1.8. Generated from mira::protocol by `mira-schema-gen` (`just schema`); do not edit by hand.",
+  "description": "Wire schema for the Mira host<->study protocol (newline-delimited JSON over stdio). Protocol version 1.9. Generated from mira::protocol by `mira-schema-gen` (`just schema`); do not edit by hand.",
   "title": "Mira Eval Protocol"
 }

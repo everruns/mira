@@ -42,6 +42,19 @@ class EvalInfo:
     __required__ = ("models", "name", "samples", "scorers")
 
 @dataclass
+class EventParams:
+    eval: str = ""
+    kind: str = ""
+    model: str = ""
+    params: Dict[str, str] = field(default_factory=dict)
+    request_id: int = 0
+    sample: str = ""
+    text: Optional[str] = None
+    tool: Optional[str] = None
+    turn: Optional[int] = None
+    __required__ = ("eval", "kind", "model", "sample")
+
+@dataclass
 class ExecuteResult:
     eval: str = ""
     model: str = ""
@@ -67,6 +80,12 @@ class InitializeResult:
 class ListResult:
     evals: List["EvalInfo"] = field(default_factory=list)
     __required__ = ("evals",)
+
+@dataclass
+class LogParams:
+    message: str = ""
+    request_id: int = 0
+    __required__ = ("message",)
 
 @dataclass
 class ModelInfo:

@@ -30,9 +30,9 @@ use tokio::task::JoinSet;
 
 use crate::eval::Eval;
 use crate::protocol::{
-    AxisInfo, CancelParams, CancelResult, EvalInfo, ExecuteResult, InitializeResult, ListResult,
-    ModelInfo, Notification, PROTOCOL_VERSION, Request, Response, RpcError, RunParams, RunResult,
-    SampleInfo, ScoreParams, TranscriptSummary, capabilities, codes,
+    AxisInfo, CancelParams, CancelResult, EvalInfo, EventParams, ExecuteResult, InitializeResult,
+    ListResult, ModelInfo, Notification, PROTOCOL_VERSION, Request, Response, RpcError, RunParams,
+    RunResult, SampleInfo, ScoreParams, TranscriptSummary, capabilities, codes, event,
 };
 use crate::registry::registered_evals;
 use crate::runner::{aggregate_value, execute_cell, run_cell, score_transcript, verdict};
@@ -133,7 +133,7 @@ impl Study {
                 Ok(req) => req,
                 Err(e) => {
                     // Can't correlate a malformed line to an id; report and move on.
-                    write_line(&out, &log_notification(format!("bad request: {e}"))).await?;
+                    write_line(&out, &Notification::log(format!("bad request: {e}"), 0)).await?;
                     continue;
                 }
             };
@@ -215,13 +215,13 @@ impl Study {
                         );
                     }
                 };
-                // Progress so the host can render a live spinner / log.
-                let _ = write_line(
-                    stdout,
-                    &event_notification(&params.eval, &params.sample, &params.model, "started"),
-                )
-                .await;
-                match self.run(&params).await {
+                // Progress so the host can render a live spinner / log. Each
+                // event carries `request.id`, so the host correlates it to this
+                // call even with many cells (or trials) multiplexed at once.
+                let _ = write_line(stdout, &cell_event(request.id, &params, event::STARTED)).await;
+                let result = self.run(&params).await;
+                let _ = write_line(stdout, &cell_event(request.id, &params, event::FINISHED)).await;
+                match result {
                     Ok(result) => Response::ok(request.id, json(&result)),
                     Err(e) => Response::err(request.id, e),
                 }
@@ -237,12 +237,10 @@ impl Study {
                         );
                     }
                 };
-                let _ = write_line(
-                    stdout,
-                    &event_notification(&params.eval, &params.sample, &params.model, "started"),
-                )
-                .await;
-                match self.execute(&params).await {
+                let _ = write_line(stdout, &cell_event(request.id, &params, event::STARTED)).await;
+                let result = self.execute(&params).await;
+                let _ = write_line(stdout, &cell_event(request.id, &params, event::FINISHED)).await;
+                match result {
                     Ok(result) => Response::ok(request.id, json(&result)),
                     Err(e) => Response::err(request.id, e),
                 }
@@ -486,7 +484,7 @@ fn advertised_capability_params() -> crate::Metadata {
     crate::Metadata::from([
         (
             capabilities::EVENTS.to_string(),
-            serde_json::json!({ "kinds": ["started"] }),
+            serde_json::json!({ "kinds": [event::STARTED, event::FINISHED] }),
         ),
         (
             "modalities".to_string(),
@@ -495,20 +493,17 @@ fn advertised_capability_params() -> crate::Metadata {
     ])
 }
 
-fn log_notification(message: String) -> Notification {
-    Notification {
-        method: "log".into(),
-        params: serde_json::json!({ "message": message }),
-    }
-}
-
-fn event_notification(eval: &str, sample: &str, model: &str, kind: &str) -> Notification {
-    Notification {
-        method: "event".into(),
-        params: serde_json::json!({
-            "eval": eval, "sample": sample, "model": model, "kind": kind,
-        }),
-    }
+/// A typed cell-progress `event`, correlated to its request by `req_id`.
+fn cell_event(req_id: u64, p: &RunParams, kind: &str) -> Notification {
+    Notification::event(EventParams {
+        request_id: req_id,
+        eval: p.eval.clone(),
+        sample: p.sample.clone(),
+        model: p.model.clone(),
+        params: p.params.clone(),
+        kind: kind.into(),
+        ..Default::default()
+    })
 }
 
 /// Serialize `value` as one line and write it under the shared writer lock, so

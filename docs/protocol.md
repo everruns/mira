@@ -89,9 +89,26 @@ All fields beyond `message` are optional and defaulted (added in `1.5`), so a
 Fire-and-forget; no `id`, never acknowledged. Used for live progress.
 
 ```json
-{ "method": "event", "params": { "eval": "greet", "sample": "hi", "model": "sim", "kind": "started" } }
-{ "method": "log",   "params": { "message": "warming up driver" } }
+{ "method": "event", "params": { "request_id": 7, "eval": "greet", "sample": "hi", "model": "sim", "kind": "started" } }
+{ "method": "log",   "params": { "request_id": 7, "message": "warming up driver" } }
 ```
+
+Both payloads are typed and published in the schema (`EventParams`, `LogParams`).
+A notification can't carry the envelope `id` — that field classifies a line as a
+[Response](#response-study--host) — so an `event` correlates to the `run`/`execute`
+request that triggered it via a **`request_id`** in the payload, the same
+demultiplexing key responses use. This lets the host bind progress to a specific
+in-flight call even when many cells (including repeated trials of one cell) are
+multiplexed over the single pipe. `request_id` defaults to `0` ("uncorrelated"),
+so a pre-`1.9` study that omits it still validates.
+
+An `event`'s **`kind`** is drawn from an open, growing vocabulary (like
+`capabilities`): `started` (run begun, emitted first), `turn` (a reasoning
+iteration started — `turn` carries its index), `tool_call` (`tool` carries the
+name), `output` (`text` carries a streamed delta), `finished` (run done, emitted
+last). An older host carries an unrecognised future kind through verbatim rather
+than failing. The current set is indexed in `schema/v1/meta.json` as
+`event_kinds`.
 
 The host may render or ignore notifications. A conforming study is not required
 to emit any.
@@ -106,14 +123,14 @@ study.
 **Params**
 
 ```json
-{ "protocol_version": "1.8", "host": "mira-cli" }
+{ "protocol_version": "1.9", "host": "mira-cli" }
 ```
 
 **Result**
 
 ```json
 {
-  "protocol_version": "1.8",
+  "protocol_version": "1.9",
   "study": "my-evals",
   "evals": 3,
   "study_version": "0.1.0",
@@ -124,7 +141,7 @@ study.
 The study replies with the `protocol_version` it implements. Compatibility is
 by **major**: a host refuses a study whose major differs from its own; a
 differing minor is additive and tolerated (see [Versioning](#versioning)). The
-current version is **`1.8`**.
+current version is **`1.9`**.
 
 `capabilities` lets a host feature-detect additively instead of sniffing
 versions. Defined tokens: `axes` (study advertises extra axes and honours
@@ -446,7 +463,7 @@ stdin, by contrast, ends *every* in-flight run at once.)
 
 ## Versioning
 
-The protocol uses `MAJOR.MINOR` (`PROTOCOL_VERSION`, currently `1.8`), all minors
+The protocol uses `MAJOR.MINOR` (`PROTOCOL_VERSION`, currently `1.9`), all minors
 additive over `1.0`: `1.1` added the optional `ModelInfo.provider` field and the
 `execute`/`score` methods plus their capabilities; `1.2` added the optional
 `transcript.metrics` map; `1.3` added the optional `transcript.error_kind`
@@ -457,8 +474,10 @@ optional/defaulted); `1.6` added trials/repetitions — the optional
 `trial`/`trials`/`seed` fields on the run/execute/score payloads, `EvalInfo.trials`
 + `EvalInfo.seed`, and the `trials` capability; `1.7` added the optional `metadata`
 map to `SampleInfo` and `ModelInfo`; `1.8` added the `cancel` method and
-capability. A `1.0` study (or any study implementing only `run`) interoperates
-with a `1.8` host.
+capability; `1.9` gave `event`/`log` notifications a typed, schematized payload
+(`EventParams`/`LogParams`) and a `request_id` correlating each progress event to
+its originating `run` request. A `1.0` study (or any study implementing only
+`run`, emitting no notifications) interoperates with a `1.9` host.
 
 - A **MINOR** bump is **additive**: new optional fields, new notification kinds,
   new capability tokens. A newer peer must keep talking to an older one.
@@ -487,10 +506,12 @@ The wire types have a generated, language-neutral definition under `schema/`:
 - `schema/v1/schema.json` — a **JSON Schema 2020-12** document. The root is an
   `anyOf` over the three envelopes (`Request`, `Response`, `Notification`); every
   payload type (`InitializeResult`, `ListResult`/`EvalInfo`, `RunParams`,
-  `RunResult`/`TranscriptSummary`, `ExecuteResult`/`ScoreParams` and the full
-  `Transcript`, `Score`, …) is published under `$defs`.
+  `RunResult`/`TranscriptSummary`, `ExecuteResult`/`ScoreParams`, the notification
+  payloads `EventParams`/`LogParams`, and the full `Transcript`, `Score`, …) is
+  published under `$defs`.
 - `schema/v1/meta.json` — a small index: the current `version`, `min_version`,
-  the method list, and the defined `capabilities` tokens.
+  the method list, the defined `capabilities` tokens, and the `event_kinds`
+  vocabulary.
 
 The directory is versioned by the protocol **major** (`v1`). The artifacts are
 **generated from the Rust types** in `mira::protocol` by the `mira-schema-gen`
