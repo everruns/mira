@@ -238,12 +238,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let host = Host::spawn(build_command(&cli.target))
         .await?
         .on_event(move |n| {
-            // Per-cell `event` notifications drive the bar's message from the run
-            // loop, so they no longer spam stderr. Only study logs are surfaced.
-            if n.method == "log"
-                && let Some(msg) = n.params["message"].as_str()
-            {
-                progress_evt.suspend(|| eprintln!("  study: {msg}"));
+            // Per-cell `event` notifications correlate to their `run` by
+            // `request_id`; here only study `log`s are surfaced, so they no
+            // longer spam stderr.
+            if let Some(log) = n.as_log() {
+                progress_evt.suspend(|| eprintln!("  study: {}", log.message));
             }
         });
 

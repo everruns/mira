@@ -89,6 +89,17 @@ adheres to [Semantic Versioning](https://semver.org/).
   input/output modalities, concurrency hints). Open-vocabulary like `metadata`.
   **Staged behind `protocol-unstable`** (a new typed wire field with no stable
   consumer yet); see `specs/architecture.md` §14.5.
+- **Typed, correlated progress notifications** (protocol `1.9`) — `event` and
+  `log` notifications now have typed, schematized payloads (`EventParams`,
+  `LogParams`, published in `schema/v1/`) instead of an ad-hoc JSON bag. Each
+  `event` carries a **`request_id`** correlating it to the originating
+  `run`/`execute` request — the same demultiplexing key responses use — so a host
+  can bind progress to a specific in-flight call even when many cells (or repeated
+  trials of one cell) are multiplexed over the single pipe. `event.kind` is an
+  open, growing vocabulary (`started`, `turn`, `tool_call`, `output`, `finished`),
+  indexed in `meta.json` as `event_kinds`. Fully backward-compatible: a pre-`1.9`
+  study's untyped events still parse (`request_id` defaults to `0`). Foundation
+  for the live-streaming transcript view (`specs/architecture.md` §12).
 - **Python SDK** (`sdks/python`) — a native, pure-stdlib library for authoring
   Mira eval studies in Python (no Rust dependency). Speaks the protocol over
   stdio; its wire types are **generated from `schema/v1/`** (the same contract

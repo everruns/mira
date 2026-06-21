@@ -11,8 +11,8 @@
 use std::path::PathBuf;
 
 use mira::protocol::{
-    self, CancelParams, CancelResult, ExecuteResult, InitializeResult, ListResult, Notification,
-    Request, Response, RunParams, RunResult, ScoreParams,
+    self, CancelParams, CancelResult, EventParams, ExecuteResult, InitializeResult, ListResult,
+    LogParams, Notification, Request, Response, RunParams, RunResult, ScoreParams,
 };
 use schemars::SchemaGenerator;
 use schemars::generate::SchemaSettings;
@@ -44,6 +44,10 @@ pub fn build_schema() -> serde_json::Value {
     generator.subschema_for::<ScoreParams>();
     generator.subschema_for::<CancelParams>();
     generator.subschema_for::<CancelResult>();
+    // Notification payloads: `event`/`log` ride inside the notification's
+    // free-form `params`, so publish their typed shapes in `$defs` too.
+    generator.subschema_for::<EventParams>();
+    generator.subschema_for::<LogParams>();
 
     let defs = generator.take_definitions(true);
 
@@ -84,6 +88,7 @@ pub fn build_meta() -> serde_json::Value {
             protocol::capabilities::TRIALS,
             protocol::capabilities::CANCEL,
         ],
+        "event_kinds": protocol::event::ALL,
     })
 }
 

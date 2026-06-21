@@ -145,8 +145,9 @@ The boundary is the natural seam for **polyglot studies** — any program in any
 language that speaks the protocol is a valid study.
 
 **Concurrency & adaptive throttling.** The host multiplexes many `run`s over the
-single pipe (responses correlate by `id`), and the study dispatches them on
-independent tasks. How many run at once is the host's call, smallest-wins across
+single pipe (responses correlate by `id`; progress `event` notifications correlate
+by a `request_id` in their payload, since a notification can't carry the envelope
+`id`), and the study dispatches them on independent tasks. How many run at once is the host's call, smallest-wins across
 three knobs: a **global** cap (`-j/--max-concurrent`), a **per-provider** cap
 (`--provider-concurrency anthropic=2,…`), and **adaptive reduction** — a cell
 whose result carries a rate-limit signal (HTTP 429, "overloaded", quota; see
@@ -309,7 +310,11 @@ artifacts (full transcripts) are thus stored **separately** from eval results
 
 Cost caps as a hard run limit (vs. a scorer), historical trend aggregation
 across runs, and a live-streaming transcript view. Each has a defined seam and
-does not require a breaking change to land.
+does not require a breaking change to land. The transcript-view seam is now
+half-built: `event` notifications carry a typed, schematized payload
+(`EventParams`) with a growing `kind` vocabulary (`started`/`turn`/`tool_call`/
+`output`/`finished`) and a `request_id` correlating each event to its run, so a
+host can render per-cell progress live (protocol `1.5`).
 
 **Run archive (landed seam).** `mira run --save` / `mira score --save` archive
 each invocation into `<results_dir>/<run_id>/` (`report.json`, `report.html`, and

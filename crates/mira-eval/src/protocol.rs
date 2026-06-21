@@ -65,8 +65,12 @@ use crate::{Metadata, Params, Score, Timing, Transcript, Usage};
 /// (agent, effort, price, …) and per-sample provenance (repo, difficulty, …) ride
 /// their own column and the host can group reports by them; `1.8` added the
 /// `cancel` method (and its `cancel` capability) to abort one in-flight run by
-/// request `id`.
-pub const PROTOCOL_VERSION: &str = "1.8";
+/// request `id`; `1.9` gave `event`/`log` notifications a typed, schematized
+/// payload ([`EventParams`]/[`LogParams`]) and a `request_id` correlating each
+/// progress event to its originating `run` request (the envelope `id` classifies
+/// a line as a Response, so the request id rides in the payload). Both fields
+/// default, so an older study's untyped events still parse.
+pub const PROTOCOL_VERSION: &str = "1.9";
 
 /// The oldest protocol version this build can still talk to.
 pub const MIN_PROTOCOL_VERSION: &str = "1.0";
@@ -225,6 +229,96 @@ pub struct Notification {
     pub params: serde_json::Value,
 }
 
+impl Notification {
+    /// The `method` of a progress `event` notification.
+    pub const EVENT: &'static str = "event";
+    /// The `method` of a free-form `log` notification.
+    pub const LOG: &'static str = "log";
+
+    /// Build a typed `event` progress notification.
+    pub fn event(params: EventParams) -> Self {
+        Self {
+            method: Self::EVENT.into(),
+            // Infallible for a plain struct of scalars/strings; `expect` keeps a
+            // serialization bug loud rather than silently emitting `params: null`.
+            params: serde_json::to_value(params).expect("EventParams serializes"),
+        }
+    }
+
+    /// Build a `log` notification. `request_id` is the request being serviced
+    /// (0 for connection-level logs, e.g. a malformed request line).
+    pub fn log(message: impl Into<String>, request_id: u64) -> Self {
+        Self {
+            method: Self::LOG.into(),
+            params: serde_json::to_value(LogParams {
+                message: message.into(),
+                request_id,
+            })
+            .expect("LogParams serializes"),
+        }
+    }
+
+    /// Parse the payload as [`EventParams`], if this is an `event` notification.
+    pub fn as_event(&self) -> Option<EventParams> {
+        (self.method == Self::EVENT)
+            .then(|| serde_json::from_value(self.params.clone()).ok())
+            .flatten()
+    }
+
+    /// Parse the payload as [`LogParams`], if this is a `log` notification.
+    pub fn as_log(&self) -> Option<LogParams> {
+        (self.method == Self::LOG)
+            .then(|| serde_json::from_value(self.params.clone()).ok())
+            .flatten()
+    }
+}
+
+/// Typed payload of an `event` progress [`Notification`] for one in-flight run.
+///
+/// Correlated to its originating `run`/`execute` request by `request_id` — the
+/// same demultiplexing key responses use — so a host can bind progress to a
+/// specific call even when many cells (including repeated trials of one cell)
+/// are multiplexed over the single pipe.
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+pub struct EventParams {
+    /// The `id` of the `run`/`execute` request this event belongs to. Defaulted
+    /// to 0 ("uncorrelated") so a pre-`1.9` study that omits it still parses.
+    #[serde(default)]
+    pub request_id: u64,
+    pub eval: String,
+    pub sample: String,
+    pub model: String,
+    /// Extra matrix-axis values for the cell (empty for a model-only matrix).
+    #[serde(default, skip_serializing_if = "Params::is_empty")]
+    pub params: Params,
+    /// One of the [`event`] kinds. A future kind an older host doesn't recognise
+    /// is carried through verbatim (forward-compat), not rejected.
+    pub kind: String,
+    /// Reasoning-turn index, for an [`event::TURN`] event.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub turn: Option<usize>,
+    /// Tool name, for an [`event::TOOL_CALL`] event.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tool: Option<String>,
+    /// Streamed output delta, for an [`event::OUTPUT`] event.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub text: Option<String>,
+}
+
+/// Typed payload of a `log` [`Notification`] — a free-form diagnostic line.
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+pub struct LogParams {
+    pub message: String,
+    /// The request this log relates to (0 for connection-level logs). Same
+    /// `#[serde(default)]` treatment as `EventParams::request_id`, so both carry a
+    /// consistent `default: 0` in the generated schema (no `skip_serializing_if`,
+    /// which would suppress the schema default and desync SDK generators).
+    #[serde(default)]
+    pub request_id: u64,
+}
+
 // ----- method payloads ------------------------------------------------------
 
 /// `initialize` result.
@@ -288,6 +382,30 @@ pub mod capabilities {
     /// Without it, a host can only stop work by closing stdin, which ends every
     /// in-flight run at once.
     pub const CANCEL: &str = "cancel";
+}
+
+/// Defined `event` notification kinds — the value of [`EventParams::kind`].
+///
+/// Like [`capabilities`], this is an **open, growing** token vocabulary, not a
+/// closed Rust enum: an older host must carry an unrecognised *future* kind
+/// through rather than fail to parse it (forward-compat contract #1), so `kind`
+/// stays a `String` and these constants name the stable vocabulary without
+/// freezing it. (Contrast [`crate::ErrorKind`], a closed two-state enum.)
+pub mod event {
+    /// A cell's run has begun. Emitted once, before any other event for the cell.
+    pub const STARTED: &str = "started";
+    /// A reasoning turn / iteration started; [`super::EventParams::turn`] carries
+    /// its index.
+    pub const TURN: &str = "turn";
+    /// A tool was invoked; [`super::EventParams::tool`] carries its name.
+    pub const TOOL_CALL: &str = "tool_call";
+    /// A chunk of streamed output; [`super::EventParams::text`] carries the delta.
+    pub const OUTPUT: &str = "output";
+    /// The cell's run finished (success or error). Emitted once, last.
+    pub const FINISHED: &str = "finished";
+
+    /// Every defined kind, for the machine-readable `meta.json` index.
+    pub const ALL: &[&str] = &[STARTED, TURN, TOOL_CALL, OUTPUT, FINISHED];
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -740,6 +858,61 @@ mod tests {
             serde_json::from_str(&serde_json::to_string(&info).unwrap()).unwrap();
         assert_eq!(back.metadata.get("difficulty").unwrap(), "hard");
         assert_eq!(back.metadata.get("retries").unwrap(), &serde_json::json!(3));
+    }
+
+    #[test]
+    fn event_notification_roundtrips_and_correlates() {
+        let n = Notification::event(EventParams {
+            request_id: 42,
+            eval: "greet".into(),
+            sample: "hi".into(),
+            model: "sim".into(),
+            kind: event::TOOL_CALL.into(),
+            tool: Some("search".into()),
+            ..Default::default()
+        });
+        // A notification never carries the envelope `id` — that classifies a
+        // Response. The request id rides in the payload instead.
+        let line = serde_json::to_string(&n).unwrap();
+        assert!(!line.contains("\"id\""));
+        assert!(serde_json::from_str::<Response>(&line).is_err());
+
+        let back: Notification = serde_json::from_str(&line).unwrap();
+        let ev = back.as_event().expect("parses as event");
+        assert_eq!(ev.request_id, 42);
+        assert_eq!(ev.kind, event::TOOL_CALL);
+        assert_eq!(ev.tool.as_deref(), Some("search"));
+        // A `log` is not an `event` and vice versa.
+        assert!(back.as_log().is_none());
+    }
+
+    #[test]
+    fn pre_1_9_untyped_event_still_parses() {
+        // A pre-1.9 study emitted events with no `request_id` and no typed
+        // payload fields. Forward-compat: a 1.9 host must still parse them,
+        // defaulting the correlation id to 0 ("uncorrelated").
+        let line = r#"{"method":"event","params":
+            {"eval":"greet","sample":"hi","model":"sim","kind":"started"}}"#;
+        let n: Notification = serde_json::from_str(line).unwrap();
+        let ev = n.as_event().expect("legacy event parses");
+        assert_eq!(ev.request_id, 0);
+        assert_eq!(ev.kind, "started");
+    }
+
+    #[test]
+    fn log_notification_roundtrips() {
+        let n = Notification::log("warming up", 7);
+        let back: Notification = serde_json::from_str(&serde_json::to_string(&n).unwrap()).unwrap();
+        let log = back.as_log().expect("parses as log");
+        assert_eq!(log.message, "warming up");
+        assert_eq!(log.request_id, 7);
+
+        // A pre-1.9 untyped log (no request_id) still parses, id defaulting to 0.
+        let legacy: Notification =
+            serde_json::from_str(r#"{"method":"log","params":{"message":"hi"}}"#).unwrap();
+        let log = legacy.as_log().unwrap();
+        assert_eq!(log.message, "hi");
+        assert_eq!(log.request_id, 0);
     }
 
     #[test]
