@@ -108,8 +108,8 @@ semantics, so N-sampling is first-class — not faked through an axis. `Eval::tr
 repeats each cell `n` times. Crucially, trials are **not an axis**: they're
 repetitions of the *same* logical cell, so they don't cross-multiply with the
 matrix and they're grouped back for aggregation. A trial carries `(index, count,
-seed)` (`mira::Trial`) on the wire (`trial`/`trials`/`seed`, protocol `1.5`, all
-additive) and reaches the subject via `RunCx::seed()`; seeding is deterministic
+seed)` (`mira::Trial`) on the wire (`trial`/`trials`/`seed`, all additive) and
+reaches the subject via `RunCx::seed()`; seeding is deterministic
 (`seed + index`) so a repetition set replays identically. A repeated cell's key
 gains a `#index` suffix (`flaky/answer@sim#2`) while all trials share one *logical*
 key (`RunResult::logical_key`); the host groups by that key. The **aggregation
@@ -251,8 +251,8 @@ captured files. Usage and timing stay **typed** because the shared budget scorer
 depend on their shape; anything else is an **open vocabulary** — `metrics`, a
 `string → f64` map a subject fills with custom numeric signals (recall@k,
 energy_joules, …) and grades with `metric_within`/`metric_at_least`. The map is a
-versioned, additive part of the wire (it bumped the protocol to `1.2`), but new
-metric *keys* need no further protocol change. Subjects populate what they can
+versioned, additive part of the wire, but new metric *keys* need no further
+protocol change. Subjects populate what they can
 measure (`CliSubject` and
 `RuntimeSubject` time the run; the event walker totals usage from JSONL). Budget
 scorers (`tokens_within`, `cost_within`, `latency_within`, `ttft_within`,
@@ -296,9 +296,8 @@ convenience path):
   returns the scored result. Stateless w.r.t. execution: the transcript comes in
   over the wire, so the host can replay a stored one.
 
-Both are advertised via new capability tokens (`execute`, `score`) and land as a
-**minor** protocol bump (`1.1`) — older studies that only implement `run` keep
-working. The shared in-process seam is `runner::execute_cell` +
+Both are advertised via capability tokens (`execute`, `score`) and are additive —
+older studies that only implement `run` keep working. The shared in-process seam is `runner::execute_cell` +
 `runner::score_transcript`, with `run_cell` composing the two so in-process and
 over-the-wire runs score identically (as before).
 
@@ -318,7 +317,7 @@ does not require a breaking change to land. The transcript-view seam is now
 half-built: `event` notifications carry a typed, schematized payload
 (`EventParams`) with a growing `kind` vocabulary (`started`/`turn`/`tool_call`/
 `output`/`finished`) and a `request_id` correlating each event to its run, so a
-host can render per-cell progress live (protocol `1.5`).
+host can render per-cell progress live.
 
 **Reverse request channel (study→host) — reserved seam.** Every request flows
 host→study today; the study is self-contained and keys live study-side by design.
@@ -378,8 +377,8 @@ Three limitations of the v0.1 cut, addressed together because they share a root:
 the core types were *text-shaped* and *single-shot*. All are now on the stable
 contract: multimodal **inputs** and **interactive** evals never needed the wire;
 multimodal **output** and structured **capability parameters** were trialled
-behind `protocol-unstable` and **promoted to the committed wire in protocol
-`1.11`** (typed `Part`s on the transcript + `InitializeResult.capability_params`).
+behind `protocol-unstable` and **promoted onto the committed `1.0` wire** (typed
+`Part`s on the transcript + `InitializeResult.capability_params`).
 
 ### 14.1 Content model (`Part`)
 
@@ -402,14 +401,15 @@ type — the study owns the dataset and the host addresses samples by id — so 
 schema, `PROTOCOL_VERSION`, and the SDKs are untouched. Example:
 `examples/multimodal/`.
 
-### 14.3 Multimodal outputs — stable (protocol `1.11`)
+### 14.3 Multimodal outputs — stable
 
 `Transcript` (and its wire summary) carry `output: Vec<Part>` — the response as
 typed parts, with `final_response` kept as the canonical text projection so
 text-only scorers keep working. A modality scorer (`scorer::produced_modality`)
 grades it. Because `Transcript` *is* a wire type (it rides in `execute`/`score`),
-this was trialled behind `protocol-unstable` first, then **promoted in `1.11`**:
-the committed `schema/` now publishes `output` plus the `Part` / `Source` defs,
+this was trialled behind `protocol-unstable` first, then **promoted onto the
+committed `1.0` wire**: the committed `schema/` publishes `output` plus the
+`Part` / `Source` defs,
 and the SDKs mirror them (the Python codegen renders the `Part`/`Source` object
 unions as pass-through dicts — the wire is `kind`-tagged JSON). `final_response`
 stays the text projection throughout, so nothing text-only had to change.
@@ -436,7 +436,7 @@ Example: `examples/interactive/` (a clarify-then-answer dialog). A
 model-graded responder (an LLM playing the user) is just a closure that calls a
 judge, no new machinery.
 
-### 14.5 Capability parameters — stable (protocol `1.11`)
+### 14.5 Capability parameters — stable
 
 `capabilities: Vec<String>` carries bare tokens; it can't express *config* (which
 event kinds a study emits, supported input/output modalities, a concurrency
@@ -445,6 +445,6 @@ hint). `InitializeResult` carries a sibling `capability_params` map
 `metadata`, so new *keys* never need a version bump. The study advertises it from
 `initialize` (event kinds + supported modalities); a host reads it additively,
 defaulting to today's behaviour when a token is absent. Trialled behind
-`protocol-unstable`, then **promoted in `1.11`** alongside §14.3 (the field is a
-typed wire addition, so adding the field itself — unlike adding keys — took the
-minor bump).
+`protocol-unstable`, then **promoted onto the committed `1.0` wire** alongside
+§14.3 (the field is a typed wire addition, so adding the field itself — unlike
+adding keys — needed the staging path before promotion).

@@ -57,35 +57,16 @@ use crate::{Metadata, Params, Score, Timing, Transcript, Usage};
 /// ignored (no `deny_unknown_fields`) and new fields are `#[serde(default)]`, so
 /// adding a field is a minor, non-breaking change.
 ///
-/// History (all additive over `1.0`): `1.1` added `ModelInfo.provider`; `1.2`
-/// added the optional `transcript.metrics` map; `1.3` added the optional
-/// `transcript.error_kind` (subject vs. infrastructure) so the host can retry
-/// infra-errored cells; `1.4` widened `metadata` values from strings to
-/// open-ended JSON (a newer peer may now send a number/bool/object/array where
-/// an older one only sent strings); `1.5` promoted [`RpcError`] from
-/// `{ message }` to the JSON-RPC-shaped `{ code, message, retryable, data }` (all
-/// new fields optional/defaulted), so a protocol-level failure can be classified
-/// and retried without parsing the human message; `1.6` added trials/repetitions —
-/// the optional `trial`/`trials`/`seed` fields on `RunParams`/`ScoreParams`/
-/// `RunResult`/`ExecuteResult` and the optional `EvalInfo.trials`/`EvalInfo.seed`,
-/// so a cell can be run N times (seeded for reproducibility) and the host
-/// aggregates pass@k / pass-rate / variance over the repetitions; `1.7` added the
-/// optional `metadata` map to `ModelInfo` and `SampleInfo`, so per-model config
-/// (agent, effort, price, …) and per-sample provenance (repo, difficulty, …) ride
-/// their own column and the host can group reports by them; `1.8` added the
-/// `cancel` method (and its `cancel` capability) to abort one in-flight run by
-/// request `id`; `1.9` gave `event`/`log` notifications a typed, schematized
-/// payload ([`EventParams`]/[`LogParams`]) and a `request_id` correlating each
-/// progress event to its originating `run` request (the envelope `id` classifies
-/// a line as a Response, so the request id rides in the payload). Both fields
-/// default, so an older study's untyped events still parse; `1.10` added
-/// cursor-paginated sample listing — the optional `EvalInfo.next_cursor` plus the
-/// `list_samples` method and the `paginate` capability — so a study can advertise
-/// thousands of (or lazily generated) samples without enumerating them all in one
-/// `list`; `1.11` promoted multimodal output (`TranscriptSummary.output`, typed
-/// `Part`s) and structured `InitializeResult.capability_params` from the
-/// `protocol-unstable` staging ground onto the committed wire.
-pub const PROTOCOL_VERSION: &str = "1.11";
+/// This is the **`1.0`** baseline — the initial stable protocol. It carries the
+/// full method set (`initialize`, `list`, `list_samples`, `run`, `execute`,
+/// `score`, `cancel`), typed and `request_id`-correlated `event`/`log`
+/// notifications ([`EventParams`]/[`LogParams`]), JSON-RPC-shaped [`RpcError`]s,
+/// trials/seed repetitions (pass@k / variance), cursor-paginated sample listing,
+/// eval/sample/model `metadata` (open-ended JSON), and multimodal `output` plus
+/// structured `capability_params`. A later addition bumps the **minor** and must
+/// stay additive (a new optional field, method, or capability token); a breaking
+/// wire change bumps the **major**.
+pub const PROTOCOL_VERSION: &str = "1.0";
 
 /// The oldest protocol version this build can still talk to.
 pub const MIN_PROTOCOL_VERSION: &str = "1.0";
@@ -159,8 +140,8 @@ impl Response {
 /// and retry the request **without parsing the human `message`**, and `data`
 /// carries optional structured context.
 ///
-/// All fields beyond `message` are optional and defaulted, so a `1.4`-era peer
-/// that sends bare `{ "message": "…" }` still parses (forward/backward compat).
+/// All fields beyond `message` are optional and defaulted, so a peer that sends
+/// bare `{ "message": "…" }` still parses (forward/backward compat).
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub struct RpcError {
@@ -298,7 +279,7 @@ impl Notification {
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub struct EventParams {
     /// The `id` of the `run`/`execute` request this event belongs to. Defaulted
-    /// to 0 ("uncorrelated") so a pre-`1.9` study that omits it still parses.
+    /// to 0 ("uncorrelated") so a study that omits it still parses.
     #[serde(default)]
     pub request_id: u64,
     pub eval: String,
@@ -485,7 +466,7 @@ pub struct EvalInfo {
     /// The **first page** of this eval's samples. When `next_cursor` is `Some`,
     /// more pages follow — fetch them with `list_samples` (see
     /// [`ListSamplesParams`]) until the cursor runs out. A study that fits its
-    /// whole dataset here leaves `next_cursor` empty, exactly as before `1.10`.
+    /// whole dataset here leaves `next_cursor` empty.
     pub samples: Vec<SampleInfo>,
     /// Opaque continuation token: present iff more samples remain beyond
     /// `samples`. Pass it back via `list_samples` to fetch the next page. The
@@ -845,7 +826,7 @@ mod tests {
     #[test]
     fn version_compatibility() {
         assert!(version_compatible(PROTOCOL_VERSION));
-        assert!(version_compatible("1.5")); // newer minor, same major
+        assert!(version_compatible("1.5")); // a future minor, same major
         assert!(!version_compatible("2.0")); // newer major
         assert!(!version_compatible("0.9")); // older major
         assert_eq!(version_major("1.4"), 1);
@@ -855,7 +836,7 @@ mod tests {
     #[test]
     fn unknown_fields_are_ignored_for_forward_compat() {
         // A future study adds fields the host doesn't know — must still parse.
-        let line = r#"{"protocol_version":"1.7","study":"x","evals":2,
+        let line = r#"{"protocol_version":"1.1","study":"x","evals":2,
             "capabilities":["axes","future_thing"],"brand_new_field":{"a":1}}"#;
         let info: InitializeResult = serde_json::from_str(line).unwrap();
         assert_eq!(info.evals, 2);
@@ -872,16 +853,16 @@ mod tests {
         assert_eq!(info.max_turns, 0);
         assert!(info.axes.is_empty());
         assert_eq!(info.samples.len(), 1);
-        // The new 1.5 per-sample / per-model metadata defaults to empty.
+        // The per-sample / per-model metadata defaults to empty.
         assert!(info.samples[0].metadata.is_empty());
         assert!(info.models[0].metadata.is_empty());
     }
 
     #[test]
     fn sample_and_model_metadata_omitted_when_empty() {
-        // Forward-compat: a 1.5 study that sets no sample/model metadata must
-        // produce the exact 1.4 wire shape (no `metadata` key), so an older host
-        // reading it sees nothing new. `skip_serializing_if` guarantees this.
+        // Forward-compat: a study that sets no sample/model metadata must omit
+        // the `metadata` key entirely, so an older host reading it sees nothing
+        // new. `skip_serializing_if` guarantees this.
         let sample = serde_json::to_string(&SampleInfo {
             id: "hi".into(),
             tags: vec![],
@@ -942,10 +923,10 @@ mod tests {
     }
 
     #[test]
-    fn pre_1_9_untyped_event_still_parses() {
-        // A pre-1.9 study emitted events with no `request_id` and no typed
-        // payload fields. Forward-compat: a 1.9 host must still parse them,
-        // defaulting the correlation id to 0 ("uncorrelated").
+    fn untyped_event_still_parses() {
+        // A study may emit events with no `request_id` and no typed payload
+        // fields. Forward-compat: the host must still parse them, defaulting
+        // the correlation id to 0 ("uncorrelated").
         let line = r#"{"method":"event","params":
             {"eval":"greet","sample":"hi","model":"sim","kind":"started"}}"#;
         let n: Notification = serde_json::from_str(line).unwrap();
@@ -962,7 +943,7 @@ mod tests {
         assert_eq!(log.message, "warming up");
         assert_eq!(log.request_id, 7);
 
-        // A pre-1.9 untyped log (no request_id) still parses, id defaulting to 0.
+        // An untyped log (no request_id) still parses, id defaulting to 0.
         let legacy: Notification =
             serde_json::from_str(r#"{"method":"log","params":{"message":"hi"}}"#).unwrap();
         let log = legacy.as_log().unwrap();
@@ -993,9 +974,9 @@ mod tests {
         };
         let line = serde_json::to_string(&info).unwrap();
         assert!(!line.contains("next_cursor"));
-        let pre_1_5 = r#"{"name":"greet","samples":[{"id":"hi"}],
+        let minimal = r#"{"name":"greet","samples":[{"id":"hi"}],
             "scorers":[],"models":[]}"#;
-        let back: EvalInfo = serde_json::from_str(pre_1_5).unwrap();
+        let back: EvalInfo = serde_json::from_str(minimal).unwrap();
         assert!(back.next_cursor.is_none());
     }
 
@@ -1063,7 +1044,7 @@ mod tests {
 
     #[test]
     fn rpc_error_backward_compatible_with_bare_message() {
-        // A 1.4-era peer sends only `message`; the new optional fields default.
+        // A peer sends only `message`; the optional fields default.
         let back: RpcError = serde_json::from_str(r#"{"message":"no such eval"}"#).unwrap();
         assert_eq!(back.message, "no such eval");
         assert_eq!(back.code, 0);
@@ -1130,7 +1111,7 @@ mod tests {
 
     #[test]
     fn pre_trials_payloads_parse_as_single_trial() {
-        // A pre-trials study (pre-1.6) omits trial/trials/seed entirely. The host must parse
+        // A study may omit trial/trials/seed entirely. The host must parse
         // such a RunResult and treat it as a single, unrepeated cell (plain key).
         let line = r#"{"eval":"greet","sample":"hi","model":"sim","passed":true,
             "aggregate":1.0,"scores":[],
@@ -1143,7 +1124,7 @@ mod tests {
         assert_eq!(r.key(), "greet/hi@sim"); // no `#trial` suffix
         assert_eq!(r.logical_key(), "greet/hi@sim");
 
-        // Likewise an EvalInfo from a pre-1.5 study omits trials/seed.
+        // Likewise an EvalInfo may omit trials/seed.
         let line = r#"{"name":"greet","samples":[{"id":"hi"}],"scorers":["s"],
             "models":[{"label":"sim","available":true}]}"#;
         let e: EvalInfo = serde_json::from_str(line).unwrap();

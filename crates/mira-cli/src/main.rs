@@ -604,7 +604,7 @@ fn concurrency(args: &RunArgs) -> Concurrency {
 }
 
 /// Error out if the study didn't advertise `cap`, naming the `feature` that needs
-/// it — so a `1.0`/`run`-only study fails fast with a clear message rather than a
+/// it — so a `run`-only study fails fast with a clear message rather than a
 /// generic RPC error mid-run.
 fn require_capability(
     info: &InitializeResult,
@@ -615,8 +615,7 @@ fn require_capability(
         return Ok(());
     }
     Err(format!(
-        "study {} doesn't support {feature}: it doesn't advertise the `{cap}` capability \
-         (needs protocol >= 1.1)",
+        "study {} doesn't support {feature}: it doesn't advertise the `{cap}` capability",
         info.study
     )
     .into())

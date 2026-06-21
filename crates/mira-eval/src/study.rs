@@ -48,9 +48,9 @@ type SharedWriter = Arc<Mutex<Box<dyn AsyncWrite + Send + Unpin>>>;
 type Inflight = Arc<std::sync::Mutex<HashMap<u64, oneshot::Sender<()>>>>;
 
 /// Default samples-per-page when paginating `list`. Chosen so realistic small
-/// studies (examples, smoke tests) fit in one page — `list` then behaves exactly
-/// as before `1.10` — while a thousands-of-samples dataset (e.g. SWE-bench full)
-/// is chunked across `list` + `list_samples` instead of one giant line.
+/// studies (examples, smoke tests) fit in one page — `list` then enumerates every
+/// sample inline — while a thousands-of-samples dataset (e.g. SWE-bench full) is
+/// chunked across `list` + `list_samples` instead of one giant line.
 pub const DEFAULT_PAGE_SIZE: usize = 500;
 
 /// Your eval program: a named bundle of [`Eval`]s exposed to the host over the
@@ -60,7 +60,7 @@ pub struct Study {
     name: String,
     evals: Vec<Eval>,
     /// Max samples per `list`/`list_samples` page. `None` disables pagination
-    /// (every sample is enumerated inline in `list`, the pre-`1.5` behaviour).
+    /// (every sample is enumerated inline in `list`).
     page_size: Option<usize>,
 }
 
@@ -367,7 +367,7 @@ impl Study {
     /// One page of an eval's samples starting at `offset`, plus the cursor for
     /// the page after it (`None` once the dataset is exhausted). With pagination
     /// disabled (`page_size == None`) a single page holds every remaining sample
-    /// and there is never a next cursor — the pre-`1.10` behaviour.
+    /// and there is never a next cursor.
     fn sample_page(&self, eval: &Eval, offset: usize) -> (Vec<SampleInfo>, Option<String>) {
         let all = &eval.dataset.samples;
         let start = offset.min(all.len());
@@ -650,7 +650,7 @@ mod tests {
         assert_eq!(e.description, "greeting eval");
         assert_eq!(e.metadata.get("suite").unwrap(), "smoke");
         assert_eq!(e.samples[0].tags, vec!["smoke"]);
-        // Per-sample and per-model metadata now ride their own wire columns (1.5).
+        // Per-sample and per-model metadata ride their own wire columns.
         assert_eq!(e.samples[0].metadata.get("difficulty").unwrap(), "easy");
         assert_eq!(e.models[0].label, "sim");
         assert!(e.models[0].available);
