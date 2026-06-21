@@ -151,7 +151,8 @@ This expands to `samples × models × effort` cells, each with a stable key like
 
 ## Metadata & observability
 
-Metadata is free-form `string → string` on evals, samples, and models. It rides
+Metadata is free-form, open-ended `string → JSON` on evals, samples, and
+models — values may be a string, number, bool, or a nested object/array. It rides
 through the protocol and surfaces in `list` and reports — the place to put trace
 URLs, dashboard deep-links, commit SHAs, and dataset provenance.
 

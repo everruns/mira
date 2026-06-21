@@ -834,7 +834,7 @@ fn print_listing(listing: &ListResult) {
             let meta: Vec<String> = eval
                 .metadata
                 .iter()
-                .map(|(k, v)| format!("{k}={v}"))
+                .map(|(k, v)| format!("{k}={}", mira::metadata_display(v)))
                 .collect();
             println!("  meta:    {}", meta.join(", "));
         }

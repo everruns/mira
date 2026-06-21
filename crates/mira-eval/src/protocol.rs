@@ -29,7 +29,7 @@
 
 use serde::{Deserialize, Serialize};
 
-use crate::{Metadata, Score, Timing, Transcript, Usage};
+use crate::{Metadata, Params, Score, Timing, Transcript, Usage};
 
 /// The protocol version advertised by `initialize`, as `MAJOR.MINOR`.
 ///
@@ -48,8 +48,10 @@ use crate::{Metadata, Score, Timing, Transcript, Usage};
 /// History (all additive over `1.0`): `1.1` added `ModelInfo.provider`; `1.2`
 /// added the optional `transcript.metrics` map; `1.3` added the optional
 /// `transcript.error_kind` (subject vs. infrastructure) so the host can retry
-/// infra-errored cells.
-pub const PROTOCOL_VERSION: &str = "1.3";
+/// infra-errored cells; `1.4` widened `metadata` values from strings to
+/// open-ended JSON (a newer peer may now send a number/bool/object/array where
+/// an older one only sent strings).
+pub const PROTOCOL_VERSION: &str = "1.4";
 
 /// The oldest protocol version this build can still talk to.
 pub const MIN_PROTOCOL_VERSION: &str = "1.0";
@@ -231,8 +233,8 @@ pub struct RunParams {
     pub model: String,
     /// Chosen value per extra matrix axis. Empty/omitted for a model-only
     /// matrix; defaulted so older hosts/servers interoperate.
-    #[serde(default, skip_serializing_if = "Metadata::is_empty")]
-    pub params: Metadata,
+    #[serde(default, skip_serializing_if = "Params::is_empty")]
+    pub params: Params,
 }
 
 /// Lightweight transcript carried in results and checkpoints (the raw event
@@ -304,8 +306,8 @@ pub struct ExecuteResult {
     pub sample: String,
     pub model: String,
     /// Extra matrix-axis values for this cell (empty for a model-only matrix).
-    #[serde(default, skip_serializing_if = "Metadata::is_empty")]
-    pub params: Metadata,
+    #[serde(default, skip_serializing_if = "Params::is_empty")]
+    pub params: Params,
     /// The complete transcript, unlike the summary carried in [`RunResult`].
     pub transcript: Transcript,
     /// True when the cell was not executed (e.g. model unavailable).
@@ -329,8 +331,8 @@ pub struct ScoreParams {
     pub eval: String,
     pub sample: String,
     pub model: String,
-    #[serde(default, skip_serializing_if = "Metadata::is_empty")]
-    pub params: Metadata,
+    #[serde(default, skip_serializing_if = "Params::is_empty")]
+    pub params: Params,
     pub transcript: Transcript,
 }
 
@@ -342,8 +344,8 @@ pub struct RunResult {
     pub sample: String,
     pub model: String,
     /// Extra matrix-axis values for this cell (empty for a model-only matrix).
-    #[serde(default, skip_serializing_if = "Metadata::is_empty")]
-    pub params: Metadata,
+    #[serde(default, skip_serializing_if = "Params::is_empty")]
+    pub params: Params,
     pub passed: bool,
     pub aggregate: f64,
     pub scores: Vec<Score>,
@@ -454,7 +456,7 @@ mod tests {
         };
         assert_eq!(r.key(), "greet/hi@sim");
 
-        let mut params = Metadata::new();
+        let mut params = Params::new();
         params.insert("effort".into(), "high".into());
         let r2 = RunResult { params, ..r };
         assert_eq!(r2.key(), "greet/hi@sim[effort=high]");

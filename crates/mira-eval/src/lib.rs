@@ -100,12 +100,34 @@ pub use session::Session;
 pub use study::Study;
 pub use subject::{CliSubject, Subject, subject_fn};
 
-/// Free-form key/value metadata attached to evals, samples, models, and runs.
+/// Free-form, **open-ended** metadata attached to evals, samples, models,
+/// transcripts, and runs.
 ///
-/// This is where observability links (trace URLs, dashboard deep-links), commit
-/// SHAs, dataset provenance, and any other context live. It is carried through
-/// the protocol and surfaces in reports.
-pub type Metadata = BTreeMap<String, String>;
+/// Keys are arbitrary; values are arbitrary JSON ([`serde_json::Value`]) — a
+/// string, number, bool, or a nested object/array — so callers can attach
+/// structured context (trace URLs, dashboard deep-links, commit SHAs, dataset
+/// provenance, nested provider details) without the protocol modelling each
+/// shape. Carried through the protocol untouched and surfaced in reports. Use
+/// [`metrics`](Transcript::metrics) instead for values you want to *compare*
+/// numerically.
+pub type Metadata = BTreeMap<String, serde_json::Value>;
+
+/// Matrix-axis values for one cell: axis name → chosen value.
+///
+/// Unlike [`Metadata`], these are always plain strings — they form part of the
+/// cell key ([`cell_key`]) and the selection grammar, so they stay scalar and
+/// stable rather than open-ended.
+pub type Params = BTreeMap<String, String>;
+
+/// Render an open-ended [`Metadata`] value for display (reports, CLI): a JSON
+/// string yields its raw contents (no surrounding quotes); anything else yields
+/// its compact JSON form (`3`, `true`, `{"k":"v"}`).
+pub fn metadata_display(value: &serde_json::Value) -> String {
+    match value.as_str() {
+        Some(s) => s.to_string(),
+        None => value.to_string(),
+    }
+}
 
 /// Token / cost accounting, summed across all turns of a run.
 ///
@@ -447,7 +469,7 @@ pub struct RunCx {
     /// Values for any extra matrix axes this cell varies (axis name → value),
     /// e.g. `{"effort": "high"}`. Empty for a model-only matrix. A subject reads
     /// these to vary its behaviour per cell.
-    pub params: Metadata,
+    pub params: Params,
 }
 
 impl RunCx {
@@ -456,7 +478,7 @@ impl RunCx {
         Self {
             model,
             max_turns: 12,
-            params: Metadata::new(),
+            params: Params::new(),
         }
     }
 
@@ -470,7 +492,7 @@ impl RunCx {
 /// suffixed with `[k=v,…]` (axis params sorted by key) when extra axes vary.
 /// Used for selection, dedupe, checkpoint resume, and reporting — host and
 /// study compute it identically.
-pub fn cell_key(eval: &str, sample: &str, model: &str, params: &Metadata) -> String {
+pub fn cell_key(eval: &str, sample: &str, model: &str, params: &Params) -> String {
     let base = format!("{eval}/{sample}@{model}");
     if params.is_empty() {
         return base;
@@ -598,5 +620,30 @@ mod tests {
         assert_eq!(t.metric("inf"), None);
         // What we kept must serialize as JSON (non-finite floats would error).
         serde_json::to_string(&t).expect("transcript with metrics serializes");
+    }
+
+    #[test]
+    fn metadata_is_open_ended_and_round_trips() {
+        let mut t = Transcript::response("ok");
+        // Open-ended values: a string, a number, and a nested object.
+        t.metadata.insert("trace".into(), "https://obs/123".into());
+        t.metadata.insert("attempt".into(), 3.into());
+        t.metadata.insert(
+            "ctx".into(),
+            serde_json::json!({ "shard": 2, "warm": true }),
+        );
+
+        let json = serde_json::to_string(&t).unwrap();
+        let back: Transcript = serde_json::from_str(&json).unwrap();
+        assert_eq!(back.metadata["attempt"], serde_json::json!(3));
+        assert_eq!(back.metadata["ctx"]["shard"], serde_json::json!(2));
+
+        // Display: strings render bare; structured values render as compact JSON.
+        assert_eq!(metadata_display(&back.metadata["trace"]), "https://obs/123");
+        assert_eq!(metadata_display(&back.metadata["attempt"]), "3");
+        assert_eq!(
+            metadata_display(&back.metadata["ctx"]),
+            r#"{"shard":2,"warm":true}"#
+        );
     }
 }

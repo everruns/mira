@@ -52,7 +52,7 @@ pub fn render(results: &[RunResult], format: Format) -> String {
 }
 
 /// `[k=v,…]` for a cell's axis params, or empty when there are none.
-fn params_suffix(params: &crate::Metadata) -> String {
+fn params_suffix(params: &crate::Params) -> String {
     if params.is_empty() {
         return String::new();
     }
@@ -477,10 +477,15 @@ pub fn html(results: &[RunResult]) -> String {
                 .metadata
                 .iter()
                 .map(|(k, v)| {
+                    let v = crate::metadata_display(v);
                     if v.starts_with("http://") || v.starts_with("https://") {
-                        format!("{}=<a href=\"{}\">link</a>", html_escape(k), html_escape(v))
+                        format!(
+                            "{}=<a href=\"{}\">link</a>",
+                            html_escape(k),
+                            html_escape(&v)
+                        )
                     } else {
-                        format!("{}={}", html_escape(k), html_escape(v))
+                        format!("{}={}", html_escape(k), html_escape(&v))
                     }
                 })
                 .collect();

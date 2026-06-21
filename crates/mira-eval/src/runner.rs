@@ -9,7 +9,7 @@
 
 use crate::eval::Eval;
 use crate::model::ModelSpec;
-use crate::{Metadata, RunCx, Sample, Score, Transcript, cell_key};
+use crate::{Params, RunCx, Sample, Score, Transcript, cell_key};
 
 /// Execute a single matrix cell's subject, returning the full [`Transcript`]
 /// **without scoring**. The first half of [`run_cell`]; used directly by the
@@ -19,7 +19,7 @@ pub async fn execute_cell(
     eval: &Eval,
     sample: &Sample,
     model: &ModelSpec,
-    params: &Metadata,
+    params: &Params,
 ) -> Transcript {
     let cx = RunCx {
         model: model.clone(),
@@ -68,7 +68,7 @@ pub async fn run_cell(
     eval: &Eval,
     sample: &Sample,
     model: &ModelSpec,
-    params: &Metadata,
+    params: &Params,
 ) -> CaseOutcome {
     let transcript = execute_cell(eval, sample, model, params).await;
     let scores = score_transcript(eval, sample, &transcript).await;
@@ -109,7 +109,7 @@ pub struct CaseOutcome {
     pub sample_id: String,
     pub model: String,
     /// Extra matrix-axis values for this cell (empty for a model-only matrix).
-    pub params: Metadata,
+    pub params: Params,
     pub scores: Vec<Score>,
     pub passed: bool,
     pub aggregate: f64,

@@ -93,14 +93,14 @@ study.
 **Params**
 
 ```json
-{ "protocol_version": "1.3", "host": "mira-cli" }
+{ "protocol_version": "1.4", "host": "mira-cli" }
 ```
 
 **Result**
 
 ```json
 {
-  "protocol_version": "1.3",
+  "protocol_version": "1.4",
   "study": "my-evals",
   "evals": 3,
   "study_version": "0.1.0",
@@ -111,7 +111,7 @@ study.
 The study replies with the `protocol_version` it implements. Compatibility is
 by **major**: a host refuses a study whose major differs from its own; a
 differing minor is additive and tolerated (see [Versioning](#versioning)). The
-current version is **`1.3`**.
+current version is **`1.4`**.
 
 `capabilities` lets a host feature-detect additively instead of sniffing
 versions. Defined tokens: `axes` (study advertises extra axes and honours
@@ -159,7 +159,10 @@ anything.
   model. The host takes the cross-product of every axis with the model matrix and
   sends the chosen value per cell in `run.params`. A cell's identity is
   `eval/sample@model` with a sorted `[k=v,…]` suffix when axes vary.
-- `metadata` is free-form `string → string` (provenance, observability links).
+- `metadata` is free-form, open-ended `string → JSON` (provenance, observability
+  links, structured context). Values may be a string, number, bool, or a nested
+  object/array — widened from string-only values in `1.4`. (Axis `params`, by
+  contrast, stay `string → string`: they form part of a cell's identity.)
 
 ### `run`
 
@@ -348,12 +351,13 @@ invocation.
 
 ## Versioning
 
-The protocol uses `MAJOR.MINOR` (`PROTOCOL_VERSION`, currently `1.3`), all minors
+The protocol uses `MAJOR.MINOR` (`PROTOCOL_VERSION`, currently `1.4`), all minors
 additive over `1.0`: `1.1` added the optional `ModelInfo.provider` field and the
 `execute`/`score` methods plus their capabilities; `1.2` added the optional
 `transcript.metrics` map; `1.3` added the optional `transcript.error_kind`
-(subject vs. infrastructure). A `1.0` study (or any study implementing only
-`run`) interoperates with a `1.3` host.
+(subject vs. infrastructure); `1.4` widened `metadata` values from strings to
+open-ended JSON. A `1.0` study (or any study implementing only
+`run`) interoperates with a `1.4` host.
 
 - A **MINOR** bump is **additive**: new optional fields, new notification kinds,
   new capability tokens. A newer peer must keep talking to an older one.

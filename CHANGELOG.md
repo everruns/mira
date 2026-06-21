@@ -133,6 +133,17 @@ adheres to [Semantic Versioning](https://semver.org/).
 - **`examples/llm_judge`** — runnable example wiring `LlmJudge` alongside
   deterministic scorers (green offline, where the judge is N/A).
 
+### Changed
+
+- **Open-ended `metadata`** — `Metadata` values widened from `String` to
+  open-ended JSON (`serde_json::Value`), so evals, samples, models, and
+  transcripts can carry structured context (numbers, bools, nested
+  objects/arrays) — not just strings. The `.meta(key, value)` builders accept
+  anything `Into<serde_json::Value>`, so existing string calls are unchanged.
+  Matrix-axis `params` keep their dedicated `Params` (`string → string`) type —
+  they form part of a cell's identity. Protocol bumps to **`1.4`** (additive:
+  the field already existed, only its value type relaxed).
+
 ### Documentation
 
 - **`specs/docs.md`** — design of record for public docs: structure, the
