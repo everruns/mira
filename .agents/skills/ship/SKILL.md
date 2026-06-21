@@ -139,6 +139,13 @@ If no PR exists, create one:
 
 If a PR already exists, update it if needed and report its URL.
 
+**Resolve addressed review comments**: if this ship is updating an existing PR
+that has review comments, check each unresolved review thread. For every comment
+whose feedback the pushed changes now address, resolve that thread (mark it as
+resolved). Leave threads open only when the feedback is still outstanding or
+needs the reviewer's input — when in doubt, reply explaining the status instead
+of resolving silently.
+
 ### Phase 7: Wait for CI and Merge
 
 - Check CI status with `gh pr checks` (poll every 30s, up to 15 minutes)
