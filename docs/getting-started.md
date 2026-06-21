@@ -101,4 +101,6 @@ per-case scores/usage/timing) you can open straight from a CI artifact.
 - [Authoring evals](authoring.md) — datasets, the matrix, extra axes, metadata.
 - [Scorers](scorers.md) — the built-ins (incl. metric budgets) and writing your own.
 - [Subjects](subjects.md) — in-process, CLI/polyglot, and runtime sessions.
+- [Extensibility](extensibility.md) — the map of every seam: custom subjects,
+  scorers, metrics, events, and protocol-level extension.
 - [The protocol](protocol.md) — what flows over the wire, and its versioning.

@@ -138,7 +138,7 @@ somewhere else. Mira is the one framework they can converge on:
 | [`crates/mira-macros`](crates/mira-macros) | `mira-macros` | The `#[eval]` attribute macro (re-exported as `mira::eval`). |
 | [`crates/mira-everruns`](crates/mira-everruns) | `mira-everruns` | `RuntimeSubject` over the published `everruns-runtime`. |
 | [`examples/`](examples) | per-example crates | Runnable, offline example studies (one self-contained folder each; Rust + a Python study). |
-| [`docs/`](docs) | — | Public docs incl. the [protocol reference](docs/protocol.md). |
+| [`docs/`](docs) | — | Public docs: [getting started](docs/getting-started.md), [extensibility](docs/extensibility.md), and the [protocol reference](docs/protocol.md). |
 | [`specs/`](specs) | — | [Architecture](specs/architecture.md) and the [release process](specs/release-process.md). |
 | [`Formula/`](Formula) | — | The Homebrew formula (mirrored to the tap on release). |
 
