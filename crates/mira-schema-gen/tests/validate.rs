@@ -240,7 +240,7 @@ fn unstable_field_absent_from_stable_schema() {
         "experimental field leaked into the stable schema; the generator must \
          build mira-eval without `protocol-unstable`",
     );
-    // Promoted in 1.9: multimodal `output` and structured `capability_params`
+    // Promoted in 1.11: multimodal `output` and structured `capability_params`
     // are now part of the committed wire (no longer staged).
     assert!(
         props.get("output").is_some(),

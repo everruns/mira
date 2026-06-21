@@ -379,7 +379,7 @@ the core types were *text-shaped* and *single-shot*. All are now on the stable
 contract: multimodal **inputs** and **interactive** evals never needed the wire;
 multimodal **output** and structured **capability parameters** were trialled
 behind `protocol-unstable` and **promoted to the committed wire in protocol
-`1.10`** (typed `Part`s on the transcript + `InitializeResult.capability_params`).
+`1.11`** (typed `Part`s on the transcript + `InitializeResult.capability_params`).
 
 ### 14.1 Content model (`Part`)
 
@@ -402,13 +402,13 @@ type — the study owns the dataset and the host addresses samples by id — so 
 schema, `PROTOCOL_VERSION`, and the SDKs are untouched. Example:
 `examples/multimodal/`.
 
-### 14.3 Multimodal outputs — stable (protocol `1.10`)
+### 14.3 Multimodal outputs — stable (protocol `1.11`)
 
 `Transcript` (and its wire summary) carry `output: Vec<Part>` — the response as
 typed parts, with `final_response` kept as the canonical text projection so
 text-only scorers keep working. A modality scorer (`scorer::produced_modality`)
 grades it. Because `Transcript` *is* a wire type (it rides in `execute`/`score`),
-this was trialled behind `protocol-unstable` first, then **promoted in `1.10`**:
+this was trialled behind `protocol-unstable` first, then **promoted in `1.11`**:
 the committed `schema/` now publishes `output` plus the `Part` / `Source` defs,
 and the SDKs mirror them (the Python codegen renders the `Part`/`Source` object
 unions as pass-through dicts — the wire is `kind`-tagged JSON). `final_response`
@@ -436,7 +436,7 @@ Example: `examples/interactive/` (a clarify-then-answer dialog). A
 model-graded responder (an LLM playing the user) is just a closure that calls a
 judge, no new machinery.
 
-### 14.5 Capability parameters — stable (protocol `1.10`)
+### 14.5 Capability parameters — stable (protocol `1.11`)
 
 `capabilities: Vec<String>` carries bare tokens; it can't express *config* (which
 event kinds a study emits, supported input/output modalities, a concurrency
@@ -445,6 +445,6 @@ hint). `InitializeResult` carries a sibling `capability_params` map
 `metadata`, so new *keys* never need a version bump. The study advertises it from
 `initialize` (event kinds + supported modalities); a host reads it additively,
 defaulting to today's behaviour when a token is absent. Trialled behind
-`protocol-unstable`, then **promoted in `1.10`** alongside §14.3 (the field is a
+`protocol-unstable`, then **promoted in `1.11`** alongside §14.3 (the field is a
 typed wire addition, so adding the field itself — unlike adding keys — took the
 minor bump).

@@ -95,10 +95,9 @@ adheres to [Semantic Versioning](https://semver.org/).
   fuses them into one ordered list for a subject, and `Sample::modalities()`
   reports the kinds — no protocol change (a `Sample` isn't a wire type). New
   runnable example `examples/multimodal/`. **Multimodal outputs**
-  (`Transcript::output`, the `produced_modality` scorer) are **staged behind the
-  `protocol-unstable` feature** — `Transcript` is a wire type, so they stay off
-  the committed schema until promoted (see `specs/architecture.md` §14).
-  `final_response` remains the canonical text projection throughout.
+  (`Transcript::output`, the `produced_modality` scorer) first shipped staged
+  behind `protocol-unstable` and were **promoted to the wire in `1.11`** (see the
+  entry above). `final_response` remains the canonical text projection throughout.
 - **Interactive / multi-turn evals** — an `Eval` may carry a `.responder(..)` (a
   simulated user, `Fn(&[Message]) -> Option<Vec<Part>>`). The runner then drives
   a turn exchange — invoking the subject once per turn with the running
@@ -110,8 +109,8 @@ adheres to [Semantic Versioning](https://semver.org/).
   (`token → JSON`, read via `capability_param(token)`) lets a study advertise
   *config* a bare capability token can't carry (event kinds, supported
   input/output modalities, concurrency hints). Open-vocabulary like `metadata`.
-  **Staged behind `protocol-unstable`** (a new typed wire field with no stable
-  consumer yet); see `specs/architecture.md` §14.5.
+  First shipped staged behind `protocol-unstable`, **promoted to the wire in
+  `1.11`** (see the entry above); see `specs/architecture.md` §14.5.
 - **Typed, correlated progress notifications** (protocol `1.9`) — `event` and
   `log` notifications now have typed, schematized payloads (`EventParams`,
   `LogParams`, published in `schema/v1/`) instead of an ad-hoc JSON bag. Each

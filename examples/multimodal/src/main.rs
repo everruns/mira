@@ -9,7 +9,7 @@
 //!
 //! Multimodal *input* is study-side and needs no protocol feature. The subject
 //! also returns multimodal *output* (`Transcript::output`) — typed [`Part`]s on
-//! the committed wire as of protocol `1.9` — graded by `produced_modality`.
+//! the committed wire as of protocol `1.11` — graded by `produced_modality`.
 
 use mira::scorer::{contains, produced_modality, succeeded};
 use mira::subject::subject_fn;

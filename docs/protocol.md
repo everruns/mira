@@ -129,14 +129,14 @@ study.
 **Params**
 
 ```json
-{ "protocol_version": "1.10", "host": "mira-cli" }
+{ "protocol_version": "1.11", "host": "mira-cli" }
 ```
 
 **Result**
 
 ```json
 {
-  "protocol_version": "1.10",
+  "protocol_version": "1.11",
   "study": "my-evals",
   "evals": 3,
   "study_version": "0.1.0",
@@ -152,7 +152,7 @@ study.
 The study replies with the `protocol_version` it implements. Compatibility is
 by **major**: a host refuses a study whose major differs from its own; a
 differing minor is additive and tolerated (see [Versioning](#versioning)). The
-current version is **`1.10`**.
+current version is **`1.11`**.
 
 `capabilities` lets a host feature-detect additively instead of sniffing
 versions. Defined tokens: `axes` (study advertises extra axes and honours
@@ -599,7 +599,7 @@ stdin, by contrast, ends *every* in-flight run at once.)
 
 ## Versioning
 
-The protocol uses `MAJOR.MINOR` (`PROTOCOL_VERSION`, currently `1.10`), all minors
+The protocol uses `MAJOR.MINOR` (`PROTOCOL_VERSION`, currently `1.11`), all minors
 additive over `1.0`: `1.1` added the optional `ModelInfo.provider` field and the
 `execute`/`score` methods plus their capabilities; `1.2` added the optional
 `transcript.metrics` map; `1.3` added the optional `transcript.error_kind`
@@ -685,7 +685,7 @@ covers *structural* changes — a new typed field or method — that the open
 already extend without a protocol bump. It lets such a change land and be
 exercised in-tree without prematurely freezing the language-neutral contract.
 Multimodal `output` and `capability_params` rode this path before promotion in
-`1.10`; `TranscriptSummary.experimental` is the reserved placeholder for the next.
+`1.11`; `TranscriptSummary.experimental` is the reserved placeholder for the next.
 
 ## Implementing a study in another language
 
