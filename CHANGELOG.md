@@ -111,6 +111,17 @@ adheres to [Semantic Versioning](https://semver.org/).
 - **`examples/llm_judge`** — runnable example wiring `LlmJudge` alongside
   deterministic scorers (green offline, where the judge is N/A).
 
+### Documentation
+
+- **`specs/docs.md`** — design of record for public docs: structure, the
+  SVG-diagram convention (carried over from everruns/everruns), writing rules,
+  and doc/code sync. Referenced from `AGENTS.md` and `CONTRIBUTING.md`.
+- **`docs/README.md`** — a single docs index/reading order.
+- Reconciled `docs/protocol.md` to the current `PROTOCOL_VERSION` (`1.3`, was
+  stated as `1.2`), restored the missing `timing`/`metrics` fields in the
+  `Transcript` shown in `docs/subjects.md`, and aligned the README quick-start
+  to invoke the example via `--example`.
+
 ## [0.1.0] - 2026-06-20
 
 Initial release.

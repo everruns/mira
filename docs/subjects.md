@@ -21,10 +21,12 @@ pub struct Transcript {
     pub final_response: String,
     pub iterations: usize,
     pub tool_calls_count: usize,
-    pub usage: Usage,                 // tokens + cost
-    pub tool_calls: Vec<String>,      // tool names, in order
+    pub usage: Usage,                     // typed metrics: tokens + cost
+    pub timing: Timing,                   // typed metrics: duration, TTFT
+    pub tool_calls: Vec<String>,          // tool names, in order
     pub files: BTreeMap<String, String>,  // workspace after the run
     pub events: Vec<serde_json::Value>,   // raw transcript (e.g. JSONL Events)
+    pub metrics: BTreeMap<String, f64>,   // open metrics: any numeric you measure
     pub metadata: Metadata,
     pub error: Option<String>,
     pub error_kind: ErrorKind,            // Subject (default) | Infra (→ N/A, retried)
