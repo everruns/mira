@@ -40,7 +40,7 @@ fn capital() -> Eval {
             Transcript::response(answer)
         }))
         .scorer(succeeded())
-        .scorer(mira::scorer::matches_expected()) // compares to Sample.target
+        .scorer(mira::scorer::matches_expected()) // compares to Sample.expected
         .targets([Target::sim(), Target::anthropic("claude-opus-4-8")])
         .build()
 }
@@ -61,7 +61,7 @@ mira --example my_evals list
 capital — Knows world capitals  (max_turns=12)
   samples: france, japan
   scorers: succeeded, matches_expected
-  models:  sim, anthropic/claude-opus-4-8 (unavailable)
+  targets:  sim, anthropic/claude-opus-4-8 (unavailable)
 ```
 
 The cloud cell is **unavailable** because `ANTHROPIC_API_KEY` isn't set — it will
@@ -110,7 +110,7 @@ logs.
 saved after every cell. Re-running with the same path resumes: completed cells
 are skipped and the progress bar starts at the right `done/total`. The session
 fingerprints each eval's definition, so if you change an eval's scorers, axes,
-models, or metadata, a resume **warns that the cached cells are stale** — re-run
+targets, or metadata, a resume **warns that the cached cells are stale** — re-run
 with `--fresh` to recompute from scratch.
 
 `--save` **archives a run** into a timestamped folder so runs accumulate in a

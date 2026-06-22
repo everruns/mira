@@ -59,10 +59,11 @@ A complete, runnable example lives in
   stdio loop (handling
   `initialize`/`list`/`list_samples`/`run`/`execute`/`score`). `page_size`
   paginates large datasets across `list` + `list_samples` (`0` disables).
-- `Sample(id, prompt=…|input=[…], tags=…, target=…, files=…, metadata=…)` —
+- `Sample(id, prompt=…|input=[…], tags=…, expected=…, files=…, metadata=…)` —
   `sample.text` joins the input turns for the subject.
-- `model(label, provider="", available=True)` — a matrix cell. An unavailable
-  model is reported as **N/A** (infra), not a failure.
+- `target(label, provider="", available=True)` — a matrix cell (the model or
+  harness under evaluation). An unavailable target is reported as **N/A**
+  (infra), not a failure.
 - `RunCx` — `cx.target`, `cx.provider`, `cx.max_turns`, `cx.param(name)`.
 - `transcript(final_response, usage=…, timing=…, iterations=…, …)` and the
   `Usage`/`Timing` types.

@@ -52,8 +52,9 @@ Eval = Dataset(Sample…) + Subject + [Scorer…]  ×  model matrix × axes
   `latency_within`, `ttft_within`, `tools_used_exactly`, …), combinators
   (`all_of`/`any_of`/`not`), an arbitrary-closure escape hatch, and LLM-as-judge
   (`model_graded`) — one open vocabulary, freely composed.
-- **Matrix & axes** — models are a first-class axis; add arbitrary axes
-  (`.axis("effort", ["low","high"])`) and the runner takes the cross-product.
+- **Matrix & axes** — the target (a model or harness) is the first-class axis;
+  add arbitrary axes (`.axis("effort", ["low","high"])`) and the runner takes the
+  cross-product. Subset any axis at run time with `--targets`/`--axis`/`--preset`.
   Missing API keys **skip** rather than fail, so a fresh run is green offline.
 - **Two processes, one protocol** — your eval program (the *study*) owns
   subjects and scoring; the `mira` CLI (the *host*) owns selection, the matrix,

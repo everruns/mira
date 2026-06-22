@@ -63,7 +63,7 @@ pub struct Transcript {
 ```
 
 `Metadata` (a `BTreeMap<String, serde_json::Value>`) is also available on **evals**,
-**samples**, and **models** — and it flows end-to-end into the JSON record and
+**samples**, and **targets** — and it flows end-to-end into the JSON record and
 the HTML report (values that look like URLs render as links).
 
 ### Custom metrics

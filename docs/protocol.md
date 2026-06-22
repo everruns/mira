@@ -27,7 +27,7 @@ machine-readable definition, see the generated **JSON Schema** under
 - The **study** owns subjects and scoring. It answers requests and knows
   nothing about matrices, checkpoints, or reporting.
 - **Provider API keys live only in the study's environment** and never cross
-  the wire. The host addresses models by *label*; a cell whose model is
+  the wire. The host addresses targets by *label*; a cell whose target is
   unavailable is reported and skipped.
 
 ## Transport & framing
