@@ -74,14 +74,15 @@ and links (repo, issues, docs).";
 )]
 struct Cli {
     #[command(flatten)]
-    target: Target,
+    launcher: Launcher,
     #[command(subcommand)]
     cmd: Option<Cmd>,
 }
 
-/// How to launch the eval study process.
+/// How to launch the eval study process (not to be confused with a
+/// [`mira::Target`] — the model/harness under evaluation).
 #[derive(Args)]
-struct Target {
+struct Launcher {
     /// Run `cargo run -q --bin <NAME>` (defaults to `greet`).
     #[arg(long, global = true)]
     bin: Option<String>,
@@ -246,7 +247,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // hidden; `run` gives it a length and a draw target once the plan is known.
     let progress = Arc::new(ProgressBar::hidden());
     let progress_evt = progress.clone();
-    let host = Host::spawn(build_command(&cli.target))
+    let host = Host::spawn(build_command(&cli.launcher))
         .await?
         .on_event(move |n| {
             // Per-cell `event` notifications correlate to their `run` by
@@ -341,8 +342,8 @@ LINKS
 }
 
 /// Build the study launch command from the target flags.
-fn build_command(target: &Target) -> Command {
-    if let Some(raw) = &target.cmd {
+fn build_command(launcher: &Launcher) -> Command {
+    if let Some(raw) = &launcher.cmd {
         let mut parts = raw.split_whitespace();
         let program = parts.next().unwrap_or("false");
         let mut command = Command::new(program);
@@ -352,18 +353,18 @@ fn build_command(target: &Target) -> Command {
 
     let mut command = Command::new("cargo");
     command.arg("run").arg("-q");
-    if let Some(pkg) = &target.package {
+    if let Some(pkg) = &launcher.package {
         command.arg("-p").arg(pkg);
     }
-    if let Some(bin) = &target.bin {
+    if let Some(bin) = &launcher.bin {
         command.arg("--bin").arg(bin);
-    } else if let Some(example) = &target.example {
+    } else if let Some(example) = &launcher.example {
         command.arg("--example").arg(example);
     } else {
         // Default to the bundled `greet` example crate's binary.
         command.arg("--bin").arg("greet");
     }
-    if let Some(manifest) = &target.manifest_path {
+    if let Some(manifest) = &launcher.manifest_path {
         command.arg("--manifest-path").arg(manifest);
     }
     command
