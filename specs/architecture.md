@@ -448,3 +448,126 @@ defaulting to today's behaviour when a token is absent. Trialled behind
 `protocol-unstable`, then **promoted onto the committed `1.0` wire** alongside
 §14.3 (the field is a typed wire addition, so adding the field itself — unlike
 adding keys — needed the staging path before promotion).
+
+## 15. Targets, not models (the comparison axis) and axis selection
+
+- Status: **proposed** (supersedes the `ModelSpec` / `--models` naming in §3 and
+  the flag list in §6; on implementation those sections and the code/docs/SDKs
+  are renamed to match).
+
+### 15.1 Problem — `model` is the wrong name for the privileged axis
+
+`ModelSpec` does **two** jobs and only one justifies the name:
+
+1. **Provider/cost descriptor** — `(provider, model)` drives real machinery:
+   availability gating on API keys (`available:false` ⇒ skip), per-provider
+   concurrency (`--provider-concurrency`), and cost/usage accounting. This part
+   genuinely *is* about models.
+2. **The privileged comparison axis** — the one dimension the host lets you
+   select from the CLI (`--models`) and that gets the prominent `@…` slot in the
+   case key. This has nothing to do with providers or keys.
+
+Job 2 is welded to the *name* "model", so anything you want to compare and
+select from the CLI has to masquerade as a model. Comparing two coding agents
+reads wrong: `mira run --models yolop,codex`. yolop and codex aren't models —
+they're harnesses / *individual configs* (yolop's term). The smell: only the
+model axis is host-selectable, and it's misnamed.
+
+### 15.2 B — rename the privileged axis to `Target`
+
+The cell of the privileged axis is the **configured thing under evaluation** —
+for an LLM eval it's a model; for an agent eval it's a harness (optionally
+wrapping a model). Call it a **`Target`**. (`subject` is taken — that's the
+trait that *executes* a sample into a transcript; the target is the *config* it
+runs.)
+
+`Target` keeps the same shape as `ModelSpec` — the provider/cost fields earn
+their keep (job 1) — and the LLM constructors are unchanged bar the type name. A
+new `Target::cli(label)` covers the harness case (a `CliSubject` dispatches on
+`cx.target.label`):
+
+```rust
+pub struct Target {
+    pub label: String,      // selection + display key: "yolop", "anthropic/opus"
+    pub provider: String,   // routing / concurrency bucket / gating key
+    pub model: String,      // underlying model id; "" for a pure harness
+    pub available: bool,    // false (e.g. missing key) ⇒ skipped, not failed
+    pub metadata: Metadata,
+}
+
+Target::sim()                          // offline default
+Target::anthropic("claude-opus-4-8")   // gated on ANTHROPIC_API_KEY (unchanged)
+Target::cli("yolop")                   // harness target; provider="cli", available
+```
+
+For yolop-on-opus vs codex-on-opus as *one individual config each*, enumerate
+targets directly (yolop's model — when it matters for cost — rides `model` or
+`metadata`). To cross harness × model instead, keep harness on `target` and put
+model on an **axis** (§15.3) — they compose.
+
+Renames (pre-1.0, no back-compat per AGENTS.md — clean rename, no aliases):
+
+| Was | Now |
+|-----|-----|
+| `ModelSpec` | `Target` |
+| `Eval::models([…])` | `Eval::targets([…])` |
+| `RunCx::model` / `cx.model` | `RunCx::target` / `cx.target` |
+| `--models a,b` | `--targets a,b` |
+| case key `eval/sample@model` | `@<target label>` (mechanically unchanged: still the label) |
+
+`provider` stays a **field of a target**: concurrency bucketing, gating, and
+cost attribution still key on it (a harness target sets `provider="cli"` or its
+own bucket). The core stays provider-agnostic — `mira-everruns` maps a `Target`
+to a `ResolvedModel` exactly as before.
+
+### 15.3 A — make any axis host-selectable (`--axis`)
+
+Today only the model axis is selectable. Generalize: a `--axis <name>=<v1>,<v2>`
+flag (repeatable) subsets **any** declared axis, with `--targets` as sugar for
+the primary one.
+
+```text
+--axis effort=high,low      # restrict the "effort" axis
+--axis agent=yolop,codex    # restrict a harness axis crossed with the model
+--targets sim,anthropic/opus  ==  --axis target=sim,anthropic/opus
+```
+
+Semantics:
+
+- Values within one flag **OR**; different `--axis` flags **AND** (intersect).
+- `name` is `target` (the primary axis) or any `Eval::axis(name, …)` name.
+- An unknown axis name or value is a **hard error** (typo protection), listing
+  the valid axes/values — consistent with how `--group-by` already names an
+  axis.
+- Host-side only: like `filter`/`--tag`/`--targets`, it *subsets* the grid the
+  study declared (the host subsets, never adds cells — see
+  [`docs/extensibility.md`](../docs/extensibility.md)). The study still owns the
+  matrix.
+
+Sketch against the current `RunArgs` (`crates/mira-cli/src/main.rs`):
+
+```rust
+/// Restrict the primary (target) axis to these labels (comma-separated).
+/// Sugar for `--axis target=…`.
+#[arg(long)]
+targets: Option<String>,            // was: models
+/// Restrict a matrix axis to a subset: `--axis effort=high,low` (repeatable).
+/// `name` is `target` or any declared axis; values OR within a flag, flags AND.
+#[arg(long = "axis", value_name = "NAME=V1,V2")]
+axes: Vec<String>,
+```
+
+The two collapse into one selection pass: `--targets X` is folded into `axes` as
+`target=X`, then the planner keeps a cell iff, for every constrained axis, the
+cell's value is in the allowed set. `--group-by` and the case key are unaffected.
+
+### 15.4 Why both, why now
+
+B removes the misnomer (the named concept matches what's being compared); A
+removes the privilege asymmetry (selecting a harness/effort no longer requires
+faking a model). Together they answer `yolop vs codex` directly — they're
+**targets** you pick with `--targets yolop,codex`, or an **axis** you cross with
+the model and pick with `--axis agent=yolop,codex` — with no masquerade either
+way. Both are pre-1.0 internal renames/additions: no protocol change (selection
+is host-side; `Target` serializes onto the same wire fields the schema already
+publishes).
