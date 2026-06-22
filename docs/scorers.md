@@ -61,7 +61,7 @@ no provider credentials stays green: every judge cell is simply N/A.
 | `contains(s)` / `not_contains(s)` | the final response does / doesn't contain `s` |
 | `equals(s)` | the final response equals `s` (trimmed, case-insensitive) |
 | `regex(p)` | the final response matches regex `p` |
-| `matches_expected()` | the final response equals the sample's string `target` |
+| `matches_expected()` | the final response equals the sample's string `expected` |
 | `json_valid()` | the final response parses as JSON |
 | `json_field_equals(k, v)` | the response is a JSON object with top-level `k == v` |
 

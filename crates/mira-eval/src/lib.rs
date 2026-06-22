@@ -104,7 +104,7 @@ pub use session::Session;
 pub use study::Study;
 pub use subject::{CliSubject, Subject, subject_fn};
 
-/// Free-form, **open-ended** metadata attached to evals, samples, models,
+/// Free-form, **open-ended** metadata attached to evals, samples, targets,
 /// transcripts, and runs.
 ///
 /// Keys are arbitrary; values are arbitrary JSON ([`serde_json::Value`]) — a
@@ -176,7 +176,7 @@ impl Trial {
 
 /// The `#index` key suffix for a `(trial, trials)` pair: present only when the
 /// cell is repeated (`trials > 1`), so a single-trial cell keeps the plain
-/// `eval/sample@model[…]` key. Host and study compute it identically.
+/// `eval/sample@target[…]` key. Host and study compute it identically.
 pub fn trial_suffix(trial: usize, trials: usize) -> String {
     if trials > 1 {
         format!("#{trial}")

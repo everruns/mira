@@ -88,11 +88,13 @@ resolves it. A non-Rust study (any language that speaks the protocol) runs via
 ## Running
 
 ```bash
-mira --bin coding list                 # advertised evals/samples/scorers/models
+mira --bin coding list                 # advertised evals/samples/scorers/targets
 mira --bin coding run                  # whole matrix
-mira --bin coding run add-fn           # substring filter on eval/sample@model
+mira --bin coding run add-fn           # substring filter on eval/sample@target
 mira --bin coding run --tag smoke
-mira --bin coding run --targets sim
+mira --bin coding run --targets sim                      # restrict the target axis
+mira --bin coding run --axis effort=low                  # restrict any declared axis
+mira --bin coding run --preset smoke                     # saved selection from mira.toml
 mira --bin coding run --format junit --out results.xml   # CI artifact
 mira --bin coding run --format html  --out report.html   # transcript viewer
 mira --bin coding run --checkpoint ck.json               # resumable

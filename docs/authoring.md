@@ -27,7 +27,7 @@ let eval = Eval::new("greet")
     .build();
 ```
 
-Every method is optional except a subject. With no `models`, the matrix defaults
+Every method is optional except a subject. With no `targets`, the matrix defaults
 to `sim` (offline), so a fresh eval runs without credentials.
 
 ## Samples
@@ -62,7 +62,7 @@ let eval = Eval::new("swe")
 
 ```jsonl
 {"id":"a","input":["Add a greet function"],"files":{"lib.rs":"// todo\n"},"tags":["smoke"]}
-{"id":"b","input":["Fix the bug"],"target":"42"}
+{"id":"b","input":["Fix the bug"],"expected":"42"}
 ```
 
 Datasets are language-agnostic JSON, so the same file drives Rust, CLI, and
@@ -70,8 +70,8 @@ polyglot subjects.
 
 ## The model matrix
 
-`models` is a first-class axis. The runner expands `evals × models × samples`
-into independently-addressable cells (`greet/hi@sim`).
+The **target** is the first-class axis. The runner expands `evals × targets ×
+samples` into independently-addressable cells (`greet/hi@sim`).
 
 ```rust
 .targets([
@@ -146,7 +146,7 @@ let eval = Eval::new("reasoning")
     .build();
 ```
 
-This expands to `samples × models × effort` cells, each with a stable key like
+This expands to `samples × targets × effort` cells, each with a stable key like
 `reasoning/puzzle@sim[effort=high]` that selection, checkpoints, and reports use.
 
 ## Interactive (multi-turn) evals
@@ -192,7 +192,7 @@ judge. Runnable example: `examples/interactive/`.
 ## Metadata & observability
 
 Metadata is free-form, open-ended `string → JSON` on evals, samples, and
-models — values may be a string, number, bool, or a nested object/array. It rides
+targets — values may be a string, number, bool, or a nested object/array. It rides
 through the protocol and surfaces in `list` and reports — the place to put trace
 URLs, dashboard deep-links, commit SHAs, and dataset provenance.
 
