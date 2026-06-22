@@ -61,10 +61,10 @@
       ]
     },
     "EvalInfo": {
-      "description": "One eval, as advertised by `list`. Enough for the host to plan the full\n`samples × models` grid and apply selection without running anything.",
+      "description": "One eval, as advertised by `list`. Enough for the host to plan the full\n`samples × targets` grid and apply selection without running anything.",
       "properties": {
         "axes": {
-          "description": "Extra matrix axes beyond the model. Defaulted so older servers that omit\nthe field still parse (forward compatibility).",
+          "description": "Extra matrix axes beyond the target. Defaulted so older servers that omit\nthe field still parse (forward compatibility).",
           "items": {
             "$ref": "#/$defs/AxisInfo"
           },
@@ -83,12 +83,6 @@
         "metadata": {
           "additionalProperties": true,
           "type": "object"
-        },
-        "models": {
-          "items": {
-            "$ref": "#/$defs/ModelInfo"
-          },
-          "type": "array"
         },
         "name": {
           "type": "string"
@@ -122,6 +116,12 @@
             "null"
           ]
         },
+        "targets": {
+          "items": {
+            "$ref": "#/$defs/TargetInfo"
+          },
+          "type": "array"
+        },
         "trials": {
           "description": "How many times each cell of this eval should be run (trials/repetitions),\nfor pass@k / variance over a stochastic subject. `0`/`1` mean a single\nrun (no trial dimension). The host may override with `--trials`. Defaulted\nso older/foreign studies that omit it still parse.",
           "format": "uint",
@@ -133,7 +133,7 @@
         "name",
         "samples",
         "scorers",
-        "models"
+        "targets"
       ],
       "type": "object"
     },
@@ -147,14 +147,11 @@
           "description": "One of the [`event`] kinds. A future kind an older host doesn't recognise\nis carried through verbatim (forward-compat), not rejected.",
           "type": "string"
         },
-        "model": {
-          "type": "string"
-        },
         "params": {
           "additionalProperties": {
             "type": "string"
           },
-          "description": "Extra matrix-axis values for the cell (empty for a model-only matrix).",
+          "description": "Extra matrix-axis values for the cell (empty for a target-only matrix).",
           "type": "object"
         },
         "request_id": {
@@ -165,6 +162,9 @@
           "type": "integer"
         },
         "sample": {
+          "type": "string"
+        },
+        "target": {
           "type": "string"
         },
         "text": {
@@ -194,7 +194,7 @@
       "required": [
         "eval",
         "sample",
-        "model",
+        "target",
         "kind"
       ],
       "type": "object"
@@ -205,14 +205,11 @@
         "eval": {
           "type": "string"
         },
-        "model": {
-          "type": "string"
-        },
         "params": {
           "additionalProperties": {
             "type": "string"
           },
-          "description": "Extra matrix-axis values for this cell (empty for a model-only matrix).",
+          "description": "Extra matrix-axis values for this cell (empty for a target-only matrix).",
           "type": "object"
         },
         "sample": {
@@ -229,8 +226,11 @@
         },
         "skipped": {
           "default": false,
-          "description": "True when the cell was not executed (e.g. model unavailable).",
+          "description": "True when the cell was not executed (e.g. target unavailable).",
           "type": "boolean"
+        },
+        "target": {
+          "type": "string"
         },
         "transcript": {
           "$ref": "#/$defs/Transcript",
@@ -252,7 +252,7 @@
       "required": [
         "eval",
         "sample",
-        "model",
+        "target",
         "transcript"
       ],
       "type": "object"
@@ -367,31 +367,6 @@
       },
       "required": [
         "message"
-      ],
-      "type": "object"
-    },
-    "ModelInfo": {
-      "properties": {
-        "available": {
-          "description": "False when a real provider's API key is absent in the study's env.",
-          "type": "boolean"
-        },
-        "label": {
-          "type": "string"
-        },
-        "metadata": {
-          "additionalProperties": true,
-          "description": "Free-form per-model config that rides the model column: agent, underlying\nmodel, effort, price, sandbox, observability links, … Mirrors\n`ModelSpec::metadata` onto the wire so the host can surface and group by\nit. Defaulted/omitted when empty, so an older study still parses.",
-          "type": "object"
-        },
-        "provider": {
-          "description": "Provider id (e.g. `sim`, `anthropic`, `openai`). Lets the host bucket\nconcurrency per provider so one provider's rate limits can't be flooded.\nDefaulted (empty) so an older/foreign study that omits it still parses;\nsuch cells share the empty-provider bucket.",
-          "type": "string"
-        }
-      },
-      "required": [
-        "label",
-        "available"
       ],
       "type": "object"
     },
@@ -560,7 +535,7 @@
       "type": "object"
     },
     "RpcError": {
-      "description": "A structured, JSON-RPC-shaped protocol-level error.\n\nDistinct from a transcript's `error`/`error_kind`, which classify a *subject*\nfailure (the model under test got it wrong). An [`RpcError`] is the failure of\nthe RPC itself — bad params, an unknown method, a study-side crash, a provider\noutage surfaced at the transport. `code` and `retryable` let the host classify\nand retry the request **without parsing the human `message`**, and `data`\ncarries optional structured context.\n\nAll fields beyond `message` are optional and defaulted, so a peer that sends\nbare `{ \"message\": \"…\" }` still parses (forward/backward compat).",
+      "description": "A structured, JSON-RPC-shaped protocol-level error.\n\nDistinct from a transcript's `error`/`error_kind`, which classify a *subject*\nfailure (the target under test got it wrong). An [`RpcError`] is the failure of\nthe RPC itself — bad params, an unknown method, a study-side crash, a provider\noutage surfaced at the transport. `code` and `retryable` let the host classify\nand retry the request **without parsing the human `message`**, and `data`\ncarries optional structured context.\n\nAll fields beyond `message` are optional and defaulted, so a peer that sends\nbare `{ \"message\": \"…\" }` still parses (forward/backward compat).",
       "properties": {
         "code": {
           "default": 0,
@@ -587,19 +562,16 @@
       "type": "object"
     },
     "RunParams": {
-      "description": "`run` params: address one matrix cell by `(eval, sample, model label)` plus\nany extra axis `params` (axis name → chosen value).",
+      "description": "`run` params: address one matrix cell by `(eval, sample, target label)` plus\nany extra axis `params` (axis name → chosen value).",
       "properties": {
         "eval": {
-          "type": "string"
-        },
-        "model": {
           "type": "string"
         },
         "params": {
           "additionalProperties": {
             "type": "string"
           },
-          "description": "Chosen value per extra matrix axis. Empty/omitted for a model-only\nmatrix; defaulted so older hosts/servers interoperate.",
+          "description": "Chosen value per extra matrix axis. Empty/omitted for a target-only\nmatrix; defaulted so older hosts/servers interoperate.",
           "type": "object"
         },
         "sample": {
@@ -613,6 +585,9 @@
             "integer",
             "null"
           ]
+        },
+        "target": {
+          "type": "string"
         },
         "trial": {
           "description": "0-based trial index when this cell is being repeated; `0` for a single\nrun. Defaulted so older hosts/studies interoperate.",
@@ -630,7 +605,7 @@
       "required": [
         "eval",
         "sample",
-        "model"
+        "target"
       ],
       "type": "object"
     },
@@ -644,14 +619,11 @@
         "eval": {
           "type": "string"
         },
-        "model": {
-          "type": "string"
-        },
         "params": {
           "additionalProperties": {
             "type": "string"
           },
-          "description": "Extra matrix-axis values for this cell (empty for a model-only matrix).",
+          "description": "Extra matrix-axis values for this cell (empty for a target-only matrix).",
           "type": "object"
         },
         "passed": {
@@ -677,8 +649,11 @@
         },
         "skipped": {
           "default": false,
-          "description": "True when the cell was not executed (e.g. model unavailable).",
+          "description": "True when the cell was not executed (e.g. target unavailable).",
           "type": "boolean"
+        },
+        "target": {
+          "type": "string"
         },
         "transcript": {
           "$ref": "#/$defs/TranscriptSummary"
@@ -699,7 +674,7 @@
       "required": [
         "eval",
         "sample",
-        "model",
+        "target",
         "passed",
         "aggregate",
         "scores",
@@ -764,9 +739,6 @@
         "eval": {
           "type": "string"
         },
-        "model": {
-          "type": "string"
-        },
         "params": {
           "additionalProperties": {
             "type": "string"
@@ -784,6 +756,9 @@
             "integer",
             "null"
           ]
+        },
+        "target": {
+          "type": "string"
         },
         "transcript": {
           "$ref": "#/$defs/Transcript"
@@ -804,7 +779,7 @@
       "required": [
         "eval",
         "sample",
-        "model",
+        "target",
         "transcript"
       ],
       "type": "object"
@@ -839,6 +814,31 @@
           "type": "object"
         }
       ]
+    },
+    "TargetInfo": {
+      "properties": {
+        "available": {
+          "description": "False when a real provider's API key is absent in the study's env.",
+          "type": "boolean"
+        },
+        "label": {
+          "type": "string"
+        },
+        "metadata": {
+          "additionalProperties": true,
+          "description": "Free-form per-target config that rides the target column: agent, underlying\nmodel, effort, price, sandbox, observability links, … Mirrors\n`Target::metadata` onto the wire so the host can surface and group by\nit. Defaulted/omitted when empty, so an older study still parses.",
+          "type": "object"
+        },
+        "provider": {
+          "description": "Provider id (e.g. `sim`, `anthropic`, `openai`). Lets the host bucket\nconcurrency per provider so one provider's rate limits can't be flooded.\nDefaulted (empty) so an older/foreign study that omits it still parses;\nsuch cells share the empty-provider bucket.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "label",
+        "available"
+      ],
+      "type": "object"
     },
     "Timing": {
       "description": "Wall-clock timing for a run. Subjects that can measure it populate these;\nthe rest leave them at their defaults.",

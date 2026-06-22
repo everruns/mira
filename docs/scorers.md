@@ -61,7 +61,7 @@ no provider credentials stays green: every judge cell is simply N/A.
 | `contains(s)` / `not_contains(s)` | the final response does / doesn't contain `s` |
 | `equals(s)` | the final response equals `s` (trimmed, case-insensitive) |
 | `regex(p)` | the final response matches regex `p` |
-| `matches_target()` | the final response equals the sample's string `target` |
+| `matches_expected()` | the final response equals the sample's string `target` |
 | `json_valid()` | the final response parses as JSON |
 | `json_field_equals(k, v)` | the response is a JSON object with top-level `k == v` |
 
@@ -153,7 +153,7 @@ Use `Score::graded(name, value, threshold, reason)` to emit a partial score:
 
 ```rust
 let overlap = scorer("token_f1", |sample, t| {
-    let f1 = compute_f1(sample.target_str().unwrap_or(""), &t.final_response);
+    let f1 = compute_f1(sample.expected_str().unwrap_or(""), &t.final_response);
     Score::graded("token_f1", f1, 0.6, format!("F1={f1:.2}"))
 });
 ```

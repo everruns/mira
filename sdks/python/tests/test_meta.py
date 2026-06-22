@@ -33,12 +33,12 @@ def test_serve_handles_every_protocol_method():
 def test_handled_methods_actually_dispatch():
     s = mira.Study("t")
 
-    @s.eval(samples=[mira.Sample("x", prompt="p")], models=[mira.model("sim")],
+    @s.eval(samples=[mira.Sample("x", prompt="p")], targets=[mira.target("sim")],
             scorers=[mira.succeeded()])
     def e(sample, cx):
         return mira.transcript("ok", usage=mira.Usage(input_tokens=1, output_tokens=1))
 
-    base = {"eval": "e", "sample": "x", "model": "sim"}
+    base = {"eval": "e", "sample": "x", "target": "sim"}
     ex = s.handle("execute", base)
     payloads = {
         "initialize": {}, "list": {}, "list_samples": {"eval": "e", "cursor": "0"},
@@ -53,7 +53,7 @@ def test_handled_methods_actually_dispatch():
 def test_advertised_capabilities_are_known_tokens():
     s = mira.Study("t")
 
-    @s.eval(samples=[mira.Sample("x", prompt="p")], models=[mira.model("sim")],
+    @s.eval(samples=[mira.Sample("x", prompt="p")], targets=[mira.target("sim")],
             scorers=[mira.succeeded()], axes=[mira.axis("effort", ["low", "high"])])
     def e(sample, cx):
         return mira.transcript("ok", usage=mira.Usage(input_tokens=1, output_tokens=1))

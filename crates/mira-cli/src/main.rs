@@ -8,7 +8,7 @@
 //! mira --bin greet run                          # all cells (sim runs; keyed cells skip)
 //! mira --bin greet run greet                    # substring filter
 //! mira --bin greet run --tag smoke
-//! mira --bin greet run --models sim --format junit --out results.xml
+//! mira --bin greet run --targets sim --format junit --out results.xml
 //! mira --bin greet run --checkpoint ck.json     # resumable
 //! mira --bin greet run --save                   # archive run under ./results/<run_id>/
 //! mira --bin greet run --execute-only --artifacts art/  # capture transcripts
@@ -56,7 +56,7 @@ const API_DOCS_URL: &str = "https://docs.rs/mira-eval";
 
 /// Short tagline for `-h`/`--help`. The CLI is the *host*: it plans the run,
 /// drives subjects over the protocol, scores, and reports — not just a runner.
-const ABOUT: &str = "Run code-first evals for agents and tools across a model matrix — \
+const ABOUT: &str = "Run code-first evals for agents and tools across a target matrix — \
 the Mira host CLI.";
 
 /// Footer on every `--help`/no-args screen. The one breadcrumb an agent needs to
@@ -74,14 +74,15 @@ and links (repo, issues, docs).";
 )]
 struct Cli {
     #[command(flatten)]
-    target: Target,
+    launcher: Launcher,
     #[command(subcommand)]
     cmd: Option<Cmd>,
 }
 
-/// How to launch the eval study process.
+/// How to launch the eval study process (not to be confused with a
+/// [`mira::Target`] — the model/harness under evaluation).
 #[derive(Args)]
-struct Target {
+struct Launcher {
     /// Run `cargo run -q --bin <NAME>` (defaults to `greet`).
     #[arg(long, global = true)]
     bin: Option<String>,
@@ -101,7 +102,7 @@ struct Target {
 
 #[derive(Subcommand)]
 enum Cmd {
-    /// List the evals, samples, scorers, and models the study advertises.
+    /// List the evals, samples, scorers, and targets the study advertises.
     List,
     /// Run selected cells and report.
     Run(RunArgs),
@@ -121,14 +122,25 @@ struct HelpArgs {
 
 #[derive(Args)]
 struct RunArgs {
-    /// Substring filter on the case key `eval/sample@model`.
+    /// Substring filter on the case key `eval/sample@target`.
     filter: Option<String>,
     /// Only run samples carrying this tag.
     #[arg(long)]
     tag: Option<String>,
-    /// Restrict the matrix to these model labels (comma-separated).
+    /// Restrict the primary (target) axis to these labels (comma-separated).
+    /// Sugar for `--axis target=…`.
     #[arg(long)]
-    models: Option<String>,
+    targets: Option<String>,
+    /// Restrict a matrix axis to a subset, e.g. `--axis effort=high,low`
+    /// (repeatable). `NAME` is `target` (the primary axis) or any declared axis;
+    /// values OR within one flag, multiple `--axis` flags AND (intersect).
+    #[arg(long = "axis", value_name = "NAME=V1,V2")]
+    axes: Vec<String>,
+    /// Apply a named selection preset from `mira.toml` (`[presets.NAME]`): a saved
+    /// bundle of targets / axes / tag / filter / evals. Explicit flags override
+    /// the preset.
+    #[arg(long)]
+    preset: Option<String>,
     /// Run each cell this many times (trials/repetitions) for pass@k / variance.
     /// Overrides the eval's declared trials. The host groups the repetitions and
     /// reports pass-rate, pass@k, and score standard deviation per cell.
@@ -140,7 +152,7 @@ struct RunArgs {
     seed: Option<u64>,
     /// Break resolve-rate down by a metadata key (e.g. `repo`, `difficulty`,
     /// `agent`). The value is resolved per cell from, in order: axis params,
-    /// sample metadata, model metadata, then transcript metadata.
+    /// sample metadata, target metadata, then transcript metadata.
     #[arg(long)]
     group_by: Option<String>,
     /// Write a report file (see --format).
@@ -188,7 +200,7 @@ struct RunArgs {
 
 #[derive(Args)]
 struct ScoreArgs {
-    /// Substring filter on the case key `eval/sample@model`.
+    /// Substring filter on the case key `eval/sample@target`.
     filter: Option<String>,
     /// Directory of execution artifacts written by `run --execute-only`.
     #[arg(long)]
@@ -235,7 +247,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // hidden; `run` gives it a length and a draw target once the plan is known.
     let progress = Arc::new(ProgressBar::hidden());
     let progress_evt = progress.clone();
-    let host = Host::spawn(build_command(&cli.target))
+    let host = Host::spawn(build_command(&cli.launcher))
         .await?
         .on_event(move |n| {
             // Per-cell `event` notifications correlate to their `run` by
@@ -283,7 +295,7 @@ OVERVIEW
   You write evals as code (in Rust, or any language that speaks the protocol);
   this binary is the HOST. It owns the run end to end: it launches your eval
   program (the `study`), enumerates what it advertises, plans the grid
-  (selection x model matrix x axes), executes each cell over the protocol,
+  (selection x target matrix x axes), executes each cell over the protocol,
   scores the results, then aggregates, reports, and checkpoints. Execution and
   scoring can be split for long runs (`run --execute-only` then `score`).
 
@@ -296,7 +308,7 @@ EXAMPLES
   mira --bin greet run                  # run the whole matrix
   mira --bin greet run greet            # selective (substring), like cargo test
   mira --bin greet run --tag smoke      # only samples carrying a tag
-  mira --bin greet run --models sim --format junit --out results.xml
+  mira --bin greet run --targets sim --format junit --out results.xml
   mira --bin greet run --format html --out report.html   # self-contained viewer
   mira --bin greet run --checkpoint ck.json              # resumable long runs
   mira --bin greet run --save                            # archive run under ./results/<run_id>/
@@ -330,8 +342,8 @@ LINKS
 }
 
 /// Build the study launch command from the target flags.
-fn build_command(target: &Target) -> Command {
-    if let Some(raw) = &target.cmd {
+fn build_command(launcher: &Launcher) -> Command {
+    if let Some(raw) = &launcher.cmd {
         let mut parts = raw.split_whitespace();
         let program = parts.next().unwrap_or("false");
         let mut command = Command::new(program);
@@ -341,18 +353,18 @@ fn build_command(target: &Target) -> Command {
 
     let mut command = Command::new("cargo");
     command.arg("run").arg("-q");
-    if let Some(pkg) = &target.package {
+    if let Some(pkg) = &launcher.package {
         command.arg("-p").arg(pkg);
     }
-    if let Some(bin) = &target.bin {
+    if let Some(bin) = &launcher.bin {
         command.arg("--bin").arg(bin);
-    } else if let Some(example) = &target.example {
+    } else if let Some(example) = &launcher.example {
         command.arg("--example").arg(example);
     } else {
         // Default to the bundled `greet` example crate's binary.
         command.arg("--bin").arg("greet");
     }
-    if let Some(manifest) = &target.manifest_path {
+    if let Some(manifest) = &launcher.manifest_path {
         command.arg("--manifest-path").arg(manifest);
     }
     command
@@ -371,14 +383,13 @@ async fn run(
     let started_unix = now_unix();
     let run_id = new_run_id_at(started_unix);
     let save_dir = config::resolve_save_dir(&args.save);
-    let model_filter: Option<Vec<String>> = args
-        .models
-        .as_ref()
-        .map(|m| m.split(',').map(|s| s.trim().to_string()).collect());
 
-    // Plan the full grid, then apply selection. Done up front so the host owns
+    // Resolve selection (preset + flags), validate it against the advertised
+    // axes/targets, then plan the full grid up front — so the host owns
     // selection/matrix without the study re-running anything.
-    let plan = plan_grid(&listing, &args, &model_filter);
+    let selection = resolve_selection(&args).map_err(Box::<dyn std::error::Error>::from)?;
+    validate_selection(&selection, &listing).map_err(Box::<dyn std::error::Error>::from)?;
+    let plan = plan_grid(&listing, &args, &selection);
     if plan.is_empty() {
         eprintln!("no cells matched the selection");
     }
@@ -477,7 +488,7 @@ async fn run(
                         .run(
                             &cell.eval,
                             &cell.sample,
-                            &cell.model,
+                            &cell.target,
                             &cell.params,
                             cell.trial,
                         )
@@ -641,7 +652,7 @@ async fn execute_only(
             .execute(
                 &cell.eval,
                 &cell.sample,
-                &cell.model,
+                &cell.target,
                 &cell.params,
                 cell.trial,
             )
@@ -726,7 +737,7 @@ fn skipped_result(a: &ExecuteResult) -> RunResult {
     RunResult {
         eval: a.eval.clone(),
         sample: a.sample.clone(),
-        model: a.model.clone(),
+        target: a.target.clone(),
         params: a.params.clone(),
         trial: a.trial,
         trials: a.trials,
@@ -810,15 +821,144 @@ fn axis_combinations(eval: &mira::protocol::EvalInfo) -> Vec<BTreeMap<String, St
     combos
 }
 
+/// The resolved selection for a run: a host-side *subset* of the declared grid.
+/// Built from `--preset` (if any) and explicit flags (flags win). `axes` keys an
+/// axis name (`target` for the primary axis, or any declared axis) to the values
+/// kept; `evals` restricts which evals (hence subjects) run.
+struct Selection {
+    filter: Option<String>,
+    tag: Option<String>,
+    /// `None` = every eval; `Some` = only these.
+    evals: Option<Vec<String>>,
+    /// Axis name → allowed values. `target` is the primary axis. An axis absent
+    /// here is unconstrained.
+    axes: BTreeMap<String, Vec<String>>,
+}
+
+/// Split a comma-separated value list, trimming and dropping empties.
+fn split_csv(s: &str) -> Vec<String> {
+    s.split(',')
+        .map(|v| v.trim().to_string())
+        .filter(|v| !v.is_empty())
+        .collect()
+}
+
+/// Resolve the selection from a `--preset` (loaded from `mira.toml`) overlaid by
+/// explicit flags. `--targets` folds into the `target` axis; `--axis NAME=v,v`
+/// (repeatable) sets/overrides any axis.
+fn resolve_selection(args: &RunArgs) -> Result<Selection, String> {
+    let preset = match &args.preset {
+        Some(name) => config::Config::load().preset(name)?,
+        None => config::Preset::default(),
+    };
+
+    let filter = args.filter.clone().or(preset.filter);
+    let tag = args.tag.clone().or(preset.tag);
+    let evals = (!preset.evals.is_empty()).then_some(preset.evals.clone());
+
+    // Start from the preset's axis constraints, then layer flags on top.
+    let mut axes: BTreeMap<String, Vec<String>> = preset.axes.clone();
+
+    // Primary axis: --targets wins over the preset's targets.
+    let targets = match &args.targets {
+        Some(s) => split_csv(s),
+        None => preset.targets.clone(),
+    };
+    if !targets.is_empty() {
+        axes.insert("target".to_string(), targets);
+    }
+
+    // --axis NAME=V1,V2 (repeatable) overrides the same-named axis.
+    for spec in &args.axes {
+        let (name, vals) = spec
+            .split_once('=')
+            .ok_or_else(|| format!("--axis expects NAME=V1,V2, got {spec:?}"))?;
+        let values = split_csv(vals);
+        if values.is_empty() {
+            return Err(format!("--axis {name}= lists no values"));
+        }
+        axes.insert(name.trim().to_string(), values);
+    }
+
+    Ok(Selection {
+        filter,
+        tag,
+        evals,
+        axes,
+    })
+}
+
+/// Reject a selection that names an axis/value/eval the study didn't advertise,
+/// so a typo fails loudly instead of silently matching nothing.
+fn validate_selection(sel: &Selection, listing: &ListResult) -> Result<(), String> {
+    use std::collections::BTreeSet;
+    // Declared axis values across all evals: `target` → all target labels; each
+    // declared axis → the union of its values.
+    let mut declared: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
+    for eval in &listing.evals {
+        let t = declared.entry("target".to_string()).or_default();
+        for m in &eval.targets {
+            t.insert(m.label.clone());
+        }
+        for a in &eval.axes {
+            let e = declared.entry(a.name.clone()).or_default();
+            for v in &a.values {
+                e.insert(v.clone());
+            }
+        }
+    }
+    let listed = |set: &BTreeSet<String>| {
+        let mut v: Vec<&str> = set.iter().map(String::as_str).collect();
+        v.sort_unstable();
+        v.join(", ")
+    };
+    for (name, allowed) in &sel.axes {
+        let Some(valid) = declared.get(name) else {
+            let names: BTreeSet<String> = declared.keys().cloned().collect();
+            return Err(format!(
+                "unknown axis {name:?} (declared: {})",
+                listed(&names)
+            ));
+        };
+        for v in allowed {
+            if !valid.contains(v) {
+                return Err(format!(
+                    "axis {name:?} has no value {v:?} (declared: {})",
+                    listed(valid)
+                ));
+            }
+        }
+    }
+    if let Some(evals) = &sel.evals {
+        let known: BTreeSet<String> = listing.evals.iter().map(|e| e.name.clone()).collect();
+        for e in evals {
+            if !known.contains(e) {
+                return Err(format!("unknown eval {e:?} (declared: {})", listed(&known)));
+            }
+        }
+    }
+    Ok(())
+}
+
+/// True when a cell's axis params satisfy the (non-target) axis constraints.
+fn axes_allowed(sel: &Selection, params: &mira::Params) -> bool {
+    params.iter().all(|(name, value)| {
+        sel.axes
+            .get(name)
+            .is_none_or(|allowed| allowed.contains(value))
+    })
+}
+
 /// Expand the advertised listing into an ordered, selected list of cells. Each
-/// cell carries its model's provider so the executor can bucket concurrency.
-fn plan_grid(
-    listing: &ListResult,
-    args: &RunArgs,
-    model_filter: &Option<Vec<String>>,
-) -> Vec<CellSpec> {
+/// cell carries its target's provider so the executor can bucket concurrency.
+fn plan_grid(listing: &ListResult, args: &RunArgs, sel: &Selection) -> Vec<CellSpec> {
     let mut plan = Vec::new();
     for eval in &listing.evals {
+        if let Some(evals) = &sel.evals
+            && !evals.iter().any(|e| e == &eval.name)
+        {
+            continue;
+        }
         let combos = axis_combinations(eval);
         // Trials: --trials overrides the eval's declared count (0/1 → single).
         // Seed base: --seed overrides the eval's declared seed; trial t uses
@@ -826,22 +966,25 @@ fn plan_grid(
         let trials = args.trials.unwrap_or(eval.trials).max(1);
         let seed_base = args.seed.or(eval.seed);
         for sample in &eval.samples {
-            if let Some(tag) = &args.tag
+            if let Some(tag) = &sel.tag
                 && !sample.tags.contains(tag)
             {
                 continue;
             }
-            for model in &eval.models {
-                if let Some(allow) = model_filter
-                    && !allow.contains(&model.label)
+            for target in &eval.targets {
+                if let Some(allow) = sel.axes.get("target")
+                    && !allow.contains(&target.label)
                 {
                     continue;
                 }
                 for params in &combos {
-                    let key = mira::cell_key(&eval.name, &sample.id, &model.label, params);
+                    if !axes_allowed(sel, params) {
+                        continue;
+                    }
+                    let key = mira::cell_key(&eval.name, &sample.id, &target.label, params);
                     // Filter on the logical key, so `--filter` keeps or drops all
                     // trials of a cell together (a stable group to aggregate).
-                    if let Some(f) = &args.filter
+                    if let Some(f) = &sel.filter
                         && !key.contains(f.as_str())
                     {
                         continue;
@@ -850,8 +993,8 @@ fn plan_grid(
                         plan.push(CellSpec {
                             eval: eval.name.clone(),
                             sample: sample.id.clone(),
-                            model: model.label.clone(),
-                            provider: model.provider.clone(),
+                            target: target.label.clone(),
+                            provider: target.provider.clone(),
                             params: params.clone(),
                             trial: Trial {
                                 index,
@@ -869,8 +1012,8 @@ fn plan_grid(
     plan
 }
 
-/// Per-(eval,sample) and per-(eval,model) metadata, indexed from the listing so
-/// `--group-by` can resolve a key against the sample and model columns.
+/// Per-(eval,sample) and per-(eval,target) metadata, indexed from the listing so
+/// `--group-by` can resolve a key against the sample and target columns.
 type MetaIndex = BTreeMap<(String, String), mira::Metadata>;
 
 fn meta_indexes(listing: &ListResult) -> (MetaIndex, MetaIndex) {
@@ -882,7 +1025,7 @@ fn meta_indexes(listing: &ListResult) -> (MetaIndex, MetaIndex) {
                 sample_meta.insert((eval.name.clone(), s.id.clone()), s.metadata.clone());
             }
         }
-        for m in &eval.models {
+        for m in &eval.targets {
             if !m.metadata.is_empty() {
                 model_meta.insert((eval.name.clone(), m.label.clone()), m.metadata.clone());
             }
@@ -892,7 +1035,7 @@ fn meta_indexes(listing: &ListResult) -> (MetaIndex, MetaIndex) {
 }
 
 /// Resolve a `--group-by` key for one cell, in priority order: axis params,
-/// sample metadata, model metadata, then transcript metadata. `None` ⇒ the cell
+/// sample metadata, target metadata, then transcript metadata. `None` ⇒ the cell
 /// carried no value for the key.
 fn group_value(
     r: &RunResult,
@@ -910,7 +1053,7 @@ fn group_value(
         return Some(mira::metadata_display(v));
     }
     if let Some(v) = model_meta
-        .get(&(r.eval.clone(), r.model.clone()))
+        .get(&(r.eval.clone(), r.target.clone()))
         .and_then(|m| m.get(key))
     {
         return Some(mira::metadata_display(v));
@@ -963,8 +1106,8 @@ fn print_listing(listing: &ListResult) {
         );
         println!("  scorers: {}", eval.scorers.join(", "));
         println!(
-            "  models:  {}",
-            eval.models
+            "  targets:  {}",
+            eval.targets
                 .iter()
                 .map(|m| {
                     let mut label = m.label.clone();

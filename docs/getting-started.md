@@ -22,26 +22,26 @@ binary, or (handy for libraries) an example:
 // examples/my_evals.rs
 use mira::scorer::{contains, succeeded, tool_called};
 use mira::subject::subject_fn;
-use mira::{eval, Eval, ModelSpec, Sample, Transcript};
+use mira::{eval, Eval, Target, Sample, Transcript};
 
 #[eval]
 fn capital() -> Eval {
     Eval::new("capital")
         .describe("Knows world capitals")
-        .sample(Sample::new("france", "What is the capital of France?").target("Paris"))
-        .sample(Sample::new("japan", "What is the capital of Japan?").target("Tokyo"))
+        .sample(Sample::new("france", "What is the capital of France?").expected("Paris"))
+        .sample(Sample::new("japan", "What is the capital of Japan?").expected("Tokyo"))
         .subject(subject_fn(|sample, cx| async move {
-            // Replace this with a real model call keyed on `cx.model`.
+            // Replace this with a real model call keyed on `cx.target`.
             let answer = match sample.id.as_str() {
                 "france" => "The capital of France is Paris.",
                 _ => "The capital of Japan is Tokyo.",
             };
-            let _ = cx; // model is available as cx.model
+            let _ = cx; // model is available as cx.target
             Transcript::response(answer)
         }))
         .scorer(succeeded())
-        .scorer(mira::scorer::matches_target()) // compares to Sample.target
-        .models([ModelSpec::sim(), ModelSpec::anthropic("claude-opus-4-8")])
+        .scorer(mira::scorer::matches_expected()) // compares to Sample.target
+        .targets([Target::sim(), Target::anthropic("claude-opus-4-8")])
         .build()
 }
 
@@ -60,7 +60,7 @@ mira --example my_evals list
 ```text
 capital — Knows world capitals  (max_turns=12)
   samples: france, japan
-  scorers: succeeded, matches_target
+  scorers: succeeded, matches_expected
   models:  sim, anthropic/claude-opus-4-8 (unavailable)
 ```
 
@@ -91,7 +91,7 @@ Set `ANTHROPIC_API_KEY` and the cloud column lights up too.
 ```bash
 mira --example my_evals run france                 # substring filter on the case key
 mira --example my_evals run --tag smoke            # by sample tag
-mira --example my_evals run --models sim           # restrict the matrix
+mira --example my_evals run --targets sim           # restrict the matrix
 mira --example my_evals run --format junit --out results.xml   # CI artifact
 mira --example my_evals run --format html  --out report.html   # self-contained viewer
 mira --example my_evals run --checkpoint ck.json   # resumable; re-run skips done cells

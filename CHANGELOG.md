@@ -6,8 +6,30 @@ adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Changed
+
+- **`Target` replaces `ModelSpec` as the privileged comparison axis** (breaking,
+  pre-1.0, no compat shims). The thing under evaluation is a **target** — a model
+  *or* a harness (`Target::cli("yolop")`) — not just a "model", so comparing two
+  agents no longer means faking them as models. Renames span the whole stack and
+  the **`1.0` wire**: `ModelSpec`→`Target`, `Eval::models`→`Eval::targets`,
+  `RunCx::model`→`RunCx::target`, `--models`→`--targets`, the `ModelInfo` wire
+  type→`TargetInfo`, the `model`/`models` wire fields→`target`/`targets`, the
+  case-key slot `@model`→`@target`, and the `MIRA_TARGET` env var for
+  `CliSubject`s. `schema/v1/` and the Python SDK are regenerated to match.
+- **Sample's gold answer renamed `target`→`expected`** to free the word "target"
+  for the comparison axis: `Sample::expected()`, `Sample::expected_str()`, and the
+  scorer `matches_target()`→`matches_expected()`.
+
 ### Added
 
+- **Generalized axis selection (`--axis`) and named presets (`--preset`).** Any
+  declared axis is now host-selectable: `--axis NAME=v1,v2` (repeatable) subsets
+  the `target` axis or any secondary axis (values OR within a flag, flags AND);
+  `--targets` is sugar for `--axis target=…`. An unknown axis/value is a hard
+  error. `--preset NAME` applies a saved selection bundle from `mira.toml`
+  (`[presets.NAME]` = targets / axes / tag / filter / evals); explicit flags
+  override it. Selection still only *subsets* the study-declared grid.
 - **Reverse request channel (study→host) — reserved seam.** Designed (not yet
   built) the one envelope direction the protocol doesn't carry: a study→host
   request, for host-brokered model access, shared resources, and

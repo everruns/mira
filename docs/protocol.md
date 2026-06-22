@@ -22,7 +22,7 @@ machine-readable definition, see the generated **JSON Schema** under
 └────────────┘                                         └────────────────┘
 ```
 
-- The **host** owns selection, the model matrix, aggregation, checkpoints, and
+- The **host** owns selection, the target matrix, aggregation, checkpoints, and
   rendering. It plans the whole run from `list` before executing anything.
 - The **study** owns subjects and scoring. It answers requests and knows
   nothing about matrices, checkpoints, or reporting.
@@ -59,7 +59,7 @@ the framing (see [Reverse requests](#reverse-requests-studyhost)).
 ### Request (host → study)
 
 ```json
-{ "id": 1, "method": "run", "params": { "eval": "greet", "sample": "hi", "model": "sim" } }
+{ "id": 1, "method": "run", "params": { "eval": "greet", "sample": "hi", "target": "sim" } }
 ```
 
 | Field | Type | Notes |
@@ -95,7 +95,7 @@ bare `{ "message": "…" }` still parses.
 Fire-and-forget; no `id`, never acknowledged. Used for live progress.
 
 ```json
-{ "method": "event", "params": { "request_id": 7, "eval": "greet", "sample": "hi", "model": "sim", "kind": "started" } }
+{ "method": "event", "params": { "request_id": 7, "eval": "greet", "sample": "hi", "target": "sim", "kind": "started" } }
 { "method": "log",   "params": { "request_id": 7, "message": "warming up driver" } }
 ```
 
@@ -175,7 +175,7 @@ it additively and falls back to default behaviour when a token is absent.
 ### `list`
 
 Enumerates every eval the study defines, with enough detail for the host to
-plan the full `samples × models` grid and apply selection — without running
+plan the full `samples × targets` grid and apply selection — without running
 anything. For large or lazily generated datasets, samples are **paginated**: an
 eval carries the first page inline and a `next_cursor` the host follows with
 [`list_samples`](#list_samples).
@@ -193,7 +193,7 @@ eval carries the first page inline and a `next_cursor` the host follows with
       ],
       "next_cursor": null,
       "scorers": ["succeeded", "contains(\"42\")"],
-      "models": [
+      "targets": [
         { "label": "sim", "provider": "sim", "available": true },
         { "label": "anthropic/claude-opus-4-8", "provider": "anthropic", "available": false,
           "metadata": { "agent": "swe-agent", "effort": "high", "price_tier": "premium" } }
@@ -221,17 +221,17 @@ eval carries the first page inline and a `next_cursor` the host follows with
   back off a provider that returns rate-limit errors. A study that omits it
   groups all such cells under the empty provider.
 - `axes` (optional, default empty) advertises **extra matrix axes** beyond the
-  model. The host takes the cross-product of every axis with the model matrix and
+  model. The host takes the cross-product of every axis with the target matrix and
   sends the chosen value per cell in `run.params`. A cell's identity is
-  `eval/sample@model` with a sorted `[k=v,…]` suffix when axes vary.
+  `eval/sample@target` with a sorted `[k=v,…]` suffix when axes vary.
 - `metadata` is free-form, open-ended `string → JSON` (provenance, observability
   links, structured context). Values may be a string, number, bool, or a nested
   object/array. (Axis `params`, by
   contrast, stay `string → string`: they form part of a cell's identity.)
   Carried at three levels, each optional and defaulting to empty: on the **eval**
   (shown above), on each **sample** (`samples[].metadata` — repo, difficulty,
-  dataset split, …), and on each **model** (`models[].metadata` — agent,
-  underlying model, effort, price, sandbox, …). The per-sample and per-model maps
+  dataset split, …), and on each **model** (`targets[].metadata` — agent,
+  underlying model, effort, price, sandbox, …). The per-sample and per-target maps
   are optional; an older study that omits them still parses. The host
   surfaces them in `list` and can break resolve-rate down by any of their keys
   with `mira run --group-by <key>`.
@@ -282,14 +282,14 @@ sample offset, but a study may use any token — a DB keyset, an API page token)
 
 ### `run`
 
-Runs exactly one matrix cell, addressed by `(eval, sample, model label)`, and
+Runs exactly one matrix cell, addressed by `(eval, sample, target label)`, and
 returns the scored result. The study may emit `event` notifications before the
 response.
 
 **Params**
 
 ```json
-{ "eval": "greet", "sample": "hi", "model": "sim", "params": { "effort": "high" },
+{ "eval": "greet", "sample": "hi", "target": "sim", "params": { "effort": "high" },
   "trial": 2, "trials": 8, "seed": 44 }
 ```
 
@@ -311,7 +311,7 @@ variance.
 {
   "eval": "greet",
   "sample": "hi",
-  "model": "sim",
+  "target": "sim",
   "params": { "effort": "high" },
   "passed": true,
   "aggregate": 1.0,
@@ -383,7 +383,7 @@ long-running subject is executed once and its transcript persisted as an
 execution artifact, to be scored — or re-scored — later. Advertised by the
 `execute` capability.
 
-**Params** — identical to `run` (`{ eval, sample, model, params, trial, trials, seed }`).
+**Params** — identical to `run` (`{ eval, sample, target, params, trial, trials, seed }`).
 
 **Result**
 
@@ -391,7 +391,7 @@ execution artifact, to be scored — or re-scored — later. Advertised by the
 {
   "eval": "greet",
   "sample": "hi",
-  "model": "sim",
+  "target": "sim",
   "params": {},
   "transcript": {
     "final_response": "Hi! The answer is 42.",
@@ -426,7 +426,7 @@ scorer change). Advertised by the `score` capability.
 {
   "eval": "greet",
   "sample": "hi",
-  "model": "sim",
+  "target": "sim",
   "params": {},
   "trial": 2,
   "trials": 8,
@@ -629,7 +629,7 @@ Forward compatibility is a hard requirement on both sides:
    `paginate`).
 
 This is why a `0.x`-era study (no `axes`, no `timing`) and a `1.0` host
-interoperate: the host sees an empty `axes`/`capabilities` and a model-only
+interoperate: the host sees an empty `axes`/`capabilities` and a target-only
 matrix, and the missing transcript fields default to zero.
 
 The [reverse request channel](#reverse-requests-studyhost) is the one *new

@@ -346,9 +346,9 @@ fn build_context(include: Include, rubric: &str, sample: &Sample, t: &Transcript
     s.push_str(rubric);
     s.push_str("\n\n# Agent input\n");
     s.push_str(&sample.input.join("\n"));
-    if let Some(target) = sample.target_str() {
+    if let Some(expected) = sample.expected_str() {
         s.push_str("\n\n# Reference / expected answer\n");
-        s.push_str(target);
+        s.push_str(expected);
     }
     s.push_str("\n\n# Agent final response\n");
     s.push_str(&t.final_response);
@@ -457,7 +457,7 @@ mod tests {
 
     #[test]
     fn context_includes_selected_surface() {
-        let s = Sample::new("capital", "What is the capital of France?").target("Paris");
+        let s = Sample::new("capital", "What is the capital of France?").expected("Paris");
         let t = transcript();
 
         let response_only = build_context(Include::Response, "is it right?", &s, &t);
@@ -534,7 +534,7 @@ mod tests {
             return;
         }
         let scorer = judge.scorer("Does the response correctly name the capital of France?");
-        let sample = Sample::new("capital", "What is the capital of France?").target("Paris");
+        let sample = Sample::new("capital", "What is the capital of France?").expected("Paris");
         let t = Transcript::response("The capital of France is Paris.");
         let s = scorer.score(&sample, &t).await;
         assert!(!s.is_na(), "judge returned N/A: {}", s.reason);

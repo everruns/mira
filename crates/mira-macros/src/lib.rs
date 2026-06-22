@@ -30,7 +30,7 @@ use syn::{ItemFn, parse_macro_input};
 pub fn eval(args: TokenStream, item: TokenStream) -> TokenStream {
     if !args.is_empty() {
         let msg = "#[eval] takes no arguments; configure the eval inside the function body \
-                   (e.g. `.models(...)`, `.axis(...)`)";
+                   (e.g. `.targets(...)`, `.axis(...)`)";
         let err = syn::Error::new(proc_macro2::Span::call_site(), msg);
         return err.to_compile_error().into();
     }

@@ -25,11 +25,11 @@ study = mira.Study("my-evals", version="0.1.0")
 
 @study.eval(
     samples=[mira.Sample("hi", prompt="Say hi and the answer to life.", tags=["smoke"])],
-    models=[mira.model("sim")],
+    targets=[mira.target("sim")],
     scorers=[mira.succeeded(), mira.contains("42")],
 )
 def greet(sample, cx):
-    # A real subject calls a model; route on cx.model / cx.provider.
+    # A real subject calls a model; route on cx.target / cx.provider.
     return mira.transcript(
         f"Hi! The answer is 42. ({sample.text})",
         usage=mira.Usage(input_tokens=40, output_tokens=8),
@@ -63,7 +63,7 @@ A complete, runnable example lives in
   `sample.text` joins the input turns for the subject.
 - `model(label, provider="", available=True)` — a matrix cell. An unavailable
   model is reported as **N/A** (infra), not a failure.
-- `RunCx` — `cx.model`, `cx.provider`, `cx.max_turns`, `cx.param(name)`.
+- `RunCx` — `cx.target`, `cx.provider`, `cx.max_turns`, `cx.param(name)`.
 - `transcript(final_response, usage=…, timing=…, iterations=…, …)` and the
   `Usage`/`Timing` types.
 - Scorers: `succeeded()`, `contains(text)`, `equals(text)`, `regex(pattern)`,

@@ -1,12 +1,15 @@
-//! [`ModelSpec`] — one cell of the model matrix.
+//! [`Target`] — one cell of the **target** matrix (the privileged comparison
+//! axis): the configured thing under evaluation. For an LLM eval a target *is* a
+//! model; for an agent eval it is a harness (e.g. `yolop`, `codex`), optionally
+//! wrapping a model.
 //!
-//! Mira's core is deliberately **provider-agnostic**: a [`ModelSpec`] is just a
+//! Mira's core is deliberately **provider-agnostic**: a [`Target`] is just a
 //! `(label, provider, model)` descriptor plus an availability flag and
 //! metadata. It carries no API keys and no provider SDK types. A
-//! [`Subject`](crate::subject::Subject) interprets the spec — e.g. the
+//! [`Subject`](crate::subject::Subject) interprets it — e.g. the
 //! `mira-everruns` `RuntimeSubject` maps `provider`/`model` onto an everruns
-//! `ResolvedModel`, while a [`CliSubject`](crate::subject::CliSubject) passes
-//! the label to a subprocess.
+//! `ResolvedModel`, while a [`CliSubject`](crate::subject::CliSubject) routes on
+//! the label (so a single CLI subject dispatches `yolop` vs `codex`).
 //!
 //! Availability is decided in the *study* process (where keys live): a named
 //! provider is available only when its API-key env var is set. Unavailable
@@ -19,14 +22,21 @@ use crate::Metadata;
 /// The conventional offline simulator provider id.
 pub const SIM_PROVIDER: &str = "sim";
 
-/// One cell of the model matrix.
+/// The conventional provider id for a [`Target::cli`] harness target.
+pub const CLI_PROVIDER: &str = "cli";
+
+/// One cell of the target matrix — the configured thing under evaluation (a
+/// model, or a harness optionally wrapping one).
 #[derive(Clone, Debug, PartialEq)]
-pub struct ModelSpec {
-    /// Stable label used in case keys and selection (e.g. `anthropic/opus`).
+pub struct Target {
+    /// Stable label used in case keys and selection (e.g. `anthropic/opus`,
+    /// `yolop`). This is the name `--targets`/`--axis target=…` matches.
     pub label: String,
-    /// Provider id (e.g. `sim`, `anthropic`, `openai`). Subjects route on this.
+    /// Provider id (e.g. `sim`, `anthropic`, `openai`, `cli`). Subjects route on
+    /// this; the host buckets per-provider concurrency on it.
     pub provider: String,
-    /// Model id passed to the provider (e.g. `claude-opus-4-8`).
+    /// Underlying model id passed to the provider (e.g. `claude-opus-4-8`).
+    /// Empty for a pure harness target whose model is irrelevant or implicit.
     pub model: String,
     /// Whether this cell can run. `false` (e.g. missing API key) ⇒ skipped.
     pub available: bool,
@@ -34,7 +44,7 @@ pub struct ModelSpec {
     pub metadata: Metadata,
 }
 
-impl ModelSpec {
+impl Target {
     /// A fully-explicit, always-available cell. Use the provider-specific
     /// constructors below for key-gated cloud models.
     pub fn new(
@@ -55,6 +65,21 @@ impl ModelSpec {
     /// matrix cell, so a fresh `mira run` is green without credentials.
     pub fn sim() -> Self {
         Self::new("sim", SIM_PROVIDER, "sim")
+    }
+
+    /// A **harness / agent** target identified by `label` (e.g. `yolop`,
+    /// `codex`) — not a provider model. Always available; provider is
+    /// [`CLI_PROVIDER`], model empty. A [`CliSubject`](crate::subject::CliSubject)
+    /// (or any subject) dispatches on `cx.target.label`. Wrap an underlying model
+    /// for cost attribution via [`with_model`](Target::with_model) when it matters.
+    pub fn cli(label: impl Into<String>) -> Self {
+        Self::new(label, CLI_PROVIDER, "")
+    }
+
+    /// Set the underlying model id (e.g. attach the model a harness target wraps).
+    pub fn with_model(mut self, model: impl Into<String>) -> Self {
+        self.model = model.into();
+        self
     }
 
     /// An Anthropic model. Available only when `ANTHROPIC_API_KEY` is set.
@@ -123,23 +148,37 @@ mod tests {
 
     #[test]
     fn sim_is_available() {
-        let m = ModelSpec::sim();
+        let m = Target::sim();
         assert!(m.available);
         assert!(m.is_sim());
         assert_eq!(m.label, "sim");
     }
 
     #[test]
+    fn cli_is_a_harness_target() {
+        // A harness/agent target (yolop, codex): always available, CLI provider,
+        // empty underlying model unless one is attached for cost attribution.
+        let t = Target::cli("yolop");
+        assert!(t.available);
+        assert!(!t.is_sim());
+        assert_eq!(t.label, "yolop");
+        assert_eq!(t.provider, CLI_PROVIDER);
+        assert_eq!(t.model, "");
+        let wrapped = Target::cli("codex").with_model("claude-opus-4-8");
+        assert_eq!(wrapped.model, "claude-opus-4-8");
+    }
+
+    #[test]
     fn cloud_gates_on_env() {
         // A key env that is (almost certainly) unset ⇒ unavailable.
-        let m = ModelSpec::cloud("acme", "x", "MIRA_TEST_DEFINITELY_UNSET_KEY");
+        let m = Target::cloud("acme", "x", "MIRA_TEST_DEFINITELY_UNSET_KEY");
         assert!(!m.available);
         assert_eq!(m.label, "acme/x");
     }
 
     #[test]
     fn builder_overrides() {
-        let m = ModelSpec::new("a", "p", "m")
+        let m = Target::new("a", "p", "m")
             .label("alias")
             .available(false)
             .meta("region", "us");

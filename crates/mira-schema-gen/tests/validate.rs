@@ -6,8 +6,8 @@
 
 use mira::protocol::{
     CancelParams, CancelResult, EvalInfo, ExecuteResult, InitializeResult, ListResult,
-    ListSamplesParams, ListSamplesResult, ModelInfo, Notification, Request, Response, RunParams,
-    RunResult, SampleInfo, ScoreParams, TranscriptSummary,
+    ListSamplesParams, ListSamplesResult, Notification, Request, Response, RunParams, RunResult,
+    SampleInfo, ScoreParams, TargetInfo, TranscriptSummary,
 };
 use mira::{Score, Transcript, Usage};
 use mira_schema_gen::schema_dir;
@@ -68,7 +68,7 @@ fn envelopes_validate_at_root() {
     let request = Request {
         id: 1,
         method: "run".into(),
-        params: json!({ "eval": "greet", "sample": "hi", "model": "sim" }),
+        params: json!({ "eval": "greet", "sample": "hi", "target": "sim" }),
     };
     let response = Response::ok(1, json!({ "passed": true }));
     let error = Response::err(2, "no such eval: greet");
@@ -107,7 +107,7 @@ fn payloads_validate_against_their_defs() {
             // A paginated listing: the first page advertises a continuation token.
             next_cursor: Some("1".into()),
             scorers: vec!["succeeded".into()],
-            models: vec![ModelInfo {
+            targets: vec![TargetInfo {
                 label: "sim".into(),
                 provider: "sim".into(),
                 available: true,
@@ -143,7 +143,7 @@ fn payloads_validate_against_their_defs() {
     let params = RunParams {
         eval: "greet".into(),
         sample: "hi".into(),
-        model: "sim".into(),
+        target: "sim".into(),
         params: Default::default(),
         trial: 1,
         trials: 3,
@@ -159,7 +159,7 @@ fn payloads_validate_against_their_defs() {
     let result = RunResult {
         eval: "greet".into(),
         sample: "hi".into(),
-        model: "sim".into(),
+        target: "sim".into(),
         params: Default::default(),
         trial: 1,
         trials: 3,
@@ -184,7 +184,7 @@ fn payloads_validate_against_their_defs() {
     let execute = ExecuteResult {
         eval: "greet".into(),
         sample: "hi".into(),
-        model: "sim".into(),
+        target: "sim".into(),
         params: Default::default(),
         trial: 1,
         trials: 3,
@@ -197,7 +197,7 @@ fn payloads_validate_against_their_defs() {
     let score = ScoreParams {
         eval: "greet".into(),
         sample: "hi".into(),
-        model: "sim".into(),
+        target: "sim".into(),
         params: Default::default(),
         trial: 1,
         trials: 3,

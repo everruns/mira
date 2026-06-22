@@ -3,7 +3,7 @@
 //!
 //! When a cell is run multiple times (see [`Eval::trials`](crate::Eval) /
 //! `--trials`), each repetition is a separate [`RunResult`] sharing one *logical*
-//! key (`eval/sample@model[…]`, without the `#index` trial suffix). This module
+//! key (`eval/sample@target[…]`, without the `#index` trial suffix). This module
 //! groups them back by that logical key and rolls each group into a
 //! [`TrialAggregate`]: how many trials passed, the pass-rate, the unbiased
 //! [`pass@k`](TrialAggregate::pass_at_k) estimator, and the mean/standard
@@ -31,8 +31,8 @@ use crate::report::is_na;
 pub struct TrialAggregate {
     pub eval: String,
     pub sample: String,
-    pub model: String,
-    /// Extra matrix-axis values for this cell (empty for a model-only matrix).
+    pub target: String,
+    /// Extra matrix-axis values for this cell (empty for a target-only matrix).
     #[serde(default, skip_serializing_if = "Params::is_empty")]
     pub params: Params,
     /// The logical cell key all these trials share (no `#index` suffix).
@@ -47,7 +47,7 @@ pub struct TrialAggregate {
     pub failed: usize,
     /// Trials that ran but were all-N/A (excluded from the verdict).
     pub na: usize,
-    /// Trials that never executed (e.g. model unavailable).
+    /// Trials that never executed (e.g. target unavailable).
     pub skipped: usize,
     /// `passed / scored` (0.0 when nothing was scored). This is pass@1.
     pub pass_rate: f64,
@@ -163,7 +163,7 @@ pub fn aggregate_trials(results: &[RunResult]) -> Vec<TrialAggregate> {
             TrialAggregate {
                 eval: first.eval.clone(),
                 sample: first.sample.clone(),
-                model: first.model.clone(),
+                target: first.target.clone(),
                 params: first.params.clone(),
                 key,
                 total,
@@ -192,11 +192,11 @@ mod tests {
     use crate::Score;
     use crate::protocol::TranscriptSummary;
 
-    fn trial(model: &str, trial: usize, trials: usize, passed: bool) -> RunResult {
+    fn trial(target: &str, trial: usize, trials: usize, passed: bool) -> RunResult {
         RunResult {
             eval: "e".into(),
             sample: "s".into(),
-            model: model.into(),
+            target: target.into(),
             params: Default::default(),
             trial,
             trials,
@@ -244,7 +244,7 @@ mod tests {
         let aggs = aggregate_trials(&results);
         assert_eq!(aggs.len(), 2);
 
-        let sim = aggs.iter().find(|a| a.model == "sim").unwrap();
+        let sim = aggs.iter().find(|a| a.target == "sim").unwrap();
         assert_eq!(sim.total, 4);
         assert_eq!(sim.scored, 4);
         assert_eq!(sim.passed, 3);
@@ -258,7 +258,7 @@ mod tests {
         assert!((sim.mean - 0.75).abs() < 1e-9);
         assert!((sim.std_dev - 0.1875_f64.sqrt()).abs() < 1e-9);
 
-        let opus = aggs.iter().find(|a| a.model == "opus").unwrap();
+        let opus = aggs.iter().find(|a| a.target == "opus").unwrap();
         assert_eq!(opus.passed, 1);
         assert!((opus.pass_rate - 0.25).abs() < 1e-9);
     }

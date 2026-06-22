@@ -107,15 +107,15 @@ pub fn regex(pattern: impl Into<String>) -> Box<dyn Scorer> {
     })
 }
 
-/// Passes if the final response matches the sample's string `target`. Samples
-/// without a string target fail (the eval is misconfigured).
-pub fn matches_target() -> Box<dyn Scorer> {
-    scorer("matches_target", move |s, t| match s.target_str() {
-        Some(target) if t.final_response.trim() == target.trim() => {
-            Score::pass("matches_target", "matched target")
+/// Passes if the final response matches the sample's string `expected` answer.
+/// Samples without a string expected value fail (the eval is misconfigured).
+pub fn matches_expected() -> Box<dyn Scorer> {
+    scorer("matches_expected", move |s, t| match s.expected_str() {
+        Some(expected) if t.final_response.trim() == expected.trim() => {
+            Score::pass("matches_expected", "matched expected")
         }
-        Some(target) => Score::fail("matches_target", format!("expected {target:?}")),
-        None => Score::fail("matches_target", "sample has no string target"),
+        Some(expected) => Score::fail("matches_expected", format!("expected {expected:?}")),
+        None => Score::fail("matches_expected", "sample has no string expected answer"),
     })
 }
 
@@ -611,11 +611,11 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn target_scorer() {
-        let s = Sample::new("a", "q").target("The answer is 42.");
-        assert!(run(matches_target(), &s).await.pass);
-        let s2 = Sample::new("b", "q"); // no target
-        assert!(!run(matches_target(), &s2).await.pass);
+    async fn expected_scorer() {
+        let s = Sample::new("a", "q").expected("The answer is 42.");
+        assert!(run(matches_expected(), &s).await.pass);
+        let s2 = Sample::new("b", "q"); // no expected answer
+        assert!(!run(matches_expected(), &s2).await.pass);
     }
 
     #[tokio::test]

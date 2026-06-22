@@ -9,18 +9,18 @@ use everruns_core::{CapabilityRegistry, PlatformDefinition};
 use everruns_runtime::InProcessRuntimeBuilder;
 use mira::scorer::{contains, succeeded};
 use mira::subject::Subject;
-use mira::{Eval, ModelSpec, RunCx, Runner, Sample, Transcript};
-use mira_everruns::{RuntimeSubject, model_to_resolved};
+use mira::{Eval, RunCx, Runner, Sample, Target, Transcript};
+use mira_everruns::{RuntimeSubject, target_to_resolved};
 
 /// Build a `RuntimeSubject` whose factory spins up an `InProcessRuntime` with a
 /// fixed `LlmSim` reply.
 fn llmsim_subject(reply: &'static str) -> RuntimeSubject {
-    RuntimeSubject::new(move |model| async move {
+    RuntimeSubject::new(move |target| async move {
         let platform = PlatformDefinition::new(CapabilityRegistry::new(), DriverRegistry::new());
         let runtime = InProcessRuntimeBuilder::new()
             .platform_definition(platform)
             .llm_sim(LlmSimConfig::fixed(reply))
-            .default_model(model_to_resolved(&model))
+            .default_model(target_to_resolved(&target))
             .single_session(|s| {
                 s.harness("assistant", "You are a helpful assistant.")
                     .agent("assistant-agent", "Answer concisely.")
@@ -40,7 +40,7 @@ fn llmsim_subject(reply: &'static str) -> RuntimeSubject {
 #[tokio::test]
 async fn runtime_subject_produces_a_transcript() {
     let subject = llmsim_subject("Hi! The answer is 42.");
-    let cx = RunCx::new(ModelSpec::sim());
+    let cx = RunCx::new(Target::sim());
     let t: Transcript = subject.run(&Sample::new("greet", "Say hi."), &cx).await;
 
     assert!(t.succeeded(), "unexpected error: {:?}", t.error);
@@ -57,7 +57,7 @@ async fn runtime_subject_produces_a_transcript() {
 async fn full_eval_runs_green_against_llmsim() {
     let eval = Eval::new("llmsim")
         .case("greet", "Say hi and tell me the answer to life.")
-        .models([ModelSpec::sim()])
+        .targets([Target::sim()])
         .subject(llmsim_subject("Hi! The answer to life is 42."))
         .scorer(succeeded())
         .scorer(contains("42"))

@@ -1,15 +1,15 @@
-//! [`Eval`]: one evaluation = a dataset + a subject + scorers + a model matrix.
+//! [`Eval`]: one evaluation = a dataset + a subject + scorers + a target matrix.
 //!
-//! This mirrors Inspect AI's `Task`, but the matrix (which models to run) is a
+//! This mirrors Inspect AI's `Task`, but the matrix (which targets to run) is a
 //! first-class axis. The code-first builder is the primary authoring surface;
 //! `Dataset::jsonl` / `Dataset::json` are the secondary, config-style on-ramps.
 
 use std::sync::Arc;
 
 use crate::content::{Message, Part};
-use crate::model::ModelSpec;
 use crate::scorer::Scorer;
 use crate::subject::Subject;
+use crate::target::Target;
 use crate::{Dataset, Metadata, Params, Sample};
 
 /// A dataset row, in eval-authoring terms.
@@ -26,9 +26,9 @@ pub type Case = Sample;
 /// unchanged: scorers grade the final accumulated [`Transcript`](crate::Transcript).
 pub type Responder = dyn Fn(&[Message]) -> Option<Vec<Part>> + Send + Sync;
 
-/// One extra matrix axis beyond the model: a name and the discrete values it
+/// One extra matrix axis beyond the target: a name and the discrete values it
 /// takes (e.g. `("effort", ["low", "high"])`). The runner takes the
-/// cross-product of all axes with the model matrix and the dataset, and the
+/// cross-product of all axes with the target matrix and the dataset, and the
 /// chosen value for each axis is handed to the subject via [`RunCx::param`].
 ///
 /// [`RunCx::param`]: crate::RunCx::param
@@ -50,15 +50,15 @@ impl Axis {
     }
 }
 
-/// A single evaluation, ready to run across its model matrix.
+/// A single evaluation, ready to run across its target matrix.
 pub struct Eval {
     pub name: String,
     pub description: String,
     pub dataset: Dataset,
     pub subject: Arc<dyn Subject>,
     pub scorers: Vec<Box<dyn Scorer>>,
-    pub models: Vec<ModelSpec>,
-    /// Extra matrix axes beyond the model (empty for a model-only matrix).
+    pub targets: Vec<Target>,
+    /// Extra matrix axes beyond the target (empty for a target-only matrix).
     pub axes: Vec<Axis>,
     pub max_turns: usize,
     /// How many times to run each cell (trials/repetitions). `1` = a single run.
@@ -81,7 +81,7 @@ pub struct Eval {
 impl Eval {
     /// Every combination of axis values, as `params` maps, in cross-product
     /// order. Always yields at least one (empty) map, so a no-axis eval runs a
-    /// single cell per `(sample, model)`.
+    /// single cell per `(sample, target)`.
     pub fn axis_combinations(&self) -> Vec<Params> {
         let mut combos = vec![Params::new()];
         for axis in &self.axes {
@@ -112,7 +112,7 @@ impl Eval {
             dataset: Dataset::default(),
             subject: None,
             scorers: Vec::new(),
-            models: Vec::new(),
+            targets: Vec::new(),
             axes: Vec::new(),
             max_turns: 12,
             trials: 1,
@@ -129,7 +129,7 @@ pub struct EvalBuilder {
     dataset: Dataset,
     subject: Option<Arc<dyn Subject>>,
     scorers: Vec<Box<dyn Scorer>>,
-    models: Vec<ModelSpec>,
+    targets: Vec<Target>,
     axes: Vec<Axis>,
     max_turns: usize,
     trials: usize,
@@ -175,26 +175,26 @@ impl EvalBuilder {
         self
     }
 
-    /// Add a scorer. Every scorer runs against every sample × model cell.
+    /// Add a scorer. Every scorer runs against every sample × target cell.
     pub fn scorer(mut self, scorer: Box<dyn Scorer>) -> Self {
         self.scorers.push(scorer);
         self
     }
 
-    /// Add one matrix cell (a model). Omit entirely to default to `sim`.
-    pub fn model(mut self, model: ModelSpec) -> Self {
-        self.models.push(model);
+    /// Add one matrix cell (a target). Omit entirely to default to `sim`.
+    pub fn target(mut self, target: Target) -> Self {
+        self.targets.push(target);
         self
     }
 
-    /// Replace the matrix with `models`.
-    pub fn models(mut self, models: impl IntoIterator<Item = ModelSpec>) -> Self {
-        self.models = models.into_iter().collect();
+    /// Replace the matrix with `targets`.
+    pub fn targets(mut self, targets: impl IntoIterator<Item = Target>) -> Self {
+        self.targets = targets.into_iter().collect();
         self
     }
 
-    /// Add an extra matrix axis (beyond the model): a name and the discrete
-    /// values it takes. The runner crosses every axis with the model matrix, and
+    /// Add an extra matrix axis (beyond the target): a name and the discrete
+    /// values it takes. The runner crosses every axis with the target matrix, and
     /// the subject reads the chosen value via [`RunCx::param`](crate::RunCx::param).
     ///
     /// ```
@@ -207,7 +207,7 @@ impl EvalBuilder {
     ///     }))
     ///     .scorer(succeeded())
     ///     .build();
-    /// // One sample × one (default sim) model × two effort values = 2 cells.
+    /// // One sample × one (default sim) target × two effort values = 2 cells.
     /// assert_eq!(eval.axis_combinations().len(), 2);
     /// ```
     pub fn axis(
@@ -295,10 +295,10 @@ impl EvalBuilder {
             dataset: self.dataset,
             subject: self.subject.expect("eval requires a subject"),
             scorers: self.scorers,
-            models: if self.models.is_empty() {
-                vec![ModelSpec::sim()]
+            targets: if self.targets.is_empty() {
+                vec![Target::sim()]
             } else {
-                self.models
+                self.targets
             },
             axes: self.axes,
             max_turns: self.max_turns,
@@ -323,8 +323,8 @@ mod tests {
             .subject(subject_fn(|_, _| async { Transcript::response("hi") }))
             .scorer(contains("hi"))
             .build();
-        assert_eq!(eval.models.len(), 1);
-        assert!(eval.models[0].is_sim());
+        assert_eq!(eval.targets.len(), 1);
+        assert!(eval.targets[0].is_sim());
         assert_eq!(eval.dataset.len(), 1);
     }
 
@@ -333,12 +333,12 @@ mod tests {
         let eval = Eval::new("e")
             .describe("desc")
             .meta("suite", "smoke")
-            .models([ModelSpec::sim(), ModelSpec::anthropic("opus")])
+            .targets([Target::sim(), Target::anthropic("opus")])
             .subject(subject_fn(|_, _| async { Transcript::default() }))
             .build();
         assert_eq!(eval.description, "desc");
         assert_eq!(eval.metadata.get("suite").unwrap(), "smoke");
-        assert_eq!(eval.models.len(), 2);
+        assert_eq!(eval.targets.len(), 2);
     }
 
     #[test]

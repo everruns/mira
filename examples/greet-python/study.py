@@ -26,7 +26,7 @@ study = mira.Study("greet-python", version="0.1.0")
     name="greet",
     description="Greets the user and reports the answer to life (Python SDK study)",
     samples=[mira.Sample("hi", prompt="Say hi and tell me the answer to life.", tags=["smoke"])],
-    models=[mira.model("sim")],
+    targets=[mira.target("sim")],
     scorers=[mira.succeeded(), mira.contains("42")],
     metadata={"suite": "smoke", "lang": "python"},
 )

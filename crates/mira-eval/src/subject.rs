@@ -178,8 +178,8 @@ impl Subject for CliSubject {
         for (k, v) in &self.env {
             cmd.env(k, v);
         }
-        cmd.env("MIRA_MODEL", &cx.model.label);
-        cmd.env("MIRA_PROVIDER", &cx.model.provider);
+        cmd.env("MIRA_TARGET", &cx.target.label);
+        cmd.env("MIRA_PROVIDER", &cx.target.provider);
         cmd.stdout(Stdio::piped()).stderr(Stdio::piped());
         cmd.stdin(if self.stdin_prompt {
             Stdio::piped()
@@ -363,11 +363,11 @@ fn walk(value: &serde_json::Value, usage: &mut Usage, tools: &mut Vec<String>) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::ModelSpec;
+    use crate::Target;
 
     fn cx() -> RunCx {
         RunCx {
-            model: ModelSpec::sim(),
+            target: Target::sim(),
             max_turns: 8,
             params: Default::default(),
             trial: crate::Trial::single(),

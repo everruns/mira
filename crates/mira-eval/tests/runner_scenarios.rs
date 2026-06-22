@@ -1,10 +1,10 @@
 //! Integration tests for the in-process [`Runner`] across realistic scenarios:
-//! multi-eval suites, the model matrix, extra axes (cross-product), selection
-//! (filter/tag/models), skip-not-fail, and metric-budget scoring.
+//! multi-eval suites, the target matrix, extra axes (cross-product), selection
+//! (filter/tag/targets), skip-not-fail, and metric-budget scoring.
 
 use mira::scorer::{contains, latency_within, succeeded, tokens_within, tools_used_exactly};
 use mira::subject::subject_fn;
-use mira::{Eval, ModelSpec, Runner, Sample, Timing, Transcript, Usage};
+use mira::{Eval, Runner, Sample, Target, Timing, Transcript, Usage};
 
 /// A subject that echoes its prompt and reports usage/timing/tools, so budget
 /// scorers have something concrete to grade.
@@ -43,7 +43,7 @@ async fn multi_eval_suite_runs_every_cell() {
         .add(echo_eval("beta"))
         .run()
         .await;
-    // 2 evals × 2 samples × 1 (sim) model.
+    // 2 evals × 2 samples × 1 (sim) target.
     assert_eq!(report.total(), 4);
     assert!(report.all_passed());
 }
@@ -52,19 +52,19 @@ async fn multi_eval_suite_runs_every_cell() {
 async fn matrix_crosses_models_and_axes() {
     let eval = Eval::new("grid")
         .case("a", "x")
-        .models([ModelSpec::sim(), ModelSpec::sim().label("sim2")])
+        .targets([Target::sim(), Target::sim().label("sim2")])
         .axis("effort", ["low", "high"])
         .subject(subject_fn(|_, cx| async move {
             Transcript::response(format!(
                 "{}/{}",
-                cx.model.label,
+                cx.target.label,
                 cx.param("effort").unwrap_or("?")
             ))
         }))
         .scorer(succeeded())
         .build();
 
-    // 1 sample × 2 models × 2 effort values = 4 cells.
+    // 1 sample × 2 targets × 2 effort values = 4 cells.
     let report = Runner::new().add(eval).run().await;
     assert_eq!(report.total(), 4);
     let mut keys: Vec<String> = report.outcomes.iter().map(|o| o.key()).collect();
@@ -103,17 +103,17 @@ async fn selection_filter_tag_and_models() {
     // Model restriction selects a single matrix column.
     let eval = Eval::new("m")
         .case("a", "x")
-        .models([ModelSpec::sim(), ModelSpec::sim().label("sim2")])
+        .targets([Target::sim(), Target::sim().label("sim2")])
         .subject(subject_fn(|_, _| async { Transcript::response("x") }))
         .scorer(succeeded())
         .build();
     let r = Runner::new()
         .add(eval)
-        .models(Some(vec!["sim2".into()]))
+        .targets(Some(vec!["sim2".into()]))
         .run()
         .await;
     assert_eq!(r.total(), 1);
-    assert_eq!(r.outcomes[0].model, "sim2");
+    assert_eq!(r.outcomes[0].target, "sim2");
 }
 
 #[tokio::test]
@@ -121,7 +121,7 @@ async fn unavailable_cells_skip_and_stay_green() {
     let eval = Eval::new("cloud")
         .case("a", "x")
         // An unavailable cloud cell (no key) alongside the always-on sim.
-        .models([ModelSpec::sim(), ModelSpec::anthropic("claude-opus-4-8")])
+        .targets([Target::sim(), Target::anthropic("claude-opus-4-8")])
         .subject(subject_fn(|_, _| async { Transcript::response("x") }))
         .scorer(contains("x"))
         .build();

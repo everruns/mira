@@ -50,10 +50,10 @@ LLM-judge scorers, transcript-level reporting, CI-native output.
 ## 3. Core model
 
 ```text
-Eval = Dataset(Sample…) + Subject + [Scorer…]  ×  model matrix
+Eval = Dataset(Sample…) + Subject + [Scorer…]  ×  target matrix
 ```
 
-- **`Sample`** — one dataset row: input turns, optional `target`, seeded
+- **`Sample`** — one dataset row: input turns, optional `expected` answer, seeded
   `files`, `tags`, `metadata`. Language-agnostic JSON; inline in Rust for small
   evals; `Dataset::{jsonl,json}` for larger sets.
 - **`Subject`** (trait) — the thing under evaluation, `async fn run(&Sample,
@@ -71,12 +71,13 @@ Eval = Dataset(Sample…) + Subject + [Scorer…]  ×  model matrix
   `0..1`, `pass`, `reason`). Deterministic built-ins, the `scorer(name, closure)`
   escape hatch, and `model_graded(rubric, judge)`. One open vocabulary, not a
   closed enum.
-- **`ModelSpec`** — one matrix cell. **Provider-agnostic**: `(label, provider,
+- **`Target`** — one matrix cell. **Provider-agnostic**: `(label, provider,
   model, available, metadata)`, no keys, no SDK types. Subjects interpret it.
 
 ### Matrix
 
-`models` is a first-class axis. The runner expands `evals × models × axes ×
+The **target** (the model or harness under evaluation; see §15) is the
+first-class axis. The runner expands `evals × targets × axes ×
 samples` into independently-addressable cells. Missing API keys mark a cell
 `available: false`, so it is **skipped, not failed** — the default run is green
 offline.
@@ -96,8 +97,8 @@ classifies provider error strings into `Infra` conservatively.
 
 **Arbitrary axes** beyond the model ship in v0.1: `Eval::axis(name, values)`
 adds a discrete axis (e.g. reasoning `effort`, harness variant), and the runner
-crosses every axis with the model matrix. The chosen value per cell reaches the
-subject via `RunCx::param(name)`. Cell identity is `eval/sample@model` with a
+crosses every axis with the target matrix. The chosen value per cell reaches the
+subject via `RunCx::param(name)`. Cell identity is `eval/sample@target` with a
 sorted `[k=v,…]` suffix when axes vary (e.g.
 `reasoning/puzzle@sim[effort=high]`), computed identically by host and study
 (`mira::cell_key`).
@@ -121,9 +122,12 @@ is a future knob alongside the deferred cost caps (§12).
 
 ### Selective evaluation
 
-Mirrors `cargo test`: a substring `filter` on the case key plus a `--tag` narrow
-and a `--models` restriction. The **host** owns selection (it plans the grid from
-`list` before running anything), independent of how evals are authored.
+Mirrors `cargo test`: a substring `filter` on the case key, a `--tag` narrow, a
+`--targets` restriction (sugar for `--axis target=…`), a general `--axis
+NAME=v1,v2` subset on any declared axis, and `--preset NAME` (a saved selection
+bundle from `mira.toml`). The **host** owns selection (it plans the grid from
+`list` before running anything), and only ever *subsets* the declared grid —
+independent of how evals are authored. See §15.3.
 
 ## 4. Execution model: two processes, one protocol
 
@@ -182,7 +186,7 @@ publishable; heavy integrations are separate, optional crates.
 | `mira-cli` | bin `mira` | The host CLI. | none |
 | `mira-everruns` | lib | `RuntimeSubject` over published `everruns-runtime`. | everruns |
 
-The core takes **no everruns dependency**; `ModelSpec` is provider-agnostic and
+The core takes **no everruns dependency**; `Target` is provider-agnostic and
 `mira-everruns` maps it to an everruns `ResolvedModel`. This keeps a `cargo
 install mira-cli` and `cargo add mira-eval` cheap, and lets the polyglot
 `CliSubject` evaluate everruns CLIs with no compile-time coupling at all.
@@ -195,7 +199,8 @@ or an explicit `Study::new().eval(…).serve()`. `#[eval]` ships in the proc-mac
 crate `mira-macros`, re-exported as `mira::eval` behind the default `macros`
 feature.
 
-**Running** — the `mira` CLI: `list`, `run [filter]`, `--tag`, `--models`,
+**Running** — the `mira` CLI: `list`, `run [filter]`, `--tag`, `--targets`,
+`--axis`, `--preset`,
 `--format json|junit|md|html`, `--out`, `--checkpoint`/`--fresh`, and concurrency
 controls `-j/--max-concurrent`, `--provider-concurrency`, `--no-adaptive`,
 `--max-retries`. Non-zero exit on failure, so it drops into CI. In-process
@@ -448,3 +453,136 @@ defaulting to today's behaviour when a token is absent. Trialled behind
 `protocol-unstable`, then **promoted onto the committed `1.0` wire** alongside
 §14.3 (the field is a typed wire addition, so adding the field itself — unlike
 adding keys — needed the staging path before promotion).
+
+## 15. Targets, not models (the comparison axis) and axis selection
+
+- Status: **implemented** (supersedes the `ModelSpec` / `--models` naming used in
+  the historical prose of §3/§6; the code, the `1.0` wire, `schema/`, the SDKs,
+  docs, and examples are renamed to match).
+
+### 15.1 Problem — `model` is the wrong name for the privileged axis
+
+`ModelSpec` does **two** jobs and only one justifies the name:
+
+1. **Provider/cost descriptor** — `(provider, model)` drives real machinery:
+   availability gating on API keys (`available:false` ⇒ skip), per-provider
+   concurrency (`--provider-concurrency`), and cost/usage accounting. This part
+   genuinely *is* about models.
+2. **The privileged comparison axis** — the one dimension the host lets you
+   select from the CLI (`--models`) and that gets the prominent `@…` slot in the
+   case key. This has nothing to do with providers or keys.
+
+Job 2 is welded to the *name* "model", so anything you want to compare and
+select from the CLI has to masquerade as a model. Comparing two coding agents
+reads wrong: `mira run --models yolop,codex`. yolop and codex aren't models —
+they're harnesses / *individual configs* (yolop's term). The smell: only the
+model axis is host-selectable, and it's misnamed.
+
+### 15.2 B — rename the privileged axis to `Target`
+
+The cell of the privileged axis is the **configured thing under evaluation** —
+for an LLM eval it's a model; for an agent eval it's a harness (optionally
+wrapping a model). Call it a **`Target`**. (`subject` is taken — that's the
+trait that *executes* a sample into a transcript; the target is the *config* it
+runs.)
+
+`Target` keeps the same shape as `ModelSpec` — the provider/cost fields earn
+their keep (job 1) — and the LLM constructors are unchanged bar the type name. A
+new `Target::cli(label)` covers the harness case (a `CliSubject` dispatches on
+`cx.target.label`):
+
+```rust
+pub struct Target {
+    pub label: String,      // selection + display key: "yolop", "anthropic/opus"
+    pub provider: String,   // routing / concurrency bucket / gating key
+    pub model: String,      // underlying model id; "" for a pure harness
+    pub available: bool,    // false (e.g. missing key) ⇒ skipped, not failed
+    pub metadata: Metadata,
+}
+
+Target::sim()                          // offline default
+Target::anthropic("claude-opus-4-8")   // gated on ANTHROPIC_API_KEY (unchanged)
+Target::cli("yolop")                   // harness target; provider="cli", available
+```
+
+For yolop-on-opus vs codex-on-opus as *one individual config each*, enumerate
+targets directly (yolop's model — when it matters for cost — rides `model` or
+`metadata`). To cross harness × model instead, keep harness on `target` and put
+model on an **axis** (§15.3) — they compose.
+
+Renames (pre-1.0, no back-compat per AGENTS.md — clean rename, no aliases):
+
+| Was | Now |
+|-----|-----|
+| `ModelSpec` | `Target` |
+| `Eval::models([…])` | `Eval::targets([…])` |
+| `RunCx::model` / `cx.model` | `RunCx::target` / `cx.target` |
+| `--models a,b` | `--targets a,b` |
+| case key `eval/sample@model` | `@<target label>` (mechanically unchanged: still the label) |
+
+`provider` stays a **field of a target**: concurrency bucketing, gating, and
+cost attribution still key on it (a harness target sets `provider="cli"` or its
+own bucket). The core stays provider-agnostic — `mira-everruns` maps a `Target`
+to a `ResolvedModel` exactly as before.
+
+### 15.3 A — make any axis host-selectable (`--axis`)
+
+Today only the model axis is selectable. Generalize: a `--axis <name>=<v1>,<v2>`
+flag (repeatable) subsets **any** declared axis, with `--targets` as sugar for
+the primary one.
+
+```text
+--axis effort=high,low      # restrict the "effort" axis
+--axis agent=yolop,codex    # restrict a harness axis crossed with the model
+--targets sim,anthropic/opus  ==  --axis target=sim,anthropic/opus
+```
+
+Semantics:
+
+- Values within one flag **OR**; different `--axis` flags **AND** (intersect).
+- `name` is `target` (the primary axis) or any `Eval::axis(name, …)` name.
+- An unknown axis name or value is a **hard error** (typo protection), listing
+  the valid axes/values — consistent with how `--group-by` already names an
+  axis.
+- Host-side only: like `filter`/`--tag`/`--targets`, it *subsets* the grid the
+  study declared (the host subsets, never adds cells — see
+  [`docs/extensibility.md`](../docs/extensibility.md)). The study still owns the
+  matrix.
+
+Sketch against the current `RunArgs` (`crates/mira-cli/src/main.rs`):
+
+```rust
+/// Restrict the primary (target) axis to these labels (comma-separated).
+/// Sugar for `--axis target=…`.
+#[arg(long)]
+targets: Option<String>,            // was: models
+/// Restrict a matrix axis to a subset: `--axis effort=high,low` (repeatable).
+/// `name` is `target` or any declared axis; values OR within a flag, flags AND.
+#[arg(long = "axis", value_name = "NAME=V1,V2")]
+axes: Vec<String>,
+```
+
+The two collapse into one selection pass: `--targets X` is folded into `axes` as
+`target=X`, then the planner keeps a cell iff, for every constrained axis, the
+cell's value is in the allowed set. `--group-by` and the case key are unaffected.
+
+### 15.4 The `target` name clash — Sample's gold answer → `expected`
+
+`Sample` already carried a `target` field (the gold/reference answer for
+answer-comparison scorers), so promoting the comparison axis to `Target` made
+"target" mean two things. Resolved by renaming the **sample** field: `Sample::target`
+→ `Sample::expected` (`Sample::expected()`, `expected_str()`), and the scorer
+`matches_target` → `matches_expected`. "Target" now unambiguously means the
+comparison axis; "expected" is the gold answer. (`Sample` is not a wire type, so
+this is a study-side rename with no protocol impact.)
+
+### 15.5 Why both, why now
+
+B removes the misnomer (the named concept matches what's being compared); A
+removes the privilege asymmetry (selecting a harness/effort no longer requires
+faking a model). Together they answer `yolop vs codex` directly — they're
+**targets** you pick with `--targets yolop,codex`, or an **axis** you cross with
+the model and pick with `--axis agent=yolop,codex` — with no masquerade either
+way. Both are pre-1.0 internal renames/additions: no protocol change (selection
+is host-side; `Target` serializes onto the same wire fields the schema already
+publishes).

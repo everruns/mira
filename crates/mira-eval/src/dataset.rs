@@ -12,7 +12,8 @@ use serde::{Deserialize, Serialize};
 use crate::Metadata;
 use crate::content::Part;
 
-/// One dataset row: an input conversation plus optional target / metadata.
+/// One dataset row: an input conversation plus an optional expected answer /
+/// metadata.
 ///
 /// Multimodal note: `input` carries the *text* turns (the common case);
 /// `attachments` carries any non-text input (images, audio, files, structured
@@ -30,9 +31,11 @@ pub struct Sample {
     /// structured JSON. Empty for text-only samples.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub attachments: Vec<Part>,
-    /// Optional reference answer / expected value for target-based scorers.
+    /// Optional reference answer / expected value, for answer-comparison scorers
+    /// (e.g. [`matches_expected`](crate::scorer::matches_expected)). Distinct from
+    /// a [`Target`](crate::Target) (the model/harness under evaluation).
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub target: Option<serde_json::Value>,
+    pub expected: Option<serde_json::Value>,
     /// Files to pre-seed into the subject's workspace before the run.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub files: BTreeMap<String, String>,
@@ -109,9 +112,9 @@ impl Sample {
         seen
     }
 
-    /// Set the reference target.
-    pub fn target(mut self, target: impl Into<serde_json::Value>) -> Self {
-        self.target = Some(target.into());
+    /// Set the reference / expected answer.
+    pub fn expected(mut self, expected: impl Into<serde_json::Value>) -> Self {
+        self.expected = Some(expected.into());
         self
     }
 
@@ -127,9 +130,9 @@ impl Sample {
         self
     }
 
-    /// The reference target as a string, if present and string-typed.
-    pub fn target_str(&self) -> Option<&str> {
-        self.target.as_ref().and_then(|v| v.as_str())
+    /// The expected answer as a string, if present and string-typed.
+    pub fn expected_str(&self) -> Option<&str> {
+        self.expected.as_ref().and_then(|v| v.as_str())
     }
 }
 
@@ -212,12 +215,12 @@ mod tests {
     fn sample_builder() {
         let s = Sample::new("a", "hi")
             .tag("smoke")
-            .target("42")
+            .expected("42")
             .file("main.rs", "fn main() {}")
             .meta("trace", "https://obs/123");
         assert_eq!(s.input, vec!["hi"]);
         assert_eq!(s.tags, vec!["smoke"]);
-        assert_eq!(s.target_str(), Some("42"));
+        assert_eq!(s.expected_str(), Some("42"));
         assert_eq!(s.files.get("main.rs").unwrap(), "fn main() {}");
         assert_eq!(s.metadata.get("trace").unwrap(), "https://obs/123");
     }

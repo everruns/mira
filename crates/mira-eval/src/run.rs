@@ -269,7 +269,7 @@ mod tests {
         RunResult {
             eval: "e".into(),
             sample: "s".into(),
-            model: "m".into(),
+            target: "m".into(),
             params: Default::default(),
             trial: 0,
             trials: 0,

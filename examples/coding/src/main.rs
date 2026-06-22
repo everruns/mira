@@ -11,7 +11,7 @@
 
 use mira::scorer::{cost_within, file_contains, succeeded, tool_called, turns_within};
 use mira::subject::subject_fn;
-use mira::{Dataset, Eval, ModelSpec, Sample, Transcript, Usage, eval};
+use mira::{Dataset, Eval, Sample, Target, Transcript, Usage, eval};
 
 fn dataset() -> Dataset {
     Dataset::new(vec![
@@ -57,7 +57,7 @@ fn coding() -> Eval {
         .scorer(turns_within(5))
         .scorer(cost_within(0.05))
         .scorer(file_contains("lib.rs", "fn greet"))
-        .models([ModelSpec::sim(), ModelSpec::anthropic("claude-opus-4-8")])
+        .targets([Target::sim(), Target::anthropic("claude-opus-4-8")])
         .max_turns(8)
         .build()
 }

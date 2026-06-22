@@ -84,7 +84,7 @@ Review all changed code for shortcuts, lazy abstractions, and premature compromi
 
 1. **No shortcut abstractions** — reject copy-paste patterns disguised as "good enough". If two things are *actually* the same concept, unify properly. If not, keep them separate with clear names — don't force a bad shared interface.
 2. **No lazy wrappers** — every abstraction must earn its place. A wrapper that just forwards calls adds indirection without value. If a layer doesn't add meaning, remove it.
-3. **Right abstraction level** — check that traits, types, and module boundaries model the actual domain, not implementation accidents. Keep the core provider-agnostic: `ModelSpec` carries labels, not SDK types.
+3. **Right abstraction level** — check that traits, types, and module boundaries model the actual domain, not implementation accidents. Keep the core provider-agnostic: `Target` carries labels, not SDK types.
 4. **No stringly-typed interfaces** — look for magic strings, string matching on variant names, ad-hoc parsing of structured data. Replace with enums, newtypes, or proper typed APIs.
 5. **No premature generics** — generalize only when there are (or will immediately be) multiple real callers.
 6. **No compatibility shims** — pre-1.0 internal code. If an interface is wrong, change it and fix the call sites.

@@ -20,7 +20,7 @@ Eval = Dataset(Sample…) + Subject + [Scorer…]  ×  model matrix
   (any external binary, the polyglot path), or `mira_everruns::RuntimeSubject`.
 - **Scorer** — grades a `Transcript`: built-ins (text, tools, budgets, files),
   combinators (`all_of`/`any_of`/`not`), closures, or `model_graded`.
-- **Matrix** — `ModelSpec`s plus extra `.axis(name, values)`; missing API keys
+- **Matrix** — `Target`s plus extra `.axis(name, values)`; missing API keys
   *skip*, so runs are green offline.
 
 ## Install
@@ -46,7 +46,7 @@ Register factories with `#[eval]` (or `register_eval!`).
 ```rust
 use mira::scorer::{file_contains, latency_within, succeeded, tool_called, tokens_within};
 use mira::subject::subject_fn;
-use mira::{eval, Eval, ModelSpec, Sample, Transcript};
+use mira::{eval, Eval, Target, Sample, Transcript};
 
 #[eval]
 fn coding() -> Eval {
@@ -58,7 +58,7 @@ fn coding() -> Eval {
                 .tag("smoke"),
         )
         .subject(subject_fn(|sample, cx| async move {
-            // Call the real agent/model (cx.model.provider / cx.model.model).
+            // Call the real agent/model (cx.target.provider / cx.target.model).
             // Report metrics the budget scorers grade: usage, timing, tools.
             let mut t = Transcript::response("done");
             t.tool_calls = vec!["edit_file".into()];
@@ -73,7 +73,7 @@ fn coding() -> Eval {
         .scorer(file_contains("lib.rs", "fn greet"))
         .scorer(tokens_within(4_000))
         .scorer(latency_within(5_000))
-        .models([ModelSpec::sim(), ModelSpec::anthropic("claude-opus-4-8")])
+        .targets([Target::sim(), Target::anthropic("claude-opus-4-8")])
         .build()
 }
 
@@ -92,7 +92,7 @@ mira --bin coding list                 # advertised evals/samples/scorers/models
 mira --bin coding run                  # whole matrix
 mira --bin coding run add-fn           # substring filter on eval/sample@model
 mira --bin coding run --tag smoke
-mira --bin coding run --models sim
+mira --bin coding run --targets sim
 mira --bin coding run --format junit --out results.xml   # CI artifact
 mira --bin coding run --format html  --out report.html   # transcript viewer
 mira --bin coding run --checkpoint ck.json               # resumable
@@ -104,7 +104,7 @@ Exit code is non-zero if any cell failed — drops straight into CI.
 ## Scorers (cheat sheet)
 
 - **Text/output**: `succeeded` · `non_empty` · `contains` · `not_contains` ·
-  `equals` · `regex` · `matches_target` · `json_valid` · `json_field_equals`
+  `equals` · `regex` · `matches_expected` · `json_valid` · `json_field_equals`
 - **Tools**: `tool_called` · `tool_not_called` · `tool_calls_within` ·
   `tools_used_exactly` · `tool_called_before`
 - **Budgets**: `tokens_within` · `output_tokens_within` · `cost_within` ·
@@ -134,7 +134,7 @@ let s = CliSubject::new("my-agent")
 ```
 
 `{prompt}` and `{workdir}` expand per run; seeded `sample.files` are written into
-a fresh temp workdir; `MIRA_MODEL` / `MIRA_PROVIDER` env vars are set.
+a fresh temp workdir; `MIRA_TARGET` / `MIRA_PROVIDER` env vars are set.
 
 ## In-process testing
 

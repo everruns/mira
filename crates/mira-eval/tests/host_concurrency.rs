@@ -37,7 +37,7 @@ async fn host_handles_many_concurrent_runs() {
     assert_eq!(info.study, "greet-python");
     // A study that omits the optional provider field still lists fine.
     let listing = host.list().await.expect("list");
-    assert_eq!(listing.evals[0].models[0].label, "sim");
+    assert_eq!(listing.evals[0].targets[0].label, "sim");
 
     // Fire many runs of the same cell concurrently over the one pipe; every one
     // must come back correctly correlated and passing.

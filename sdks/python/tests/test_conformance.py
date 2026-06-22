@@ -33,7 +33,7 @@ def study():
     @s.eval(
         name="greet",
         samples=[mira.Sample("hi", prompt="hi", tags=["smoke"])],
-        models=[mira.model("sim"), mira.model("anthropic/x", provider="anthropic", available=False)],
+        targets=[mira.target("sim"), mira.target("anthropic/x", provider="anthropic", available=False)],
         scorers=[mira.succeeded(), mira.contains("42")],
         axes=[mira.axis("effort", ["low", "high"])],
         metadata={"suite": "smoke"},
@@ -51,8 +51,8 @@ def study():
         ("initialize", {}, "InitializeResult"),
         ("list", {}, "ListResult"),
         ("list_samples", {"eval": "greet", "cursor": "0"}, "ListSamplesResult"),
-        ("run", {"eval": "greet", "sample": "hi", "model": "sim"}, "RunResult"),
-        ("execute", {"eval": "greet", "sample": "hi", "model": "sim"}, "ExecuteResult"),
+        ("run", {"eval": "greet", "sample": "hi", "target": "sim"}, "RunResult"),
+        ("execute", {"eval": "greet", "sample": "hi", "target": "sim"}, "ExecuteResult"),
     ],
 )
 def test_result_matches_schema(study, method, params, result_def):
@@ -63,14 +63,14 @@ def test_result_matches_schema(study, method, params, result_def):
 
 
 def test_score_path_matches_schema(study):
-    ex = study.handle("execute", {"eval": "greet", "sample": "hi", "model": "sim"})
-    scored = study.handle("score", {"eval": "greet", "sample": "hi", "model": "sim",
+    ex = study.handle("execute", {"eval": "greet", "sample": "hi", "target": "sim"})
+    scored = study.handle("score", {"eval": "greet", "sample": "hi", "target": "sim",
                                     "transcript": ex["transcript"]})
     jsonschema.validate(scored, _subschema("RunResult"))
 
 
 def test_axis_params_flow_through(study):
-    result = study.handle("run", {"eval": "greet", "sample": "hi", "model": "sim",
+    result = study.handle("run", {"eval": "greet", "sample": "hi", "target": "sim",
                                   "params": {"effort": "high"}})
     assert result["params"] == {"effort": "high"}
     jsonschema.validate(result, _subschema("RunResult"))

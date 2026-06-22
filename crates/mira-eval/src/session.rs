@@ -6,7 +6,7 @@
 //!   `total`, so a progress bar can show `done/total` immediately instead of
 //!   only counting cells run in the current process; and
 //! * **warn on stale results** — it fingerprints each eval's advertised
-//!   definition (scorers, axes, models, samples, metadata, max_turns) at save
+//!   definition (scorers, axes, targets, samples, metadata, max_turns) at save
 //!   time, so a resume can detect evals whose definition changed and flag their
 //!   cached cells rather than silently reusing them.
 //!
@@ -157,7 +157,7 @@ pub fn now_unix() -> u64 {
 
 /// Per-eval fingerprint of the advertised definitions in `listing`, keyed by
 /// eval name. Two listings with identical eval definitions produce identical
-/// fingerprints; any change to scorers, axes, models, samples (ids/tags),
+/// fingerprints; any change to scorers, axes, targets, samples (ids/tags),
 /// metadata, or `max_turns` changes them.
 pub fn fingerprints(listing: &ListResult) -> BTreeMap<String, String> {
     listing
@@ -185,7 +185,7 @@ fn fingerprint(eval: &EvalInfo) -> String {
         scorers: &'a [String],
         max_turns: usize,
         axes: Vec<(&'a str, &'a [String])>,
-        models: Vec<&'a str>,
+        targets: Vec<&'a str>,
         samples: Vec<(&'a str, &'a [String])>,
         metadata: &'a Metadata,
     }
@@ -198,7 +198,7 @@ fn fingerprint(eval: &EvalInfo) -> String {
             .iter()
             .map(|a| (a.name.as_str(), a.values.as_slice()))
             .collect(),
-        models: eval.models.iter().map(|m| m.label.as_str()).collect(),
+        targets: eval.targets.iter().map(|m| m.label.as_str()).collect(),
         samples: eval
             .samples
             .iter()
@@ -225,7 +225,7 @@ fn fnv1a(bytes: &[u8]) -> u64 {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::protocol::{AxisInfo, ModelInfo, SampleInfo, TranscriptSummary};
+    use crate::protocol::{AxisInfo, SampleInfo, TargetInfo, TranscriptSummary};
 
     fn eval_info(scorers: &[&str]) -> EvalInfo {
         EvalInfo {
@@ -238,7 +238,7 @@ mod tests {
             }],
             next_cursor: None,
             scorers: scorers.iter().map(|s| s.to_string()).collect(),
-            models: vec![ModelInfo {
+            targets: vec![TargetInfo {
                 label: "sim".into(),
                 provider: "sim".into(),
                 available: true,
@@ -259,7 +259,7 @@ mod tests {
         RunResult {
             eval: eval.into(),
             sample: "hi".into(),
-            model: "sim".into(),
+            target: "sim".into(),
             params: Default::default(),
             trial: 0,
             trials: 0,
