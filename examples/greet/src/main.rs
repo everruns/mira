@@ -11,7 +11,7 @@
 
 use mira::scorer::{contains, model_graded, succeeded};
 use mira::subject::subject_fn;
-use mira::{Eval, ModelSpec, Score, Transcript, eval};
+use mira::{Eval, Score, Target, Transcript, eval};
 
 /// A tiny greeting eval across the offline sim plus a (key-gated) cloud cell.
 #[eval]
@@ -43,7 +43,7 @@ fn greet() -> Eval {
                 })
             }),
         ))
-        .models([ModelSpec::sim(), ModelSpec::anthropic("claude-haiku-4-5")])
+        .targets([Target::sim(), Target::anthropic("claude-haiku-4-5")])
         .build()
 }
 

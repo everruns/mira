@@ -35,11 +35,64 @@ pub struct Config {
     pub results: ResultsConfig,
     #[serde(default)]
     pub environment: EnvironmentConfig,
+    /// Named selection presets (`[presets.NAME]`), applied with `--preset NAME`.
+    #[serde(default)]
+    pub presets: BTreeMap<String, Preset>,
     /// Directory containing the `mira.toml` this was loaded from, used to
     /// resolve relative paths. `None` for a default/parsed-in-memory config, in
     /// which case relative paths are returned verbatim (cwd-relative).
     #[serde(default, skip)]
     base: Option<PathBuf>,
+}
+
+/// A named **selection preset** (`[presets.NAME]` in `mira.toml`): a saved bundle
+/// of selection criteria, applied with `--preset NAME`. Every field is optional;
+/// explicit CLI flags override the preset. The host owns selection, so a preset
+/// only *subsets* the grid the study declared (targets, axes, samples, evals) —
+/// it never adds cells.
+///
+/// ```toml
+/// [presets.smoke]
+/// targets = ["sim"]            # primary axis (target labels)
+/// tag = "quick"               # only samples carrying this tag
+/// filter = "greet"            # substring on the case key
+/// evals = ["greet", "coding"] # restrict to these evals (hence their subjects)
+/// axes = { effort = ["low"] } # restrict secondary axes
+/// ```
+#[derive(Debug, Default, Clone, Deserialize)]
+pub struct Preset {
+    /// Substring filter on the case key (`eval/sample@target`).
+    #[serde(default)]
+    pub filter: Option<String>,
+    /// Only run samples carrying this tag.
+    #[serde(default)]
+    pub tag: Option<String>,
+    /// Restrict the primary (target) axis to these labels.
+    #[serde(default)]
+    pub targets: Vec<String>,
+    /// Restrict to these evals (and therefore their subjects).
+    #[serde(default)]
+    pub evals: Vec<String>,
+    /// Restrict secondary axes: axis name → allowed values.
+    #[serde(default)]
+    pub axes: BTreeMap<String, Vec<String>>,
+}
+
+impl Config {
+    /// Look up a named preset, erroring (with the available names) when absent so
+    /// a typo'd `--preset` fails loudly rather than silently running everything.
+    pub fn preset(&self, name: &str) -> Result<Preset, String> {
+        self.presets.get(name).cloned().ok_or_else(|| {
+            let mut names: Vec<&str> = self.presets.keys().map(String::as_str).collect();
+            names.sort_unstable();
+            let known = if names.is_empty() {
+                "none defined in mira.toml".to_string()
+            } else {
+                names.join(", ")
+            };
+            format!("no such preset {name:?} (known: {known})")
+        })
+    }
 }
 
 /// `[results]` — where `--save` writes run folders.

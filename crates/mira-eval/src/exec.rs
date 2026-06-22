@@ -38,7 +38,7 @@ const MAX_BACKOFF_STEPS: u32 = 6;
 pub struct CellSpec {
     pub eval: String,
     pub sample: String,
-    pub model: String,
+    pub target: String,
     /// Provider id used for per-provider concurrency bucketing. Empty groups all
     /// such cells together (e.g. a foreign study that omits provider in `list`).
     pub provider: String,
@@ -56,7 +56,7 @@ impl CellSpec {
 
     /// Cell identity shared by all trials of this cell (no `#index` suffix).
     pub fn logical_key(&self) -> String {
-        crate::cell_key(&self.eval, &self.sample, &self.model, &self.params)
+        crate::cell_key(&self.eval, &self.sample, &self.target, &self.params)
     }
 }
 
@@ -241,7 +241,7 @@ fn outcome_rate_limited(res: &Result<RunResult, RpcError>) -> bool {
 /// its structured `retryable` flag (set by the study/host for transient infra),
 /// or a rate-limit phrase in the message. For a completed run: an
 /// *infrastructure* transcript error (`error_kind = Infra` — budget, outage,
-/// timeout) or a rate-limited transcript error. Not the model's fault either way,
+/// timeout) or a rate-limited transcript error. Not the target's fault either way,
 /// so re-running may succeed. A non-retryable RPC error (bad params, unknown
 /// method) is left alone — re-running won't help.
 fn outcome_retryable(res: &Result<RunResult, RpcError>) -> bool {
@@ -259,13 +259,13 @@ fn outcome_retryable(res: &Result<RunResult, RpcError>) -> bool {
 
 /// Synthesize a failed result for a cell whose run errored at the protocol level
 /// (so one cell's failure is recorded, not fatal to the whole matrix). A
-/// retryable or rate-limited RPC error is infrastructure, not the model's fault.
+/// retryable or rate-limited RPC error is infrastructure, not the target's fault.
 fn failed_result(cell: &CellSpec, error: RpcError) -> RunResult {
     let infra = error.retryable || crate::is_rate_limited(&error.message);
     RunResult {
         eval: cell.eval.clone(),
         sample: cell.sample.clone(),
-        model: cell.model.clone(),
+        target: cell.target.clone(),
         params: cell.params.clone(),
         trial: cell.trial.index,
         trials: cell.trial.count,
@@ -364,7 +364,7 @@ pub async fn run_cells<F, Fut>(
         limiter.finish(&cell.provider, rate_limited, Instant::now());
 
         // Re-queue rate-limited *and* other infrastructure-errored cells (outage,
-        // budget, timeout — not the model's fault) up to max_retries. Only rate
+        // budget, timeout — not the target's fault) up to max_retries. Only rate
         // limits drive the AIMD throttle/backoff above; other infra errors get a
         // plain bounded retry.
         if attempts < cfg.max_retries && outcome_retryable(&res) {
@@ -391,7 +391,7 @@ mod tests {
         CellSpec {
             eval: "e".into(),
             sample: id.into(),
-            model: format!("{provider}/m"),
+            target: format!("{provider}/m"),
             provider: provider.into(),
             params: Params::new(),
             trial: Trial::single(),
@@ -402,7 +402,7 @@ mod tests {
         RunResult {
             eval: cell.eval.clone(),
             sample: cell.sample.clone(),
-            model: cell.model.clone(),
+            target: cell.target.clone(),
             params: cell.params.clone(),
             trial: cell.trial.index,
             trials: cell.trial.count,

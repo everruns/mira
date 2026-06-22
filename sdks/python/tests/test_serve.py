@@ -16,7 +16,7 @@ def _study():
     s = mira.Study("t")
 
     @s.eval(name="e", samples=[mira.Sample("s", prompt="p")],
-            models=[mira.model("sim"), mira.model("gone", available=False)],
+            targets=[mira.target("sim"), mira.target("gone", available=False)],
             scorers=[mira.succeeded(), mira.contains("42")])
     def e(sample, cx):
         return mira.transcript("answer 42", usage=mira.Usage(input_tokens=1, output_tokens=1))
@@ -34,7 +34,7 @@ def test_full_session_over_stdio():
     msgs = _drive(_study(), [
         json.dumps({"id": 1, "method": "initialize", "params": {}}),
         json.dumps({"id": 2, "method": "list"}),
-        json.dumps({"id": 3, "method": "run", "params": {"eval": "e", "sample": "s", "model": "sim"}}),
+        json.dumps({"id": 3, "method": "run", "params": {"eval": "e", "sample": "s", "target": "sim"}}),
     ])
     assert msgs[0]["result"]["study"] == "t"
     assert msgs[1]["result"]["evals"][0]["name"] == "e"
@@ -46,7 +46,7 @@ def _paged_study(samples, page):
     s = mira.Study("big", page_size=page)
 
     @s.eval(name="big", samples=[mira.Sample(f"s{i}", prompt="go") for i in range(samples)],
-            models=[mira.model("sim")], scorers=[mira.succeeded()])
+            targets=[mira.target("sim")], scorers=[mira.succeeded()])
     def big(sample, cx):
         return mira.transcript("ok")
 
@@ -105,7 +105,7 @@ def test_unknown_method_errors_without_crashing():
 
 
 def test_unavailable_model_is_skipped_na():
-    result = _study().handle("run", {"eval": "e", "sample": "s", "model": "gone"})
+    result = _study().handle("run", {"eval": "e", "sample": "s", "target": "gone"})
     assert result["skipped"] is True
     # Infra error short-circuits to a single N/A — neither pass nor fail.
     assert result["passed"] is False

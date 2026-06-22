@@ -60,7 +60,7 @@ sdks/                native, non-Rust study SDKs over the protocol (e.g.
                      to the core. See specs/sdks.md.
 ```
 
-The core is **provider-agnostic**: `ModelSpec` carries `(provider, model)`
+The core is **provider-agnostic**: `Target` carries `(provider, model)`
 labels and no SDK types. Keep everruns (and any future provider SDK) out of
 `mira-eval` — integrations are separate crates.
 

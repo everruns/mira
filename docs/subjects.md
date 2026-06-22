@@ -10,7 +10,7 @@ pub trait Subject: Send + Sync {
 }
 ```
 
-`RunCx` carries the matrix cell's `ModelSpec` (`cx.model`) and the run limit
+`RunCx` carries the matrix cell's `Target` (`cx.target`) and the run limit
 (`cx.max_turns`). Each run gets a fresh subject invocation, so state from one
 sample cannot leak into another.
 
@@ -44,7 +44,7 @@ and for fakes in unit tests.
 use mira::{Transcript, subject::subject_fn};
 
 let subject = subject_fn(|sample, cx| async move {
-    let reply = my_agent::answer(&sample.input.join("\n"), &cx.model.model).await;
+    let reply = my_agent::answer(&sample.input.join("\n"), &cx.target.model).await;
     Transcript::response(reply)
 });
 ```
@@ -82,7 +82,7 @@ usage blocks and `{name, input}` tool-call objects is understood, including
 everruns coding CLIs. A line with a `final_response` / `response` / `text` field
 sets the final response.
 
-The subprocess also receives `MIRA_MODEL` and `MIRA_PROVIDER` env vars so it can
+The subprocess also receives `MIRA_TARGET` and `MIRA_PROVIDER` env vars so it can
 route on the matrix cell.
 
 ## Runtime sessions: `mira-everruns`
@@ -93,10 +93,10 @@ The embedder supplies a factory that builds a runtime for each matrix cell; Mira
 normalizes the `TurnResult` and `Event` stream into a `Transcript`.
 
 ```rust
-use mira_everruns::{RuntimeSubject, model_to_resolved};
+use mira_everruns::{RuntimeSubject, target_to_resolved};
 
 let subject = RuntimeSubject::new(|model| Box::pin(async move {
-    let resolved = model_to_resolved(&model);   // ModelSpec → everruns ResolvedModel
+    let resolved = target_to_resolved(&model);   // Target → everruns ResolvedModel
     // …build an InProcessRuntime registering a driver for `resolved`,
     // create a session, and return (runtime, session_id)…
     Ok((runtime, session_id))
@@ -169,12 +169,12 @@ impl Subject for HttpAgent {
     async fn run(&self, sample: &Sample, cx: &RunCx) -> Transcript {
         let started = std::time::Instant::now();
 
-        // Route on the matrix cell's model (cx.model.provider / cx.model.model).
+        // Route on the matrix cell's model (cx.target.provider / cx.target.model).
         let req = self.client
             .post(format!("{}/run", self.base_url))
             .json(&serde_json::json!({
                 "prompt": sample.input.join("\n"),
-                "model":  cx.model.model,
+                "model":  cx.target.model,
                 "max_turns": cx.max_turns,
             }));
 

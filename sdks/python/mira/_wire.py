@@ -33,40 +33,40 @@ class EvalInfo:
     description: str = ""
     max_turns: int = 0
     metadata: Dict[str, Any] = field(default_factory=dict)
-    models: List["ModelInfo"] = field(default_factory=list)
     name: str = ""
     next_cursor: Optional[str] = None
     samples: List["SampleInfo"] = field(default_factory=list)
     scorers: List[str] = field(default_factory=list)
     seed: Optional[int] = None
+    targets: List["TargetInfo"] = field(default_factory=list)
     trials: int = 0
-    __required__ = ("models", "name", "samples", "scorers")
+    __required__ = ("name", "samples", "scorers", "targets")
 
 @dataclass
 class EventParams:
     eval: str = ""
     kind: str = ""
-    model: str = ""
     params: Dict[str, str] = field(default_factory=dict)
     request_id: int = 0
     sample: str = ""
+    target: str = ""
     text: Optional[str] = None
     tool: Optional[str] = None
     turn: Optional[int] = None
-    __required__ = ("eval", "kind", "model", "sample")
+    __required__ = ("eval", "kind", "sample", "target")
 
 @dataclass
 class ExecuteResult:
     eval: str = ""
-    model: str = ""
     params: Dict[str, str] = field(default_factory=dict)
     sample: str = ""
     seed: Optional[int] = None
     skipped: bool = False
+    target: str = ""
     transcript: "Transcript" = field(default_factory=lambda: Transcript())
     trial: int = 0
     trials: int = 0
-    __required__ = ("eval", "model", "sample", "transcript")
+    __required__ = ("eval", "sample", "target", "transcript")
 
 @dataclass
 class InitializeResult:
@@ -102,14 +102,6 @@ class LogParams:
     __required__ = ("message",)
 
 @dataclass
-class ModelInfo:
-    available: bool = False
-    label: str = ""
-    metadata: Dict[str, Any] = field(default_factory=dict)
-    provider: str = ""
-    __required__ = ("available", "label")
-
-@dataclass
 class Notification:
     method: str = ""
     params: Any = None
@@ -142,29 +134,29 @@ class RpcError:
 @dataclass
 class RunParams:
     eval: str = ""
-    model: str = ""
     params: Dict[str, str] = field(default_factory=dict)
     sample: str = ""
     seed: Optional[int] = None
+    target: str = ""
     trial: int = 0
     trials: int = 0
-    __required__ = ("eval", "model", "sample")
+    __required__ = ("eval", "sample", "target")
 
 @dataclass
 class RunResult:
     aggregate: float = 0.0
     eval: str = ""
-    model: str = ""
     params: Dict[str, str] = field(default_factory=dict)
     passed: bool = False
     sample: str = ""
     scores: List["Score"] = field(default_factory=list)
     seed: Optional[int] = None
     skipped: bool = False
+    target: str = ""
     transcript: "TranscriptSummary" = field(default_factory=lambda: TranscriptSummary())
     trial: int = 0
     trials: int = 0
-    __required__ = ("aggregate", "eval", "model", "passed", "sample", "scores", "transcript")
+    __required__ = ("aggregate", "eval", "passed", "sample", "scores", "target", "transcript")
 
 @dataclass
 class SampleInfo:
@@ -185,16 +177,24 @@ class Score:
 @dataclass
 class ScoreParams:
     eval: str = ""
-    model: str = ""
     params: Dict[str, str] = field(default_factory=dict)
     sample: str = ""
     seed: Optional[int] = None
+    target: str = ""
     transcript: "Transcript" = field(default_factory=lambda: Transcript())
     trial: int = 0
     trials: int = 0
-    __required__ = ("eval", "model", "sample", "transcript")
+    __required__ = ("eval", "sample", "target", "transcript")
 
 Source = Dict[str, Any]  # union of objects
+
+@dataclass
+class TargetInfo:
+    available: bool = False
+    label: str = ""
+    metadata: Dict[str, Any] = field(default_factory=dict)
+    provider: str = ""
+    __required__ = ("available", "label")
 
 @dataclass
 class Timing:

@@ -27,7 +27,7 @@ Eval = Dataset(Sample…) + Subject + [Scorer…]  ×  model matrix × axes
   `pass`, and a `reason`). Deterministic built-ins, operational budgets, an
   arbitrary-closure escape hatch, and `model_graded` LLM-as-judge — one open
   vocabulary, freely composed.
-- **`ModelSpec`** — one matrix cell. It is **provider-agnostic**: a `(label,
+- **`Target`** — one matrix cell. It is **provider-agnostic**: a `(label,
   provider, model, available, metadata)` tuple with no API keys and no SDK
   types. Subjects interpret it.
 
@@ -58,22 +58,37 @@ an older host interoperate.
 
 ## The matrix
 
-`models` is a first-class axis. The runner expands `evals × models × axes ×
-samples` into independently-addressable cells. A missing API key marks a cell
-`available: false`, so it is **skipped, not failed** — a fresh run is green
-offline.
+The **target** is the first-class axis — the configured thing under evaluation.
+For an LLM eval a `Target` *is* a model; for an agent eval it is a harness
+(`Target::cli("yolop")`), optionally wrapping a model. The runner expands `evals
+× targets × axes × samples` into independently-addressable cells. A missing API
+key marks a cell `available: false`, so it is **skipped, not failed** — a fresh
+run is green offline.
 
-**Arbitrary axes** beyond the model are first-class too: `Eval::axis(name,
-values)` adds a discrete axis (reasoning effort, a harness variant, …) and the
-runner crosses every axis with the model matrix. The chosen value per cell
-reaches the subject via `RunCx::param(name)`.
+**Arbitrary axes** beyond the target are first-class too: `Eval::axis(name,
+values)` adds a discrete axis (reasoning effort, a retrieval setting, …) and the
+runner crosses every axis with the target matrix. The chosen value per cell
+reaches the subject via `RunCx::param(name)`. (A harness like yolop-vs-codex can
+be either a set of **targets** or its own **axis** — they compose.)
 
 ## Selecting what runs
 
-Selection mirrors `cargo test`: a substring `filter` on the case key, a `--tag`
-narrow, and a `--models` restriction. The **host** owns selection — it plans the
-full grid from `list` before running anything — independent of how the evals
-were authored.
+Selection mirrors `cargo test`, and the **host** owns it — it plans the full grid
+from `list` before running anything, independent of how the evals were authored:
+
+- `filter` — a substring on the case key (`eval/sample@target`).
+- `--tag` — only samples carrying the tag.
+- `--targets a,b` — restrict the primary (target) axis; sugar for `--axis
+  target=a,b`.
+- `--axis NAME=v1,v2` (repeatable) — restrict **any** declared axis (`target` or
+  a secondary axis). Values OR within a flag; multiple `--axis` flags AND. An
+  unknown axis/value is a hard error.
+- `--preset NAME` — apply a named selection bundle from `mira.toml`
+  (`[presets.NAME]` = saved targets / axes / tag / filter / evals). Explicit
+  flags override the preset.
+
+Selection only ever **subsets** the grid the study declared — the host never adds
+cells.
 
 ## Concurrency & adaptive throttling
 
@@ -124,7 +139,7 @@ publishable, with heavy integrations as separate optional crates.
 | `mira-cli` | bin `mira` | The host CLI. |
 | `mira-everruns` | lib | `RuntimeSubject` over the published `everruns-runtime`. |
 
-The core takes **no everruns dependency** — `ModelSpec` is provider-agnostic and
+The core takes **no everruns dependency** — `Target` is provider-agnostic and
 `mira-everruns` maps it to an everruns model. This keeps `cargo install
 mira-cli` and `cargo add mira-eval` cheap, and lets the polyglot `CliSubject`
 evaluate everruns CLIs with no compile-time coupling at all.

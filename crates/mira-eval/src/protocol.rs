@@ -9,7 +9,7 @@
 //!   aggregates / saves / checkpoints / visualizes. See [`crate::host`].
 //!
 //! Provider API keys live only in the study's environment and never cross the
-//! wire — the host addresses models by *label*.
+//! wire — the host addresses targets by *label*.
 //!
 //! ## Framing
 //! One JSON object per line, classified by **fields** (not by which pipe it
@@ -62,7 +62,7 @@ use crate::{Metadata, Params, Score, Timing, Transcript, Usage};
 /// `score`, `cancel`), typed and `request_id`-correlated `event`/`log`
 /// notifications ([`EventParams`]/[`LogParams`]), JSON-RPC-shaped [`RpcError`]s,
 /// trials/seed repetitions (pass@k / variance), cursor-paginated sample listing,
-/// eval/sample/model `metadata` (open-ended JSON), and multimodal `output` plus
+/// eval/sample/target `metadata` (open-ended JSON), and multimodal `output` plus
 /// structured `capability_params`. A later addition bumps the **minor** and must
 /// stay additive (a new optional field, method, or capability token); a breaking
 /// wire change bumps the **major**.
@@ -134,7 +134,7 @@ impl Response {
 /// A structured, JSON-RPC-shaped protocol-level error.
 ///
 /// Distinct from a transcript's `error`/`error_kind`, which classify a *subject*
-/// failure (the model under test got it wrong). An [`RpcError`] is the failure of
+/// failure (the target under test got it wrong). An [`RpcError`] is the failure of
 /// the RPC itself — bad params, an unknown method, a study-side crash, a provider
 /// outage surfaced at the transport. `code` and `retryable` let the host classify
 /// and retry the request **without parsing the human `message`**, and `data`
@@ -167,7 +167,7 @@ pub struct RpcError {
 /// the JSON-RPC 2.0 reserved codes; `0` means unclassified.
 pub mod codes {
     /// Invalid method parameters (e.g. a malformed `RunParams`, an unknown
-    /// eval/sample/model). The caller's mistake — not retryable.
+    /// eval/sample/target). The caller's mistake — not retryable.
     pub const INVALID_PARAMS: i32 = -32602;
     /// Method not found / unsupported.
     pub const METHOD_NOT_FOUND: i32 = -32601;
@@ -284,8 +284,8 @@ pub struct EventParams {
     pub request_id: u64,
     pub eval: String,
     pub sample: String,
-    pub model: String,
-    /// Extra matrix-axis values for the cell (empty for a model-only matrix).
+    pub target: String,
+    /// Extra matrix-axis values for the cell (empty for a target-only matrix).
     #[serde(default, skip_serializing_if = "Params::is_empty")]
     pub params: Params,
     /// One of the [`event`] kinds. A future kind an older host doesn't recognise
@@ -428,7 +428,7 @@ pub struct SampleInfo {
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
-pub struct ModelInfo {
+pub struct TargetInfo {
     pub label: String,
     /// Provider id (e.g. `sim`, `anthropic`, `openai`). Lets the host bucket
     /// concurrency per provider so one provider's rate limits can't be flooded.
@@ -438,9 +438,9 @@ pub struct ModelInfo {
     pub provider: String,
     /// False when a real provider's API key is absent in the study's env.
     pub available: bool,
-    /// Free-form per-model config that rides the model column: agent, underlying
+    /// Free-form per-target config that rides the target column: agent, underlying
     /// model, effort, price, sandbox, observability links, … Mirrors
-    /// `ModelSpec::metadata` onto the wire so the host can surface and group by
+    /// `Target::metadata` onto the wire so the host can surface and group by
     /// it. Defaulted/omitted when empty, so an older study still parses.
     #[serde(default, skip_serializing_if = "Metadata::is_empty")]
     pub metadata: Metadata,
@@ -456,7 +456,7 @@ pub struct AxisInfo {
 }
 
 /// One eval, as advertised by `list`. Enough for the host to plan the full
-/// `samples × models` grid and apply selection without running anything.
+/// `samples × targets` grid and apply selection without running anything.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub struct EvalInfo {
@@ -476,8 +476,8 @@ pub struct EvalInfo {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub next_cursor: Option<String>,
     pub scorers: Vec<String>,
-    pub models: Vec<ModelInfo>,
-    /// Extra matrix axes beyond the model. Defaulted so older servers that omit
+    pub targets: Vec<TargetInfo>,
+    /// Extra matrix axes beyond the target. Defaulted so older servers that omit
     /// the field still parse (forward compatibility).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub axes: Vec<AxisInfo>,
@@ -540,15 +540,15 @@ pub struct ListSamplesResult {
     pub next_cursor: Option<String>,
 }
 
-/// `run` params: address one matrix cell by `(eval, sample, model label)` plus
+/// `run` params: address one matrix cell by `(eval, sample, target label)` plus
 /// any extra axis `params` (axis name → chosen value).
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub struct RunParams {
     pub eval: String,
     pub sample: String,
-    pub model: String,
-    /// Chosen value per extra matrix axis. Empty/omitted for a model-only
+    pub target: String,
+    /// Chosen value per extra matrix axis. Empty/omitted for a target-only
     /// matrix; defaulted so older hosts/servers interoperate.
     #[serde(default, skip_serializing_if = "Params::is_empty")]
     pub params: Params,
@@ -671,8 +671,8 @@ impl TranscriptSummary {
 pub struct ExecuteResult {
     pub eval: String,
     pub sample: String,
-    pub model: String,
-    /// Extra matrix-axis values for this cell (empty for a model-only matrix).
+    pub target: String,
+    /// Extra matrix-axis values for this cell (empty for a target-only matrix).
     #[serde(default, skip_serializing_if = "Params::is_empty")]
     pub params: Params,
     /// 0-based trial index when this cell is repeated (see [`RunParams::trial`]).
@@ -687,7 +687,7 @@ pub struct ExecuteResult {
     pub seed: Option<u64>,
     /// The complete transcript, unlike the summary carried in [`RunResult`].
     pub transcript: Transcript,
-    /// True when the cell was not executed (e.g. model unavailable).
+    /// True when the cell was not executed (e.g. target unavailable).
     #[serde(default)]
     pub skipped: bool,
 }
@@ -697,7 +697,7 @@ impl ExecuteResult {
     pub fn key(&self) -> String {
         format!(
             "{}{}",
-            crate::cell_key(&self.eval, &self.sample, &self.model, &self.params),
+            crate::cell_key(&self.eval, &self.sample, &self.target, &self.params),
             crate::trial_suffix(self.trial, self.trials),
         )
     }
@@ -711,7 +711,7 @@ impl ExecuteResult {
 pub struct ScoreParams {
     pub eval: String,
     pub sample: String,
-    pub model: String,
+    pub target: String,
     #[serde(default, skip_serializing_if = "Params::is_empty")]
     pub params: Params,
     /// 0-based trial index for the cell this transcript came from (echoed into
@@ -733,8 +733,8 @@ pub struct ScoreParams {
 pub struct RunResult {
     pub eval: String,
     pub sample: String,
-    pub model: String,
-    /// Extra matrix-axis values for this cell (empty for a model-only matrix).
+    pub target: String,
+    /// Extra matrix-axis values for this cell (empty for a target-only matrix).
     #[serde(default, skip_serializing_if = "Params::is_empty")]
     pub params: Params,
     /// 0-based trial index when this cell is repeated (see [`RunParams::trial`]).
@@ -752,13 +752,13 @@ pub struct RunResult {
     pub aggregate: f64,
     pub scores: Vec<Score>,
     pub transcript: TranscriptSummary,
-    /// True when the cell was not executed (e.g. model unavailable).
+    /// True when the cell was not executed (e.g. target unavailable).
     #[serde(default)]
     pub skipped: bool,
 }
 
 impl RunResult {
-    /// Stable cell identity: `eval/sample@model` (with an `[k=v,…]` axis suffix
+    /// Stable cell identity: `eval/sample@target` (with an `[k=v,…]` axis suffix
     /// and a `#trial` suffix when this cell is repeated). Used for selection,
     /// dedupe, and checkpoint resume.
     pub fn key(&self) -> String {
@@ -772,7 +772,7 @@ impl RunResult {
     /// The cell identity **without** the `#trial` suffix — the key all trials of
     /// one cell share, so [`crate::aggregate`] can group them.
     pub fn logical_key(&self) -> String {
-        crate::cell_key(&self.eval, &self.sample, &self.model, &self.params)
+        crate::cell_key(&self.eval, &self.sample, &self.target, &self.params)
     }
 }
 
@@ -848,19 +848,19 @@ mod tests {
         // A foreign/older study (e.g. the Python example) omits max_turns, axes,
         // description, and metadata. Per the forward-compat contract it must parse.
         let line = r#"{"name":"greet","samples":[{"id":"hi"}],
-            "scorers":["succeeded"],"models":[{"label":"sim","available":true}]}"#;
+            "scorers":["succeeded"],"targets":[{"label":"sim","available":true}]}"#;
         let info: EvalInfo = serde_json::from_str(line).unwrap();
         assert_eq!(info.max_turns, 0);
         assert!(info.axes.is_empty());
         assert_eq!(info.samples.len(), 1);
-        // The per-sample / per-model metadata defaults to empty.
+        // The per-sample / per-target metadata defaults to empty.
         assert!(info.samples[0].metadata.is_empty());
-        assert!(info.models[0].metadata.is_empty());
+        assert!(info.targets[0].metadata.is_empty());
     }
 
     #[test]
     fn sample_and_model_metadata_omitted_when_empty() {
-        // Forward-compat: a study that sets no sample/model metadata must omit
+        // Forward-compat: a study that sets no sample/target metadata must omit
         // the `metadata` key entirely, so an older host reading it sees nothing
         // new. `skip_serializing_if` guarantees this.
         let sample = serde_json::to_string(&SampleInfo {
@@ -870,14 +870,14 @@ mod tests {
         })
         .unwrap();
         assert!(!sample.contains("metadata"), "got: {sample}");
-        let model = serde_json::to_string(&ModelInfo {
+        let target = serde_json::to_string(&TargetInfo {
             label: "sim".into(),
             provider: "sim".into(),
             available: true,
             metadata: Default::default(),
         })
         .unwrap();
-        assert!(!model.contains("metadata"), "got: {model}");
+        assert!(!target.contains("metadata"), "got: {target}");
     }
 
     #[test]
@@ -902,7 +902,7 @@ mod tests {
             request_id: 42,
             eval: "greet".into(),
             sample: "hi".into(),
-            model: "sim".into(),
+            target: "sim".into(),
             kind: event::TOOL_CALL.into(),
             tool: Some("search".into()),
             ..Default::default()
@@ -928,7 +928,7 @@ mod tests {
         // fields. Forward-compat: the host must still parse them, defaulting
         // the correlation id to 0 ("uncorrelated").
         let line = r#"{"method":"event","params":
-            {"eval":"greet","sample":"hi","model":"sim","kind":"started"}}"#;
+            {"eval":"greet","sample":"hi","target":"sim","kind":"started"}}"#;
         let n: Notification = serde_json::from_str(line).unwrap();
         let ev = n.as_event().expect("legacy event parses");
         assert_eq!(ev.request_id, 0);
@@ -965,7 +965,7 @@ mod tests {
             }],
             next_cursor: None,
             scorers: vec![],
-            models: vec![],
+            targets: vec![],
             axes: vec![],
             max_turns: 0,
             trials: 0,
@@ -975,7 +975,7 @@ mod tests {
         let line = serde_json::to_string(&info).unwrap();
         assert!(!line.contains("next_cursor"));
         let minimal = r#"{"name":"greet","samples":[{"id":"hi"}],
-            "scorers":[],"models":[]}"#;
+            "scorers":[],"targets":[]}"#;
         let back: EvalInfo = serde_json::from_str(minimal).unwrap();
         assert!(back.next_cursor.is_none());
     }
@@ -1057,7 +1057,7 @@ mod tests {
         let r = RunResult {
             eval: "greet".into(),
             sample: "hi".into(),
-            model: "sim".into(),
+            target: "sim".into(),
             params: Default::default(),
             trial: 0,
             trials: 0,
@@ -1086,7 +1086,7 @@ mod tests {
         let r = RunResult {
             eval: "greet".into(),
             sample: "hi".into(),
-            model: "sim".into(),
+            target: "sim".into(),
             params: Default::default(),
             trial: 2,
             trials: 5,
@@ -1113,7 +1113,7 @@ mod tests {
     fn pre_trials_payloads_parse_as_single_trial() {
         // A study may omit trial/trials/seed entirely. The host must parse
         // such a RunResult and treat it as a single, unrepeated cell (plain key).
-        let line = r#"{"eval":"greet","sample":"hi","model":"sim","passed":true,
+        let line = r#"{"eval":"greet","sample":"hi","target":"sim","passed":true,
             "aggregate":1.0,"scores":[],
             "transcript":{"final_response":"hi","iterations":1,"tool_calls_count":0,
             "usage":{"input_tokens":1,"output_tokens":1,"cost_usd":0.0}}}"#;
@@ -1126,7 +1126,7 @@ mod tests {
 
         // Likewise an EvalInfo may omit trials/seed.
         let line = r#"{"name":"greet","samples":[{"id":"hi"}],"scorers":["s"],
-            "models":[{"label":"sim","available":true}]}"#;
+            "targets":[{"label":"sim","available":true}]}"#;
         let e: EvalInfo = serde_json::from_str(line).unwrap();
         assert_eq!(e.trials, 0); // host clamps 0 → 1 (single run)
         assert_eq!(e.seed, None);
@@ -1139,7 +1139,7 @@ mod tests {
         let p = RunParams {
             eval: "e".into(),
             sample: "s".into(),
-            model: "m".into(),
+            target: "m".into(),
             params: Default::default(),
             trial: 0,
             trials: 1,

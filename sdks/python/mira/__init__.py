@@ -11,7 +11,7 @@ types in `mira._wire` are generated from the canonical JSON Schema under
 
     @study.eval(
         samples=[mira.Sample("hi", prompt="Say hi and the answer to life.")],
-        models=[mira.model("sim")],
+        targets=[mira.target("sim")],
         scorers=[mira.succeeded(), mira.contains("42")],
     )
     def greet(sample, cx):
@@ -28,12 +28,12 @@ from . import _wire
 from ._serve import (
     PROTOCOL_VERSION,
     Eval,
-    Model,
+    Target,
     RunCx,
     Sample,
     Study,
     log,
-    model,
+    target,
     serve,
 )
 from ._wire import AxisInfo, Score, Timing, Transcript, Usage
@@ -46,7 +46,7 @@ def transcript(final_response: str = "", **kwargs: Any) -> Transcript:
 
 
 def axis(name: str, values) -> AxisInfo:
-    """Declare an extra matrix axis (crossed with the model matrix)."""
+    """Declare an extra matrix axis (crossed with the target matrix)."""
     return AxisInfo(name=name, values=list(values))
 
 
@@ -54,7 +54,7 @@ __all__ = [
     "PROTOCOL_VERSION",
     "AxisInfo",
     "Eval",
-    "Model",
+    "Target",
     "RunCx",
     "Sample",
     "Score",
@@ -68,7 +68,7 @@ __all__ = [
     "equals",
     "log",
     "make_score",
-    "model",
+    "target",
     "regex",
     "scorer",
     "serve",

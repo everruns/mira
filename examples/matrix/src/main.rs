@@ -20,7 +20,7 @@
 
 use mira::scorer::{contains, succeeded, tokens_within};
 use mira::subject::subject_fn;
-use mira::{Eval, ModelSpec, eval};
+use mira::{Eval, Target, eval};
 
 mod support;
 use support::fake_agent;
@@ -31,10 +31,10 @@ fn reasoning() -> Eval {
         .describe("Same task across models × reasoning effort")
         .case("puzzle", "What is 17 * 23? Think it through.")
         .axis("effort", ["low", "high"])
-        .models([
-            ModelSpec::sim(),
-            ModelSpec::anthropic("claude-opus-4-8"),
-            ModelSpec::openai("gpt-5"),
+        .targets([
+            Target::sim(),
+            Target::anthropic("claude-opus-4-8"),
+            Target::openai("gpt-5"),
         ])
         .subject(subject_fn(|_sample, cx| async move {
             // "low" effort answers fast but sometimes wrong; "high" reasons more.

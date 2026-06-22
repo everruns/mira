@@ -12,7 +12,7 @@ mira --bin greet list
 mira --bin greet run                 # whole matrix (sim runs; keyed cells skip)
 mira --bin greet run greet           # selective (substring), like cargo test
 mira --bin greet run --tag smoke
-mira --bin greet run --models sim --format junit --out results.xml
+mira --bin greet run --targets sim --format junit --out results.xml
 mira --bin greet run --checkpoint ck.json   # resumable
 ```
 

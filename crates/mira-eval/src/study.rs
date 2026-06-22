@@ -31,9 +31,9 @@ use tokio::task::JoinSet;
 use crate::eval::Eval;
 use crate::protocol::{
     AxisInfo, CancelParams, CancelResult, EvalInfo, EventParams, ExecuteResult, InitializeResult,
-    ListResult, ListSamplesParams, ListSamplesResult, ModelInfo, Notification, PROTOCOL_VERSION,
-    Request, Response, RpcError, RunParams, RunResult, SampleInfo, ScoreParams, TranscriptSummary,
-    capabilities, codes, event,
+    ListResult, ListSamplesParams, ListSamplesResult, Notification, PROTOCOL_VERSION, Request,
+    Response, RpcError, RunParams, RunResult, SampleInfo, ScoreParams, TargetInfo,
+    TranscriptSummary, capabilities, codes, event,
 };
 use crate::registry::registered_evals;
 use crate::runner::{aggregate_value, execute_cell, run_cell, score_transcript, verdict};
@@ -316,10 +316,10 @@ impl Study {
                     samples,
                     next_cursor,
                     scorers: eval.scorers.iter().map(|s| s.name()).collect(),
-                    models: eval
-                        .models
+                    targets: eval
+                        .targets
                         .iter()
-                        .map(|m| ModelInfo {
+                        .map(|m| TargetInfo {
                             label: m.label.clone(),
                             provider: m.provider.clone(),
                             available: m.available,
@@ -388,18 +388,18 @@ impl Study {
     }
 
     async fn run(&self, params: &RunParams) -> Result<RunResult, String> {
-        let (eval, sample, model) = self.locate(&params.eval, &params.sample, &params.model)?;
+        let (eval, sample, target) = self.locate(&params.eval, &params.sample, &params.target)?;
 
         // Don't burn time on an unrunnable cell; report it as skipped.
-        if !model.available {
+        if !target.available {
             return Ok(skipped_result(params));
         }
 
-        let outcome = run_cell(eval, sample, model, &params.params, params.trial()).await;
+        let outcome = run_cell(eval, sample, target, &params.params, params.trial()).await;
         Ok(RunResult {
             eval: outcome.eval,
             sample: outcome.sample_id,
-            model: outcome.model,
+            target: outcome.target,
             params: outcome.params,
             trial: params.trial,
             trials: params.trials,
@@ -415,12 +415,12 @@ impl Study {
     /// Execute a cell's subject only, returning the **full** transcript with no
     /// scoring (the run-now-score-later half of `run`).
     async fn execute(&self, params: &RunParams) -> Result<ExecuteResult, String> {
-        let (eval, sample, model) = self.locate(&params.eval, &params.sample, &params.model)?;
-        if !model.available {
+        let (eval, sample, target) = self.locate(&params.eval, &params.sample, &params.target)?;
+        if !target.available {
             return Ok(ExecuteResult {
                 eval: params.eval.clone(),
                 sample: params.sample.clone(),
-                model: params.model.clone(),
+                target: params.target.clone(),
                 params: params.params.clone(),
                 trial: params.trial,
                 trials: params.trials,
@@ -429,11 +429,11 @@ impl Study {
                 skipped: true,
             });
         }
-        let transcript = execute_cell(eval, sample, model, &params.params, params.trial()).await;
+        let transcript = execute_cell(eval, sample, target, &params.params, params.trial()).await;
         Ok(ExecuteResult {
             eval: params.eval.clone(),
             sample: params.sample.clone(),
-            model: params.model.clone(),
+            target: params.target.clone(),
             params: params.params.clone(),
             trial: params.trial,
             trials: params.trials,
@@ -444,7 +444,7 @@ impl Study {
     }
 
     /// Score a supplied transcript with an eval's scorers, without re-executing
-    /// the subject (the deferred-/re-scoring half of `run`). The model label
+    /// the subject (the deferred-/re-scoring half of `run`). The target label
     /// need not still exist — scoring depends only on the eval + sample.
     async fn score(&self, params: &ScoreParams) -> Result<RunResult, String> {
         let eval = self
@@ -463,7 +463,7 @@ impl Study {
         Ok(RunResult {
             eval: params.eval.clone(),
             sample: params.sample.clone(),
-            model: params.model.clone(),
+            target: params.target.clone(),
             params: params.params.clone(),
             trial: params.trial,
             trials: params.trials,
@@ -476,13 +476,13 @@ impl Study {
         })
     }
 
-    /// Resolve a cell to its `(eval, sample, model)` definitions.
+    /// Resolve a cell to its `(eval, sample, target)` definitions.
     fn locate(
         &self,
         eval: &str,
         sample: &str,
-        model: &str,
-    ) -> Result<(&Eval, &crate::Sample, &crate::ModelSpec), String> {
+        target: &str,
+    ) -> Result<(&Eval, &crate::Sample, &crate::Target), String> {
         let e = self
             .evals
             .iter()
@@ -495,20 +495,20 @@ impl Study {
             .find(|s| s.id == sample)
             .ok_or_else(|| format!("no such sample: {eval}/{sample}"))?;
         let m = e
-            .models
+            .targets
             .iter()
-            .find(|m| m.label == model)
-            .ok_or_else(|| format!("no such model: {eval}@{model}"))?;
+            .find(|m| m.label == target)
+            .ok_or_else(|| format!("no such target: {eval}@{target}"))?;
         Ok((e, s, m))
     }
 }
 
-/// A skipped (unexecuted) cell result, e.g. when the model is unavailable.
+/// A skipped (unexecuted) cell result, e.g. when the target is unavailable.
 fn skipped_result(params: &RunParams) -> RunResult {
     RunResult {
         eval: params.eval.clone(),
         sample: params.sample.clone(),
-        model: params.model.clone(),
+        target: params.target.clone(),
         params: params.params.clone(),
         trial: params.trial,
         trials: params.trials,
@@ -570,7 +570,7 @@ fn cell_event(req_id: u64, p: &RunParams, kind: &str) -> Notification {
         request_id: req_id,
         eval: p.eval.clone(),
         sample: p.sample.clone(),
-        model: p.model.clone(),
+        target: p.target.clone(),
         params: p.params.clone(),
         kind: kind.into(),
         ..Default::default()
@@ -592,7 +592,7 @@ mod tests {
     use super::*;
     use crate::scorer::contains;
     use crate::subject::subject_fn;
-    use crate::{Eval, ModelSpec, Sample, Transcript};
+    use crate::{Eval, Sample, Target, Transcript};
     use serde_json::json;
 
     fn study() -> Study {
@@ -609,7 +609,7 @@ mod tests {
                     Transcript::response("hi there")
                 }))
                 .scorer(contains("hi"))
-                .models([ModelSpec::sim().meta("agent", "demo")])
+                .targets([Target::sim().meta("agent", "demo")])
                 .build(),
         )
     }
@@ -650,11 +650,11 @@ mod tests {
         assert_eq!(e.description, "greeting eval");
         assert_eq!(e.metadata.get("suite").unwrap(), "smoke");
         assert_eq!(e.samples[0].tags, vec!["smoke"]);
-        // Per-sample and per-model metadata ride their own wire columns.
+        // Per-sample and per-target metadata ride their own wire columns.
         assert_eq!(e.samples[0].metadata.get("difficulty").unwrap(), "easy");
-        assert_eq!(e.models[0].label, "sim");
-        assert!(e.models[0].available);
-        assert_eq!(e.models[0].metadata.get("agent").unwrap(), "demo");
+        assert_eq!(e.targets[0].label, "sim");
+        assert!(e.targets[0].available);
+        assert_eq!(e.targets[0].metadata.get("agent").unwrap(), "demo");
     }
 
     fn big_study(samples: usize, page: usize) -> Study {
@@ -752,7 +752,7 @@ mod tests {
         let params = RunParams {
             eval: "greet".into(),
             sample: "hi".into(),
-            model: "sim".into(),
+            target: "sim".into(),
             params: Default::default(),
             trial: 0,
             trials: 0,
@@ -780,7 +780,7 @@ mod tests {
         let params = RunParams {
             eval: "rng".into(),
             sample: "a".into(),
-            model: "sim".into(),
+            target: "sim".into(),
             params: Default::default(),
             trial: 2,
             trials: 4,
@@ -799,7 +799,7 @@ mod tests {
         let params = RunParams {
             eval: "nope".into(),
             sample: "hi".into(),
-            model: "sim".into(),
+            target: "sim".into(),
             params: Default::default(),
             trial: 0,
             trials: 0,
@@ -813,7 +813,7 @@ mod tests {
         let params = RunParams {
             eval: "greet".into(),
             sample: "hi".into(),
-            model: "sim".into(),
+            target: "sim".into(),
             params: Default::default(),
             trial: 0,
             trials: 0,
@@ -830,7 +830,7 @@ mod tests {
         let rp = RunParams {
             eval: "greet".into(),
             sample: "hi".into(),
-            model: "sim".into(),
+            target: "sim".into(),
             params: Default::default(),
             trial: 0,
             trials: 0,
@@ -843,7 +843,7 @@ mod tests {
         let sp = ScoreParams {
             eval: captured.eval.clone(),
             sample: captured.sample.clone(),
-            model: captured.model.clone(),
+            target: captured.target.clone(),
             params: captured.params.clone(),
             trial: captured.trial,
             trials: captured.trials,
@@ -867,7 +867,7 @@ mod tests {
         let sp = ScoreParams {
             eval: "greet".into(),
             sample: "hi".into(),
-            model: "sim".into(),
+            target: "sim".into(),
             params: Default::default(),
             trial: 0,
             trials: 0,
@@ -885,7 +885,7 @@ mod tests {
         let sp = ScoreParams {
             eval: "nope".into(),
             sample: "hi".into(),
-            model: "sim".into(),
+            target: "sim".into(),
             params: Default::default(),
             trial: 0,
             trials: 0,
@@ -927,7 +927,7 @@ mod tests {
         host_w
             .write_all(
                 b"{\"id\":1,\"method\":\"run\",\"params\":\
-                  {\"eval\":\"slow\",\"sample\":\"s\",\"model\":\"sim\"}}\n",
+                  {\"eval\":\"slow\",\"sample\":\"s\",\"target\":\"sim\"}}\n",
             )
             .await
             .unwrap();

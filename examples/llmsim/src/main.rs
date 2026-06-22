@@ -17,8 +17,8 @@ use everruns_core::llmsim_driver::LlmSimConfig;
 use everruns_core::{CapabilityRegistry, PlatformDefinition};
 use everruns_runtime::InProcessRuntimeBuilder;
 use mira::scorer::{contains, succeeded};
-use mira::{Eval, ModelSpec, eval};
-use mira_everruns::{RuntimeSubject, model_to_resolved};
+use mira::{Eval, Target, eval};
+use mira_everruns::{RuntimeSubject, target_to_resolved};
 
 #[eval]
 fn llmsim() -> Eval {
@@ -28,7 +28,7 @@ fn llmsim() -> Eval {
             .platform_definition(platform)
             // The offline simulator: a fixed assistant reply, no network.
             .llm_sim(LlmSimConfig::fixed("Hi! The answer to life is 42."))
-            .default_model(model_to_resolved(&model))
+            .default_model(target_to_resolved(&model))
             .single_session(|s| {
                 s.harness("assistant", "You are a helpful assistant.")
                     .agent("assistant-agent", "Answer concisely.")
@@ -47,8 +47,8 @@ fn llmsim() -> Eval {
     Eval::new("llmsim")
         .describe("Drives an everruns InProcessRuntime against the LlmSim driver")
         .case("greet", "Say hi and tell me the answer to life.")
-        // `ModelSpec::sim()` routes to the LlmSim driver via `model_to_resolved`.
-        .models([ModelSpec::sim()])
+        // `Target::sim()` routes to the LlmSim driver via `target_to_resolved`.
+        .targets([Target::sim()])
         .subject(subject)
         .scorer(succeeded())
         .scorer(contains("42"))

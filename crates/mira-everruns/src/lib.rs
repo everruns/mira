@@ -4,9 +4,9 @@
 //! the in-process path to evaluating everruns-based agents (the canonical
 //! migration target for everruns' `llm-tests` and the everruns coding CLI).
 //!
-//! Mira's core stays provider-agnostic: a [`ModelSpec`] carries only
+//! Mira's core stays provider-agnostic: a [`Target`] carries only
 //! `(provider, model)` labels. The **embedder** owns runtime/driver/tool wiring
-//! via a [`RuntimeFactory`] closure that maps a `ModelSpec` onto a built runtime
+//! via a [`RuntimeFactory`] closure that maps a `Target` onto a built runtime
 //! and the session to drive. This crate just normalizes the runtime's
 //! `TurnResult` and `Event` stream into a Mira [`Transcript`], so every Mira
 //! scorer and report works unchanged.
@@ -19,10 +19,10 @@
 //! # use everruns_core::typed_id::SessionId;
 //!
 //! // The embedder builds a runtime for each matrix cell (provider/model from
-//! // the ModelSpec) and returns it with the session id to drive.
+//! // the Target) and returns it with the session id to drive.
 //! let subject = RuntimeSubject::new(|model| Box::pin(async move {
 //!     // ... construct an InProcessRuntime registering a driver for
-//!     // `model.provider` / `model.model`, then return (runtime, session_id).
+//!     // `target.provider` / `target.model`, then return (runtime, session_id).
 //!     # let _ = model;
 //!     # Err::<(InProcessRuntime, SessionId), String>("wire me up".into())
 //! }));
@@ -33,7 +33,7 @@
 //!     .scorer(contains("42"));
 //! ```
 //!
-//! See `mira_everruns::model_to_resolved` for mapping a `ModelSpec` onto an
+//! See `mira_everruns::target_to_resolved` for mapping a `Target` onto an
 //! everruns `ResolvedModel` inside your factory.
 
 use std::future::Future;
@@ -46,7 +46,7 @@ use everruns_core::{InputMessage, ResolvedModel};
 use everruns_runtime::InProcessRuntime;
 
 use mira::subject::summarize_events;
-use mira::{ErrorKind, ModelSpec, RunCx, Sample, Subject, Transcript};
+use mira::{ErrorKind, RunCx, Sample, Subject, Target, Transcript};
 
 /// A built runtime plus the session to drive for one matrix cell.
 pub type RuntimeHandle = (InProcessRuntime, SessionId);
@@ -54,7 +54,7 @@ pub type RuntimeHandle = (InProcessRuntime, SessionId);
 /// Builds a fresh runtime for a given matrix cell. The embedder owns
 /// platform/capability/tool/driver wiring here — Mira stays agnostic to it.
 pub type RuntimeFactory = Box<
-    dyn Fn(ModelSpec) -> Pin<Box<dyn Future<Output = Result<RuntimeHandle, String>> + Send>>
+    dyn Fn(Target) -> Pin<Box<dyn Future<Output = Result<RuntimeHandle, String>> + Send>>
         + Send
         + Sync,
 >;
@@ -70,7 +70,7 @@ impl RuntimeSubject {
     /// leaks across samples).
     pub fn new<F, Fut>(factory: F) -> Self
     where
-        F: Fn(ModelSpec) -> Fut + Send + Sync + 'static,
+        F: Fn(Target) -> Fut + Send + Sync + 'static,
         Fut: Future<Output = Result<RuntimeHandle, String>> + Send + 'static,
     {
         Self {
@@ -83,7 +83,7 @@ impl RuntimeSubject {
 impl Subject for RuntimeSubject {
     async fn run(&self, sample: &Sample, cx: &RunCx) -> Transcript {
         let started = std::time::Instant::now();
-        let (runtime, session_id) = match (self.factory)(cx.model.clone()).await {
+        let (runtime, session_id) = match (self.factory)(cx.target.clone()).await {
             // Building the runtime failed before the model ran a turn — that's
             // scaffolding (config/transport), so attribute it to infrastructure.
             Err(e) => return Transcript::infra_error(format!("runtime build failed: {e}")),
@@ -178,11 +178,11 @@ pub fn classify_runtime_error(message: &str) -> ErrorKind {
     }
 }
 
-/// Map a Mira [`ModelSpec`] onto an everruns [`ResolvedModel`]. A convenience
+/// Map a Mira [`Target`] onto an everruns [`ResolvedModel`]. A convenience
 /// for factory authors; reads the provider's API key from the conventional env
 /// var. Unknown providers default to [`DriverId::LlmSim`] (offline).
-pub fn model_to_resolved(model: &ModelSpec) -> ResolvedModel {
-    let (provider_type, api_key) = match model.provider.as_str() {
+pub fn target_to_resolved(target: &Target) -> ResolvedModel {
+    let (provider_type, api_key) = match target.provider.as_str() {
         "anthropic" => (DriverId::Anthropic, std::env::var("ANTHROPIC_API_KEY").ok()),
         "openai" => (DriverId::OpenAI, std::env::var("OPENAI_API_KEY").ok()),
         "gemini" => (DriverId::Gemini, std::env::var("GEMINI_API_KEY").ok()),
@@ -193,7 +193,7 @@ pub fn model_to_resolved(model: &ModelSpec) -> ResolvedModel {
         _ => (DriverId::LlmSim, Some("sim".to_string())),
     };
     ResolvedModel {
-        model: model.model.clone(),
+        model: target.model.clone(),
         provider_type,
         api_key,
         base_url: None,
@@ -207,14 +207,14 @@ mod tests {
 
     #[test]
     fn maps_known_providers() {
-        let r = model_to_resolved(&ModelSpec::new("a", "anthropic", "claude-opus-4-8"));
+        let r = target_to_resolved(&Target::new("a", "anthropic", "claude-opus-4-8"));
         assert_eq!(r.provider_type, DriverId::Anthropic);
         assert_eq!(r.model, "claude-opus-4-8");
     }
 
     #[test]
     fn unknown_provider_falls_back_to_sim() {
-        let r = model_to_resolved(&ModelSpec::sim());
+        let r = target_to_resolved(&Target::sim());
         assert_eq!(r.provider_type, DriverId::LlmSim);
     }
 
@@ -223,7 +223,7 @@ mod tests {
         // A runtime that can't even be built is infrastructure, not a model
         // failure: it must be scored N/A and retried, not penalized.
         let subject = RuntimeSubject::new(|_| async { Err("nope".to_string()) });
-        let cx = RunCx::new(ModelSpec::sim());
+        let cx = RunCx::new(Target::sim());
         let t = subject.run(&Sample::new("a", "hi"), &cx).await;
         assert!(!t.succeeded());
         assert!(t.errored_infra());

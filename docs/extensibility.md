@@ -122,10 +122,10 @@ Honest boundaries, so you don't fight the grain:
 - **Host-side scoring.** The host never sees a raw transcript to grade — scoring
   lives in the study. Shared scorers are an authoring-time helper, not a host
   feature.
-- **Host-defined matrix.** The study defines models/axes; the host can *subset*
-  (`--models`, `--tag`, filter) but not add cells.
+- **Host-defined matrix.** The study defines targets/axes; the host can *subset*
+  (`--targets`, `--axis`, `--preset`, `--tag`, filter) but not add cells.
 - **Run-to-run comparison.** Each run emits a stable JSON record (cells keyed by
-  `eval/sample@model[k=v,…]`), but diffing two runs is left to a consumer on top.
+  `eval/sample@target[k=v,…]`), but diffing two runs is left to a consumer on top.
 
 If you need one of these, it's a feature add rather than a configuration knob —
 open an issue describing the use case.

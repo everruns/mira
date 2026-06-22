@@ -21,7 +21,7 @@ from ._wire import (
     InitializeResult,
     ListResult,
     ListSamplesResult,
-    ModelInfo,
+    TargetInfo,
     RunResult,
     SampleInfo,
     Score,
@@ -64,7 +64,7 @@ class Sample:
     prompt: Optional[str] = None
     input: List[str] = field(default_factory=list)
     tags: List[str] = field(default_factory=list)
-    target: Optional[str] = None
+    expected: Optional[str] = None
     files: Dict[str, str] = field(default_factory=dict)
     metadata: Dict[str, Any] = field(default_factory=dict)
 
@@ -76,29 +76,29 @@ class Sample:
 
 
 @dataclass
-class Model:
+class Target:
     label: str
     provider: str = ""
     available: bool = True
     metadata: Dict[str, Any] = field(default_factory=dict)
 
 
-def model(
+def target(
     label: str,
     provider: str = "",
     available: bool = True,
     metadata: Optional[Dict[str, Any]] = None,
-) -> Model:
-    return Model(label=label, provider=provider, available=available,
+) -> Target:
+    return Target(label=label, provider=provider, available=available,
                  metadata=dict(metadata or {}))
 
 
 @dataclass
 class RunCx:
-    """Per-cell context handed to a subject: the matrix model, turn budget, and
+    """Per-cell context handed to a subject: the matrix target, turn budget, and
     chosen axis values."""
 
-    model: str
+    target: str
     provider: str = ""
     max_turns: int = 0
     params: Dict[str, str] = field(default_factory=dict)
@@ -115,7 +115,7 @@ class Eval:
     name: str
     subject: Subject
     samples: Sequence[Sample]
-    models: Sequence[Model]
+    targets: Sequence[Target]
     scorers: Sequence[Scorer] = ()
     description: str = ""
     axes: Sequence[AxisInfo] = ()
@@ -129,9 +129,9 @@ class Eval:
             samples=[SampleInfo(id=s.id, tags=list(s.tags), metadata=dict(s.metadata))
                      for s in self.samples],
             scorers=[sc.name for sc in self.scorers],
-            models=[ModelInfo(label=m.label, provider=m.provider, available=m.available,
+            targets=[TargetInfo(label=m.label, provider=m.provider, available=m.available,
                               metadata=dict(m.metadata))
-                    for m in self.models],
+                    for m in self.targets],
             axes=[AxisInfo(name=a.name, values=list(a.values)) for a in self.axes],
             max_turns=self.max_turns,
             metadata=dict(self.metadata),
@@ -143,11 +143,11 @@ class Eval:
                 return s
         raise ValueError(f"no such sample: {sid}")
 
-    def _model(self, label: str) -> Model:
-        for m in self.models:
+    def _target(self, label: str) -> Target:
+        for m in self.targets:
             if m.label == label:
                 return m
-        return Model(label=label)
+        return Target(label=label)
 
 
 # ----- scoring (mirrors crate::runner) ----------------------------------------
@@ -188,7 +188,7 @@ class Study:
         """Decorator: register a subject function as an eval."""
         def deco(fn: Subject) -> Subject:
             self.add(Eval(name=kw.get("name", fn.__name__), subject=fn,
-                          samples=kw["samples"], models=kw["models"],
+                          samples=kw["samples"], targets=kw["targets"],
                           scorers=kw.get("scorers", ()), description=kw.get("description", ""),
                           axes=kw.get("axes", ()), max_turns=kw.get("max_turns", 0),
                           metadata=kw.get("metadata", {})))
@@ -234,13 +234,13 @@ class Study:
     # --- method handlers ---
     def _execute(self, params: dict) -> tuple[Transcript, bool]:
         """Run one cell's subject. Returns (transcript, skipped); an unavailable
-        model is skipped with an infra-error transcript (scored N/A, not failed)."""
+        target is skipped with an infra-error transcript (scored N/A, not failed)."""
         ev = self._evals[params["eval"]]
         sample = ev._sample(params["sample"])
-        m = ev._model(params["model"])
+        m = ev._target(params["target"])
         if not m.available:
-            return Transcript(error=f"model unavailable: {m.label}", error_kind="infra"), True
-        cx = RunCx(model=m.label, provider=m.provider, max_turns=ev.max_turns,
+            return Transcript(error=f"target unavailable: {m.label}", error_kind="infra"), True
+        cx = RunCx(target=m.label, provider=m.provider, max_turns=ev.max_turns,
                    params=params.get("params", {}))
         return ev.subject(sample, cx), False
 
@@ -265,7 +265,7 @@ class Study:
         if method == "execute":
             transcript, skipped = self._execute(params)
             return _codec.to_dict(ExecuteResult(
-                eval=params["eval"], sample=params["sample"], model=params["model"],
+                eval=params["eval"], sample=params["sample"], target=params["target"],
                 params=params.get("params", {}), transcript=transcript, skipped=skipped))
         if method in ("run", "score"):
             ev = self._evals[params["eval"]]
@@ -276,7 +276,7 @@ class Study:
                 transcript, skipped = self._execute(params)
             scores = _score_transcript(ev, sample, transcript)
             return _codec.to_dict(RunResult(
-                eval=params["eval"], sample=params["sample"], model=params["model"],
+                eval=params["eval"], sample=params["sample"], target=params["target"],
                 params=params.get("params", {}), passed=_verdict(scores),
                 aggregate=_aggregate(scores), scores=scores,
                 transcript=_summary(transcript), skipped=skipped))
@@ -306,7 +306,7 @@ def _rpc_error(exc: Exception) -> dict:
     if message.startswith("unknown method"):
         code = _CODE_METHOD_NOT_FOUND
     elif isinstance(exc, (KeyError, ValueError)):
-        # Unknown eval/sample/model or a malformed request — the caller's mistake.
+        # Unknown eval/sample/target or a malformed request — the caller's mistake.
         code = _CODE_INVALID_PARAMS
         message = message.strip("'") if isinstance(exc, KeyError) else message
     else:

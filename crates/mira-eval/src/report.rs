@@ -106,13 +106,13 @@ fn case_suffix(r: &RunResult) -> String {
     )
 }
 
-/// Print a per-case list, a model×eval matrix, and totals to stdout.
+/// Print a per-case list, a target×eval matrix, and totals to stdout.
 pub fn print_results(results: &[RunResult]) {
     println!("\n── cases ──");
     for r in results {
         let suffix = case_suffix(r);
         if r.skipped {
-            println!("  [SKIP] {}/{}@{}{suffix}", r.eval, r.sample, r.model);
+            println!("  [SKIP] {}/{}@{}{suffix}", r.eval, r.sample, r.target);
             continue;
         }
         if is_na(r) {
@@ -125,7 +125,7 @@ pub fn print_results(results: &[RunResult]) {
                 .unwrap_or("not evaluated");
             println!(
                 "  [N/A]  {}/{}@{}{suffix}  ({why})",
-                r.eval, r.sample, r.model
+                r.eval, r.sample, r.target
             );
             continue;
         }
@@ -134,7 +134,7 @@ pub fn print_results(results: &[RunResult]) {
             "  [{mark}] {}/{}@{}{suffix}  ({:.0}%)",
             r.eval,
             r.sample,
-            r.model,
+            r.target,
             r.aggregate * 100.0
         );
         let t = &r.transcript;
@@ -309,42 +309,42 @@ fn groups_json(results: &[RunResult], key: &str, values: &[Option<String>]) -> s
     serde_json::json!({ key: serde_json::Value::Object(map) })
 }
 
-/// Distinct evals and models, in first-seen order.
+/// Distinct evals and targets, in first-seen order.
 fn axes(results: &[RunResult]) -> (Vec<String>, Vec<String>) {
     let mut evals: Vec<String> = Vec::new();
-    let mut models: Vec<String> = Vec::new();
+    let mut targets: Vec<String> = Vec::new();
     for r in results {
         if !evals.contains(&r.eval) {
             evals.push(r.eval.clone());
         }
-        if !models.contains(&r.model) {
-            models.push(r.model.clone());
+        if !targets.contains(&r.target) {
+            targets.push(r.target.clone());
         }
     }
-    (evals, models)
+    (evals, targets)
 }
 
-/// A compact pass-rate grid: evals down the side, models across the top.
+/// A compact pass-rate grid: evals down the side, targets across the top.
 fn print_matrix(results: &[RunResult]) {
-    let (evals, models) = axes(results);
-    if evals.is_empty() || models.is_empty() {
+    let (evals, targets) = axes(results);
+    if evals.is_empty() || targets.is_empty() {
         return;
     }
 
     println!("\n── matrix (passed/scored) ──");
     let label_w = evals.iter().map(|e| e.len()).max().unwrap_or(4).max(4);
-    let col_w = models.iter().map(|m| m.len()).max().unwrap_or(6).max(7);
+    let col_w = targets.iter().map(|m| m.len()).max().unwrap_or(6).max(7);
 
     print!("  {:label_w$}", "eval", label_w = label_w);
-    for m in &models {
+    for m in &targets {
         print!("  {:>col_w$}", m, col_w = col_w);
     }
     println!();
 
     for eval in &evals {
         print!("  {:label_w$}", eval, label_w = label_w);
-        for model in &models {
-            print!("  {:>col_w$}", cell(results, eval, model), col_w = col_w);
+        for target in &targets {
+            print!("  {:>col_w$}", cell(results, eval, target), col_w = col_w);
         }
         println!();
     }
@@ -382,12 +382,12 @@ fn print_trials(results: &[RunResult]) {
     }
 }
 
-/// The `passed/scored` cell for one (eval, model), or `—` if absent. Skipped and
+/// The `passed/scored` cell for one (eval, target), or `—` if absent. Skipped and
 /// all-N/A cells are excluded from the denominator (see [`is_na`]).
-fn cell(results: &[RunResult], eval: &str, model: &str) -> String {
+fn cell(results: &[RunResult], eval: &str, target: &str) -> String {
     let cells: Vec<_> = results
         .iter()
-        .filter(|r| r.eval == eval && r.model == model && !r.skipped && !is_na(r))
+        .filter(|r| r.eval == eval && r.target == target && !r.skipped && !is_na(r))
         .collect();
     if cells.is_empty() {
         "—".to_string()
@@ -443,12 +443,12 @@ pub fn results_json_with_group(
 /// scoring). Such a cell is **neither passed nor failed**: it's excluded from
 /// the pass-rate, like a skip, so infra hiccups don't masquerade as real
 /// failures. The host retries infra-errored cells; one that stays N/A is
-/// reported as such rather than counted against the model.
+/// reported as such rather than counted against the target.
 pub fn is_na(r: &RunResult) -> bool {
     !r.scores.is_empty() && r.scores.iter().all(|s| s.na)
 }
 
-/// JUnit XML: one `<testcase>` per cell (`eval` ⇒ classname, `sample@model` ⇒
+/// JUnit XML: one `<testcase>` per cell (`eval` ⇒ classname, `sample@target` ⇒
 /// name), a failed cell carries `<failure>` with the failing scorers, a skipped
 /// cell carries `<skipped>`. A cell that was not executed or whose scores are
 /// all N/A counts as skipped. Surfaces evals in any CI that understands JUnit.
@@ -473,7 +473,7 @@ pub fn junit_xml(results: &[RunResult]) -> String {
             "  <testcase classname=\"{}\" name=\"{}@{}{}\">",
             xml_escape(&r.eval),
             xml_escape(&r.sample),
-            xml_escape(&r.model),
+            xml_escape(&r.target),
             xml_escape(&case_suffix(r)),
         ));
         if is_skipped(r) {
@@ -498,7 +498,7 @@ pub fn junit_xml(results: &[RunResult]) -> String {
 
 /// Markdown summary suitable for a CI job summary / PR comment.
 pub fn markdown(results: &[RunResult]) -> String {
-    let (evals, models) = axes(results);
+    let (evals, targets) = axes(results);
     let mut out = String::new();
     let scored = results.iter().filter(|r| !r.skipped && !is_na(r)).count();
     let passed = results
@@ -511,22 +511,22 @@ pub fn markdown(results: &[RunResult]) -> String {
         "## Mira eval results\n\n**{passed} / {scored} passed** ({} failed, {na} n/a, {skipped} skipped)\n\n",
         scored - passed,
     ));
-    if evals.is_empty() || models.is_empty() {
+    if evals.is_empty() || targets.is_empty() {
         return out;
     }
     out.push_str("| eval |");
-    for m in &models {
+    for m in &targets {
         out.push_str(&format!(" {m} |"));
     }
     out.push_str("\n|---|");
-    for _ in &models {
+    for _ in &targets {
         out.push_str("---|");
     }
     out.push('\n');
     for eval in &evals {
         out.push_str(&format!("| {eval} |"));
-        for model in &models {
-            out.push_str(&format!(" {} |", cell(results, eval, model)));
+        for target in &targets {
+            out.push_str(&format!(" {} |", cell(results, eval, target)));
         }
         out.push('\n');
     }
@@ -548,7 +548,7 @@ fn html_escape(s: &str) -> String {
 
 /// A self-contained, dependency-free HTML report — the transcript viewer. One
 /// file: inline CSS, no external assets, the full JSON record embedded for
-/// programmatic consumers. Renders a summary banner, the eval×model matrix, and
+/// programmatic consumers. Renders a summary banner, the eval×target matrix, and
 /// a per-case breakdown (scores, usage, timing, tools, metadata links, error,
 /// final response). Open it straight from a CI artifact.
 pub fn html(results: &[RunResult]) -> String {
@@ -558,7 +558,7 @@ pub fn html(results: &[RunResult]) -> String {
 /// [`html`] with an optional `--group-by` table and a group-aware embedded JSON
 /// record.
 pub fn html_with_group(results: &[RunResult], group: Option<Group<'_>>) -> String {
-    let (evals, models) = axes(results);
+    let (evals, targets) = axes(results);
     let scored = results.iter().filter(|r| !r.skipped && !is_na(r)).count();
     let passed = results
         .iter()
@@ -617,18 +617,18 @@ pub fn html_with_group(results: &[RunResult], group: Option<Group<'_>>) -> Strin
     out.push_str("</section>\n");
 
     // Matrix.
-    if !evals.is_empty() && !models.is_empty() {
+    if !evals.is_empty() && !targets.is_empty() {
         out.push_str("<h2>Matrix</h2>\n<table class=\"matrix\">\n<thead><tr><th>eval</th>");
-        for m in &models {
+        for m in &targets {
             out.push_str(&format!("<th>{}</th>", html_escape(m)));
         }
         out.push_str("</tr></thead>\n<tbody>\n");
         for eval in &evals {
             out.push_str(&format!("<tr><td>{}</td>", html_escape(eval)));
-            for model in &models {
+            for target in &targets {
                 out.push_str(&format!(
                     "<td>{}</td>",
-                    html_escape(&cell(results, eval, model))
+                    html_escape(&cell(results, eval, target))
                 ));
             }
             out.push_str("</tr>\n");
@@ -685,7 +685,7 @@ pub fn html_with_group(results: &[RunResult], group: Option<Group<'_>>) -> Strin
             "<span class=\"badge {cls}\">{badge}</span> <code>{}/{}@{}{}</code>",
             html_escape(&r.eval),
             html_escape(&r.sample),
-            html_escape(&r.model),
+            html_escape(&r.target),
             html_escape(&case_suffix(r)),
         ));
         let t = &r.transcript;
@@ -807,11 +807,11 @@ mod tests {
     use crate::Score;
     use crate::protocol::TranscriptSummary;
 
-    fn result(eval: &str, sample: &str, model: &str, passed: bool, skipped: bool) -> RunResult {
+    fn result(eval: &str, sample: &str, target: &str, passed: bool, skipped: bool) -> RunResult {
         RunResult {
             eval: eval.into(),
             sample: sample.into(),
-            model: model.into(),
+            target: target.into(),
             params: Default::default(),
             trial: 0,
             trials: 0,

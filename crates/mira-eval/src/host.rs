@@ -151,18 +151,18 @@ impl HostHandle {
     }
 
     /// Run one matrix cell. `params` carries the chosen value per extra axis
-    /// (empty for a model-only matrix); `trial` carries the repetition index and
+    /// (empty for a target-only matrix); `trial` carries the repetition index and
     /// seed (use [`Trial::single`] for an unrepeated cell). Safe to call
     /// concurrently from clones.
     pub async fn run(
         &self,
         eval: &str,
         sample: &str,
-        model: &str,
+        target: &str,
         params: &Params,
         trial: Trial,
     ) -> Result<RunResult, RpcError> {
-        let params = run_params(eval, sample, model, params, trial);
+        let params = run_params(eval, sample, target, params, trial);
         let value = self
             .request("run", serde_json::to_value(params).unwrap(), true)
             .await?;
@@ -176,11 +176,11 @@ impl HostHandle {
         &self,
         eval: &str,
         sample: &str,
-        model: &str,
+        target: &str,
         params: &Params,
         trial: Trial,
     ) -> Result<ExecuteResult, RpcError> {
-        let params = run_params(eval, sample, model, params, trial);
+        let params = run_params(eval, sample, target, params, trial);
         let value = self
             .request("execute", serde_json::to_value(params).unwrap(), true)
             .await?;
@@ -194,7 +194,7 @@ impl HostHandle {
         let params = ScoreParams {
             eval: captured.eval.clone(),
             sample: captured.sample.clone(),
-            model: captured.model.clone(),
+            target: captured.target.clone(),
             params: captured.params.clone(),
             trial: captured.trial,
             trials: captured.trials,
@@ -309,11 +309,11 @@ impl Drop for RequestGuard {
 /// Build the `run`/`execute` params for one cell + trial. Trial fields ride
 /// along so the study can echo the cell's trial identity back (its key must match
 /// the host's plan).
-fn run_params(eval: &str, sample: &str, model: &str, params: &Params, trial: Trial) -> RunParams {
+fn run_params(eval: &str, sample: &str, target: &str, params: &Params, trial: Trial) -> RunParams {
     RunParams {
         eval: eval.into(),
         sample: sample.into(),
-        model: model.into(),
+        target: target.into(),
         params: params.clone(),
         trial: trial.index,
         trials: trial.count,
@@ -440,11 +440,11 @@ impl Host {
         &self,
         eval: &str,
         sample: &str,
-        model: &str,
+        target: &str,
         params: &Params,
         trial: Trial,
     ) -> Result<RunResult, RpcError> {
-        self.handle.run(eval, sample, model, params, trial).await
+        self.handle.run(eval, sample, target, params, trial).await
     }
 
     /// Execute one cell's subject without scoring (sequential convenience; see
@@ -453,12 +453,12 @@ impl Host {
         &self,
         eval: &str,
         sample: &str,
-        model: &str,
+        target: &str,
         params: &Params,
         trial: Trial,
     ) -> Result<ExecuteResult, RpcError> {
         self.handle
-            .execute(eval, sample, model, params, trial)
+            .execute(eval, sample, target, params, trial)
             .await
     }
 

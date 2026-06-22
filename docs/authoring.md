@@ -10,7 +10,7 @@ Eval = Dataset(Sample…) + Subject + [Scorer…]  ×  model matrix
 ## The builder
 
 ```rust
-use mira::{Eval, ModelSpec, Sample};
+use mira::{Eval, Target, Sample};
 use mira::subject::subject_fn;
 use mira::scorer::{succeeded, contains};
 
@@ -22,7 +22,7 @@ let eval = Eval::new("greet")
     .subject(subject_fn(|s, _| async move { mira::Transcript::response("hi") }))
     .scorer(succeeded())
     .scorer(contains("hi"))
-    .models([ModelSpec::sim(), ModelSpec::anthropic("claude-opus-4-8")])
+    .targets([Target::sim(), Target::anthropic("claude-opus-4-8")])
     .max_turns(8)
     .build();
 ```
@@ -38,7 +38,7 @@ A `Sample` is one dataset row.
 use mira::Sample;
 
 let s = Sample::new("fix-bug", "Fix the off-by-one in sum().")
-    .target("expected answer")            // for matches_target / target-based scorers
+    .expected("expected answer")          // for matches_expected / answer-comparison scorers
     .file("lib.rs", "fn sum() {}")        // seed the subject's workspace
     .tag("regression")                    // selective runs: --tag regression
     .meta("difficulty", "hard");          // observability / provenance
@@ -74,18 +74,18 @@ polyglot subjects.
 into independently-addressable cells (`greet/hi@sim`).
 
 ```rust
-.models([
-    ModelSpec::sim(),                            // offline, always available
-    ModelSpec::anthropic("claude-opus-4-8"),     // gated on ANTHROPIC_API_KEY
-    ModelSpec::openai("gpt-5.5"),                // gated on OPENAI_API_KEY
-    ModelSpec::new("local", "ollama", "llama3")  // custom provider, always available
+.targets([
+    Target::sim(),                            // offline, always available
+    Target::anthropic("claude-opus-4-8"),     // gated on ANTHROPIC_API_KEY
+    Target::openai("gpt-5.5"),                // gated on OPENAI_API_KEY
+    Target::new("local", "ollama", "llama3")  // custom provider, always available
         .meta("endpoint", "http://localhost:11434"),
 ])
 ```
 
 A cell whose model is **unavailable** (missing API key) is skipped, never failed
 — so the default run is green offline and lights up as keys appear. The
-`provider` and `model` fields are passed to the subject via `cx.model`; how
+`provider` and `model` fields are passed to the subject via `cx.target`; how
 they're used is the subject's business.
 
 ## Infrastructure errors vs. failures
@@ -136,7 +136,7 @@ subject reads the chosen value per cell via `cx.param(name)`:
 let eval = Eval::new("reasoning")
     .case("puzzle", "What is 17 * 23?")
     .axis("effort", ["low", "high"])             // a second axis
-    .models([ModelSpec::sim(), ModelSpec::anthropic("claude-opus-4-8")])
+    .targets([Target::sim(), Target::anthropic("claude-opus-4-8")])
     .subject(subject_fn(|_s, cx| async move {
         let effort = cx.param("effort").unwrap_or("low");
         // …vary behaviour by effort…
@@ -203,7 +203,7 @@ Sample::new("hi", "…")
     .meta("difficulty", "hard");
 
 // Per-model config riding the model column (agent, effort, price, sandbox, …):
-ModelSpec::anthropic("claude-opus-4-8")
+Target::anthropic("claude-opus-4-8")
     .meta("agent", "swe-agent")
     .meta("effort", "high");
 ```
@@ -264,4 +264,4 @@ async fn greet_passes() {
 ```
 
 `Runner` supports the same selection as the CLI: `.filter(…)`, `.tag(…)`,
-`.models(…)`.
+`.targets(…)`.

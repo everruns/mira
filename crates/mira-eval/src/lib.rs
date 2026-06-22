@@ -2,12 +2,12 @@
 //!
 //! Mira is a developer tool shaped like a test runner. You define evals in Rust
 //! (or any language that speaks the [protocol]), and a generic host CLI runs
-//! them across a model matrix, scores the results, and reports.
+//! them across a **target** matrix, scores the results, and reports.
 //!
 //! # The model
 //!
 //! ```text
-//! Eval = Dataset(Sample…) + Subject + [Scorer…]  ×  model matrix
+//! Eval = Dataset(Sample…) + Subject + [Scorer…]  ×  target matrix
 //! ```
 //!
 //! * [`Sample`] — one dataset row: input turns, an optional `target`, seeded
@@ -21,7 +21,7 @@
 //! * [`Scorer`] — grades a [`Transcript`] into a [`Score`].
 //!   Deterministic built-ins, an arbitrary-closure escape hatch, and
 //!   LLM-as-judge ([`model_graded`](scorer::model_graded)) compose freely.
-//! * [`ModelSpec`] — one cell of the matrix. Provider-agnostic;
+//! * [`Target`] — one cell of the matrix. Provider-agnostic;
 //!   missing API keys mark a cell unavailable so it is *skipped*, not failed.
 //!
 //! # Two ways to run
@@ -48,7 +48,6 @@ pub mod dataset;
 pub mod eval;
 pub mod exec;
 pub mod host;
-pub mod model;
 pub mod protocol;
 pub mod registry;
 pub mod report;
@@ -58,6 +57,7 @@ pub mod scorer;
 pub mod session;
 pub mod study;
 pub mod subject;
+pub mod target;
 
 use std::collections::BTreeMap;
 
@@ -94,7 +94,7 @@ pub use dataset::{Dataset, Sample};
 pub use eval::{Case, Eval};
 pub use exec::{Concurrency, run_cells};
 pub use host::{Host, HostHandle};
-pub use model::ModelSpec;
+pub use target::Target;
 // `register_eval!` is exported at the crate root via `#[macro_export]`.
 pub use registry::registered_evals;
 pub use run::{RunMeta, RunSummary, new_run_id, new_run_id_at};
@@ -546,16 +546,16 @@ impl Score {
     }
 }
 
-/// Per-run context handed to a [`Subject`]: which model to use
+/// Per-run context handed to a [`Subject`]: which target to use
 /// for this matrix cell, and the run limits.
 #[derive(Clone, Debug)]
 pub struct RunCx {
-    /// The matrix cell's model.
-    pub model: ModelSpec,
+    /// The matrix cell's target (the model or harness under evaluation).
+    pub target: Target,
     /// Maximum reasoning iterations a subject should take.
     pub max_turns: usize,
     /// Values for any extra matrix axes this cell varies (axis name → value),
-    /// e.g. `{"effort": "high"}`. Empty for a model-only matrix. A subject reads
+    /// e.g. `{"effort": "high"}`. Empty for a target-only matrix. A subject reads
     /// these to vary its behaviour per cell.
     pub params: Params,
     /// This run's trial within its cell: which repetition (`index` of `count`)
@@ -575,11 +575,11 @@ pub struct RunCx {
 }
 
 impl RunCx {
-    /// A context for `model` with default limits, no extra axis params, a single
+    /// A context for `target` with default limits, no extra axis params, a single
     /// (unrepeated, unseeded) trial, and an empty conversation.
-    pub fn new(model: ModelSpec) -> Self {
+    pub fn new(target: Target) -> Self {
         Self {
-            model,
+            target,
             max_turns: 12,
             params: Params::new(),
             trial: Trial::single(),
@@ -600,12 +600,12 @@ impl RunCx {
     }
 }
 
-/// The canonical, stable identity of one matrix cell: `eval/sample@model`,
+/// The canonical, stable identity of one matrix cell: `eval/sample@target`,
 /// suffixed with `[k=v,…]` (axis params sorted by key) when extra axes vary.
 /// Used for selection, dedupe, checkpoint resume, and reporting — host and
-/// study compute it identically.
-pub fn cell_key(eval: &str, sample: &str, model: &str, params: &Params) -> String {
-    let base = format!("{eval}/{sample}@{model}");
+/// study compute it identically. `target` is the target label.
+pub fn cell_key(eval: &str, sample: &str, target: &str, params: &Params) -> String {
+    let base = format!("{eval}/{sample}@{target}");
     if params.is_empty() {
         return base;
     }

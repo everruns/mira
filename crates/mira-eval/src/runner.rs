@@ -1,15 +1,15 @@
-//! [`Runner`]: the in-process run loop. Expands `evals × models × samples` into
+//! [`Runner`]: the in-process run loop. Expands `evals × targets × samples` into
 //! cells, applies selective filtering, runs each cell through its subject +
 //! scorers, and collects a [`RunReport`].
 //!
 //! Selection mirrors `cargo test`: a free-text `filter` is a substring match on
-//! the case key `eval/sample@model`, and `tag` narrows by sample tag. The same
+//! the case key `eval/sample@target`, and `tag` narrows by sample tag. The same
 //! [`run_cell`] is used by the protocol [`study`](crate::study), so in-process
 //! and over-the-wire runs score identically.
 
 use crate::content::{Message, Part, Role};
 use crate::eval::{Eval, Responder};
-use crate::model::ModelSpec;
+use crate::target::Target;
 use crate::{Params, RunCx, Sample, Score, Transcript, Trial, cell_key, trial_suffix};
 
 /// Execute a single matrix cell's subject, returning the full [`Transcript`]
@@ -24,12 +24,12 @@ use crate::{Params, RunCx, Sample, Score, Transcript, Trial, cell_key, trial_suf
 pub async fn execute_cell(
     eval: &Eval,
     sample: &Sample,
-    model: &ModelSpec,
+    target: &Target,
     params: &Params,
     trial: Trial,
 ) -> Transcript {
     let mut cx = RunCx {
-        model: model.clone(),
+        target: target.clone(),
         max_turns: eval.max_turns,
         params: params.clone(),
         trial,
@@ -122,7 +122,7 @@ fn assistant_parts(t: &Transcript) -> Vec<Part> {
 /// the protocol `score` method to (re-)score without re-executing the subject.
 pub async fn score_transcript(eval: &Eval, sample: &Sample, transcript: &Transcript) -> Vec<Score> {
     // An infrastructure failure (budget, rate limit, provider outage, timeout)
-    // isn't the model's fault and didn't produce a transcript worth grading.
+    // isn't the target's fault and didn't produce a transcript worth grading.
     // Short-circuit to a single N/A score so the cell is excluded from the
     // verdict and aggregate (neither pass nor fail) — the cell-level dual of a
     // scorer returning `Score::na`. The host retries such cells.
@@ -148,18 +148,18 @@ pub fn verdict(scores: &[Score]) -> bool {
     scores.iter().any(|s| !s.na) && scores.iter().filter(|s| !s.na).all(|s| s.pass)
 }
 
-/// Run a single matrix cell: one sample, one model, one set of axis `params`.
+/// Run a single matrix cell: one sample, one target, one set of axis `params`.
 /// Composes [`execute_cell`] + [`score_transcript`] so the fused path scores
 /// identically to the split `execute`/`score` path. Shared by the in-process
 /// [`Runner`] and the protocol study.
 pub async fn run_cell(
     eval: &Eval,
     sample: &Sample,
-    model: &ModelSpec,
+    target: &Target,
     params: &Params,
     trial: Trial,
 ) -> CaseOutcome {
-    let transcript = execute_cell(eval, sample, model, params, trial).await;
+    let transcript = execute_cell(eval, sample, target, params, trial).await;
     let scores = score_transcript(eval, sample, &transcript).await;
 
     let passed = verdict(&scores);
@@ -168,7 +168,7 @@ pub async fn run_cell(
     CaseOutcome {
         eval: eval.name.clone(),
         sample_id: sample.id.clone(),
-        model: model.label.clone(),
+        target: target.label.clone(),
         params: params.clone(),
         trial,
         scores,
@@ -192,13 +192,13 @@ pub fn aggregate_value(scores: &[Score]) -> f64 {
     if count == 0 { 0.0 } else { sum / count as f64 }
 }
 
-/// The result of one matrix cell: one sample, one model, one axis combination.
+/// The result of one matrix cell: one sample, one target, one axis combination.
 #[derive(Clone, Debug)]
 pub struct CaseOutcome {
     pub eval: String,
     pub sample_id: String,
-    pub model: String,
-    /// Extra matrix-axis values for this cell (empty for a model-only matrix).
+    pub target: String,
+    /// Extra matrix-axis values for this cell (empty for a target-only matrix).
     pub params: Params,
     /// This run's trial (repetition index, count, and seed).
     pub trial: Trial,
@@ -220,7 +220,7 @@ impl CaseOutcome {
 
     /// Cell identity shared by all trials of this cell (no `#index` suffix).
     pub fn logical_key(&self) -> String {
-        cell_key(&self.eval, &self.sample_id, &self.model, &self.params)
+        cell_key(&self.eval, &self.sample_id, &self.target, &self.params)
     }
 }
 
@@ -252,7 +252,7 @@ pub struct Runner {
     evals: Vec<Eval>,
     filter: Option<String>,
     tag: Option<String>,
-    models: Option<Vec<String>>,
+    targets: Option<Vec<String>>,
 }
 
 impl Runner {
@@ -272,7 +272,7 @@ impl Runner {
         self
     }
 
-    /// Substring filter on the case key `eval/sample@model` (like `cargo test PAT`).
+    /// Substring filter on the case key `eval/sample@target` (like `cargo test PAT`).
     pub fn filter(mut self, filter: Option<String>) -> Self {
         self.filter = filter;
         self
@@ -284,14 +284,14 @@ impl Runner {
         self
     }
 
-    /// Restrict the matrix to these model labels.
-    pub fn models(mut self, models: Option<Vec<String>>) -> Self {
-        self.models = models;
+    /// Restrict the matrix to these target labels.
+    pub fn targets(mut self, targets: Option<Vec<String>>) -> Self {
+        self.targets = targets;
         self
     }
 
-    /// True if a cell passes the active selection (filter, tag, model labels).
-    fn selected(&self, key: &str, sample: &Sample, model: &ModelSpec) -> bool {
+    /// True if a cell passes the active selection (filter, tag, target labels).
+    fn selected(&self, key: &str, sample: &Sample, target: &Target) -> bool {
         if let Some(f) = &self.filter
             && !key.contains(f.as_str())
         {
@@ -302,8 +302,8 @@ impl Runner {
         {
             return false;
         }
-        if let Some(allow) = &self.models
-            && !allow.iter().any(|m| m == &model.label)
+        if let Some(allow) = &self.targets
+            && !allow.iter().any(|m| m == &target.label)
         {
             return false;
         }
@@ -316,14 +316,14 @@ impl Runner {
         for eval in &self.evals {
             let combos = eval.axis_combinations();
             let trials = eval.trials.max(1);
-            for model in &eval.models {
+            for target in &eval.targets {
                 for sample in &eval.dataset.samples {
                     for params in &combos {
-                        let key = cell_key(&eval.name, &sample.id, &model.label, params);
-                        if !self.selected(&key, sample, model) {
+                        let key = cell_key(&eval.name, &sample.id, &target.label, params);
+                        if !self.selected(&key, sample, target) {
                             continue;
                         }
-                        if !model.available {
+                        if !target.available {
                             report.skipped.push(format!("{key} (unavailable)"));
                             continue;
                         }
@@ -340,7 +340,7 @@ impl Runner {
                             };
                             report
                                 .outcomes
-                                .push(run_cell(eval, sample, model, params, trial).await);
+                                .push(run_cell(eval, sample, target, params, trial).await);
                         }
                     }
                 }
@@ -400,7 +400,7 @@ mod tests {
     async fn unavailable_model_is_skipped_not_failed() {
         let eval = Eval::new("e")
             .case("a", "x")
-            .models([ModelSpec::sim().available(false)])
+            .targets([Target::sim().available(false)])
             .subject(subject_fn(|_, _| async { Transcript::response("x") }))
             .scorer(contains("x"))
             .build();
@@ -440,7 +440,7 @@ mod tests {
     #[tokio::test]
     async fn infra_error_short_circuits_scoring_to_na() {
         // A scorer that would FAIL on the errored transcript must never run —
-        // an infra error isn't the model's fault, so the cell is N/A, not failed.
+        // an infra error isn't the target's fault, so the cell is N/A, not failed.
         let eval = Eval::new("e")
             .case("a", "x")
             .subject(subject_fn(|_, _| async {
