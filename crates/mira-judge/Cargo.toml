@@ -10,6 +10,7 @@ homepage.workspace = true
 keywords.workspace = true
 categories.workspace = true
 description = "LLM-as-judge scorers for Mira, backed by real providers (OpenAI Chat Completions, OpenAI Responses, and Anthropic Claude)."
+readme = "README.md"
 
 [dependencies]
 mira-eval = { workspace = true }

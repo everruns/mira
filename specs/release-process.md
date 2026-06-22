@@ -18,16 +18,30 @@ new features, PATCH = bug fixes/docs. All workspace crates share one version
 
 ## Published artifacts
 
-| Crate | Registry | Installs as |
-|-------|----------|-------------|
+| Artifact | Registry | Installs as |
+|----------|----------|-------------|
 | `mira-macros` | crates.io | proc-macro (re-exported by `mira-eval`) |
 | `mira-eval` | crates.io | library `mira` |
 | `mira-cli` | crates.io | binary `mira` |
 | `mira-everruns` | crates.io | library |
+| `mira-judge` | crates.io | library |
+| `mira-eval` (Python SDK, `sdks/python`) | PyPI | `pip install mira-eval` |
 
 Publish order matters: `mira-macros` first, then `mira-eval` (re-exports it),
-then `mira-cli` and `mira-everruns` (both depend on `mira-eval`). The
-`mira-examples` crate is `publish = false`.
+then `mira-cli`, `mira-everruns`, and `mira-judge` (all depend on `mira-eval`).
+The `mira-examples` crate is `publish = false`. The Python SDK is a native
+library (not a binding), so it publishes independently of the crate order; it
+shares the workspace version and CI verifies the two match.
+
+### Python SDK (PyPI)
+
+The Python SDK publishes to PyPI as `mira-eval` via **OIDC Trusted Publishing**
+(no API token). The trusted publisher must be registered once on PyPI: project
+`mira-eval`, owner `everruns`, repository `mira`, workflow `publish.yml`,
+environment `release`. The `publish-python` job in `publish.yml` builds the
+sdist + wheel from `sdks/python/` and uploads them on the release tag. Crate name
+`mira-eval` is the same string as the PyPI project — by design, both are "the
+Mira eval library" for their language.
 
 ### Homebrew
 
@@ -62,20 +76,29 @@ action.
 2. **Update `CHANGELOG.md`** (Keep a Changelog format).
 3. **Bump the version** in workspace `Cargo.toml` (`workspace.package.version`)
    and refresh `Cargo.lock` (`cargo update -p mira-macros -p mira-eval -p
-   mira-cli -p mira-everruns`). Path-dep pins reference the same version.
+   mira-cli -p mira-everruns -p mira-judge`). Path-dep pins reference the same
+   version. Bump `sdks/python/pyproject.toml` to match (CI fails the SDK publish
+   if it drifts).
 4. **Local verification** — `just check` (`cargo fmt --check`, `cargo clippy
-   --all-targets -- -D warnings`, `cargo test`).
-5. **Verify publish-readiness** — `cargo publish --dry-run -p mira-eval`, then
-   `-p mira-cli` and `-p mira-everruns`. This catches packaging problems local
-   builds don't (missing `readme`, files outside the crate dir, version drift).
-   Confirm the new version is greater than the latest on crates.io for each
-   crate. Fix root cause and re-run before opening the PR.
+   --all-targets -- -D warnings`, `cargo test`) and `just test-py` (SDK codegen
+   drift + pytest).
+5. **Verify publish-readiness** — `just publish-dry-run` (`cargo publish
+   --dry-run` for `mira-macros`, `mira-eval`, `mira-cli`, `mira-everruns`,
+   `mira-judge`). This catches packaging problems local builds don't (missing
+   `readme`, files outside the crate dir, version drift). Confirm the new version
+   is greater than the latest on crates.io for each crate. Fix root cause and
+   re-run before opening the PR. **First-release caveat:** dependents of an
+   unpublished crate (everything depending on `mira-eval`) can't fully dry-run
+   until the base is on crates.io — verify their file lists with `cargo package
+   --list -p <crate>` instead; CI publishes in dependency order with index waits.
+   Also confirm the Python SDK builds (`python -m build sdks/python`).
 6. **Commit and push** — `chore(release): prepare vX.Y.Z` on a feature branch.
 7. **Create PR** — same title, changelog excerpt + publish-readiness report.
 8. **Monitor post-merge** — watch `release.yml` create the Release + tag, then
-   `publish.yml` publish each crate (each step verifies the published version).
-   Declare "shipped" only when crates.io reports the new version for all three.
-   On failure, open a hotfix PR rather than leaving the release half-shipped.
+   `publish.yml` publish each crate (each step verifies the published version) and
+   the Python SDK. Declare "shipped" only when crates.io reports the new version
+   for all five crates and PyPI shows the SDK. On failure, open a hotfix PR rather
+   than leaving the release half-shipped.
 
 ## CI automation
 
@@ -83,13 +106,18 @@ action.
   commit, extracts notes from `CHANGELOG.md`, creates the GitHub Release + tag,
   and dispatches `publish.yml`.
 - On the release tag, `publish.yml` publishes `mira-macros` then `mira-eval`,
-  then `mira-cli` and `mira-everruns`, waiting for the crates.io index between
-  dependent publishes, and verifies the published versions.
-- On the published release, `homebrew.yml` bumps `Formula/mira.rb` and mirrors it
-  to the Homebrew tap.
+  then `mira-cli`, `mira-everruns`, and `mira-judge`, waiting for the crates.io
+  index between dependent publishes, and verifies the published versions. A
+  parallel `publish-python` job builds and publishes the Python SDK to PyPI via
+  OIDC Trusted Publishing.
+- `release.yml` also dispatches `cli-binaries.yml`, which builds the prebuilt
+  `mira` binaries, attaches them to the Release, and mirrors the generated
+  `Formula/mira.rb` to the Homebrew tap.
 
 ## Pre-release checklist
 
-CI green on `main`; `CHANGELOG.md` has entries since the last release; the
-version is consistent across the workspace and `Cargo.lock`; all three
-`cargo publish --dry-run`s succeed; the new version > latest on crates.io.
+CI green on `main`; `CHANGELOG.md` has entries since the last release; the version
+is consistent across the workspace, `Cargo.lock`, and the Python SDK
+`pyproject.toml`; all five `cargo publish --dry-run`s succeed (or, on a first
+release, dependents' `cargo package --list` is clean); the Python SDK builds; the
+new version > latest on crates.io / PyPI.

@@ -82,6 +82,7 @@ publish-dry-run:
     cargo publish --dry-run -p mira-eval
     cargo publish --dry-run -p mira-cli
     cargo publish --dry-run -p mira-everruns
+    cargo publish --dry-run -p mira-judge
 
 # All pre-PR checks plus the publish dry-run.
 pre-pr: check publish-dry-run
