@@ -9,7 +9,8 @@ binary (`mira-cli`, installed as `mira`).
 
 ```bash
 cargo add mira-eval
-brew install everruns/tap/mira   # or: cargo install mira-cli
+brew install everruns/tap/mira      # or: cargo install mira-cli
+cargo binstall mira-cli             # prebuilt binary, no compile (installs `mira`)
 ```
 
 ## 2. Write an eval study

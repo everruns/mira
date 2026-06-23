@@ -7,7 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-<!-- New changes go here. -->
+### Added
+
+- `cargo binstall mira-cli` support: `[package.metadata.binstall]` points binstall
+  at the prebuilt release tarballs, so the `mira` binary installs without a compile.
 
 ## [0.1.0] - 2026-06-22
 
