@@ -97,8 +97,12 @@ action.
 8. **Monitor post-merge** — watch `release.yml` create the Release + tag, then
    `publish.yml` publish each crate (each step verifies the published version) and
    the Python SDK. Declare "shipped" only when crates.io reports the new version
-   for all five crates and PyPI shows the SDK. On failure, open a hotfix PR rather
-   than leaving the release half-shipped.
+   for all five crates and PyPI shows the SDK. `publish.yml` is **idempotent**
+   (each crate step skips a version already on crates.io via
+   `scripts/cargo_publish_if_needed.sh`; the PyPI step uses `skip-existing`), so a
+   partial release caused by a transient crates.io blip is recovered by
+   re-dispatching it — `workflow_dispatch` from `main` fills only the missing
+   artifacts.
 
 ## CI automation
 
