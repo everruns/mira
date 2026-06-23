@@ -28,15 +28,25 @@ Eval = Dataset(Sample…) + Subject + [Scorer…]  ×  model matrix
 The framework is a library (`mira-eval`, imported as `mira`); the runner is a
 binary (`mira-cli`, installed as `mira`).
 
+**CLI (`mira` host)** — install the prebuilt binary; don't build from source:
+
 ```bash
-cargo add mira-eval                 # the eval framework, used as `mira::…`
-brew install everruns/tap/mira      # the `mira` host CLI (recommended)
-cargo install mira-cli --locked     # …or build the CLI from source
+brew install everruns/tap/mira      # prebuilt binary (recommended)
 ```
 
-The CLI works on macOS (arm64/x86_64) and Linux (x86_64). If Homebrew enforces
-tap trust checks, run `brew trust --tap everruns/tap` once first. For the
-everruns runtime subject, add the integration crate: `cargo add mira-everruns`.
+Prebuilt binaries for macOS (arm64/x86_64) and Linux (x86_64) are also attached
+to each GitHub Release: <https://github.com/everruns/mira/releases>. If Homebrew
+enforces tap trust checks, run `brew trust --tap everruns/tap` once first.
+Building from source (`cargo install mira-cli --locked`) is the fallback only.
+
+**Framework (Rust studies)** — add the library to your crate:
+
+```bash
+cargo add mira-eval                 # the eval framework, used as `mira::…`
+cargo add mira-everruns             # + everruns runtime subject (optional)
+```
+
+Cross-language studies need no Rust framework at all — see [SDKs](#cross-language-studies-sdks).
 
 ## Authoring an eval study
 
@@ -83,7 +93,7 @@ async fn main() -> std::io::Result<()> { mira::Study::registered().serve().await
 
 A study is just a `[[bin]]` that calls `Study::registered().serve()`; `--bin NAME`
 resolves it. A non-Rust study (any language that speaks the protocol) runs via
-`--cmd "..."` — see `examples/greet-python/`.
+`--cmd "..."` — see [`examples/greet-python/`](https://github.com/everruns/mira/tree/main/examples/greet-python).
 
 ## Running
 
@@ -101,7 +111,8 @@ mira --bin coding run --checkpoint ck.json               # resumable
 mira --cmd "python3 study.py" run      # a study written in another language
 ```
 
-Exit code is non-zero if any cell failed — drops straight into CI.
+Exit code is non-zero if any cell failed — drops straight into CI. Run
+`mira help --full` for an overview, every flag, examples, and links.
 
 ## Scorers (cheat sheet)
 
@@ -149,9 +160,50 @@ async fn passes() {
 }
 ```
 
-## References
+## Cross-language studies (SDKs)
 
-- `docs/getting-started.md`, `docs/authoring.md`, `docs/scorers.md`,
-  `docs/subjects.md`
-- `docs/protocol.md` — the wire protocol (for non-Rust servers)
-- `specs/architecture.md` — the design of record
+Any language that speaks the protocol is a first-class study: the host owns
+selection, the model matrix, concurrency, checkpoints, and reporting; the study
+owns subjects and scoring. The SDKs are native (not FFI bindings) and generated
+from the canonical schema, so they never drift from the wire format.
+
+- Python SDK — <https://github.com/everruns/mira/blob/main/sdks/python/README.md>
+- Wire protocol (write your own, any language) — <https://github.com/everruns/mira/blob/main/docs/protocol.md>
+- Worked example — <https://github.com/everruns/mira/tree/main/examples/greet-python>
+- Run it: `mira --cmd "python3 study.py" run`
+
+## Examples (runnable, offline)
+
+All run against the `sim` model with no API keys, so they stay green in CI and
+cost nothing. Browse: <https://github.com/everruns/mira/tree/main/examples>
+
+- `greet` — smallest eval: `#[eval]`, a closure subject, text + LLM-judge scorers — <https://github.com/everruns/mira/tree/main/examples/greet>
+- `coding` — seeded files, a model matrix, structural + file scorers — <https://github.com/everruns/mira/tree/main/examples/coding>
+- `cli_subject` — the polyglot path: driving an external program — <https://github.com/everruns/mira/tree/main/examples/cli_subject>
+- `matrix` — a multi-axis matrix (targets × a custom `effort` axis) — <https://github.com/everruns/mira/tree/main/examples/matrix>
+- `greet-python` — a whole study in Python via the SDK — <https://github.com/everruns/mira/tree/main/examples/greet-python>
+
+```bash
+cargo run -p mira-cli -- --bin greet run                                  # a Rust example
+cargo run -p mira-cli -- --cmd "python3 examples/greet-python/study.py" run  # polyglot
+```
+
+## Learn more (read on demand)
+
+Progressive disclosure: this skill is the overview — open a doc only when the
+task needs that depth.
+
+| Doc | When to read |
+|-----|--------------|
+| [getting-started](https://github.com/everruns/mira/blob/main/docs/getting-started.md) | First study, end-to-end. |
+| [authoring](https://github.com/everruns/mira/blob/main/docs/authoring.md) | Evals, samples, targets, axes, presets. |
+| [scorers](https://github.com/everruns/mira/blob/main/docs/scorers.md) | Every built-in scorer + LLM-as-judge. |
+| [subjects](https://github.com/everruns/mira/blob/main/docs/subjects.md) | `subject_fn`, `CliSubject`, runtime. |
+| [metrics](https://github.com/everruns/mira/blob/main/docs/metrics.md) | Usage/timing/tools the budget scorers grade. |
+| [extensibility](https://github.com/everruns/mira/blob/main/docs/extensibility.md) | Custom scorers/subjects. |
+| [how-it-works](https://github.com/everruns/mira/blob/main/docs/how-it-works.md) | Core model + vocabulary. |
+| [protocol](https://github.com/everruns/mira/blob/main/docs/protocol.md) | Wire format for non-Rust studies. |
+| [specs/architecture](https://github.com/everruns/mira/blob/main/specs/architecture.md) | Design of record (the *why*). |
+
+Or run `mira help --full` for the self-orienting CLI guide (overview, every flag,
+examples, links).

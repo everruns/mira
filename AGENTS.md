@@ -30,7 +30,7 @@ change there.
 | Spec | Description |
 |------|-------------|
 | architecture | Core model, crate architecture, execution model, metrics, migration |
-| docs | Public-docs structure, diagram (SVG) convention, sync rules |
+| docs | Public-docs structure, the agent skill, diagram (SVG) convention, sync rules |
 | sdks | Native non-Rust study SDKs: schema-driven wire types, layout, drift guard |
 | release-process | Versioning, crates.io publishing flow |
 

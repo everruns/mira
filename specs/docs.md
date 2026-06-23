@@ -1,8 +1,9 @@
 # Documentation
 
 - Status: **implemented**
-- Scope: the public docs under [`docs/`](../docs), the repo `README.md`, and how
-  they relate to rustdoc and to `specs/`.
+- Scope: the public docs under [`docs/`](../docs), the repo `README.md`, the
+  agent skill ([`skills/mira/SKILL.md`](../skills/mira/SKILL.md)), and how they
+  relate to rustdoc and to `specs/`.
 
 This is the design of record for Mira's public documentation: what lives where,
 how pages are structured, and the conventions every page follows. It mirrors the
@@ -18,6 +19,7 @@ one ecosystem — most notably, **diagrams are committed SVGs**, not raster imag
 | `README.md` | first-time visitor | the pitch + 60-second quick start | Markdown |
 | `docs/` | users | guides + the normative protocol reference | Markdown |
 | rustdoc (on the crates) | API consumers | the exact types, traits, and signatures | `///` doc comments |
+| `skills/mira/SKILL.md` | coding agents | the agent-facing overview + entry points | Markdown |
 | `specs/` | maintainers | design of record (the *why* and the contract) | Markdown |
 | `CHANGELOG.md` | upgraders | what changed, per release | Keep a Changelog |
 
@@ -89,7 +91,35 @@ layout.
 - **Tables for vocabularies** (scorers, metrics, capabilities), prose for
   concepts.
 
-## 5. Keeping docs in sync
+## 5. The agent skill
+
+[`skills/mira/SKILL.md`](../skills/mira/SKILL.md) is the agent-facing surface: a
+coding agent loads it to learn how to author and run Mira evals. It is the *one*
+place that orients an agent and then hands off; it never restates a guide.
+
+Because the skill is **portable** — copied into other repos and read outside this
+checkout — its conventions differ from the in-repo docs:
+
+- **Absolute links.** All references to `docs/`, `examples/`, `sdks/`, and
+  `specs/` are full `https://github.com/everruns/mira/...` URLs (blob for files,
+  tree for directories). Relative links would break once the skill is detached
+  from this repo. (This is the deliberate exception to §4's relative-link rule.)
+- **Progressive disclosure.** The frontmatter `name`/`description` is the first
+  level (when to invoke); the body is the overview; deep docs are linked, read
+  on demand, never inlined. Keep the body skimmable — one concept per section.
+- **Install the binary.** The skill steers agents to the prebuilt `mira` CLI
+  (`brew install everruns/tap/mira` or a Release binary), with `cargo install`
+  as the source-build fallback only — see [`release-process.md`](release-process.md).
+- **Cross-language entry points.** Always link the SDKs and `protocol.md` so an
+  agent working in another language finds the polyglot path (`--cmd`).
+- **Basic examples + `mira help --full`.** Point at the offline `examples/` and
+  tell the agent the CLI carries its own full help.
+
+A change to the surfaces the skill summarises — install method, the scorer/CLI
+vocabulary, the example set, or the docs/SDK layout — updates the skill in the
+same PR.
+
+## 6. Keeping docs in sync
 
 A change to behaviour updates its documentation in the same PR:
 
@@ -98,6 +128,8 @@ A change to behaviour updates its documentation in the same PR:
   the protocol version. The headline version and the per-method shapes must match
   `protocol::PROTOCOL_VERSION` and the Rust types.
 - **Design decision** → the relevant file in `specs/`.
+- **Agent-facing change** (install, vocabulary, examples, docs/SDK layout) →
+  `skills/mira/SKILL.md` (see §5).
 - **Anything user-visible** → `CHANGELOG.md` under `## [Unreleased]`.
 
 This mirrors the “Docs in sync” ground rule in `CONTRIBUTING.md`; this spec is
