@@ -122,6 +122,13 @@ checkout — its conventions differ from the in-repo docs:
   agent working in another language finds the polyglot path (`--cmd`).
 - **Basic examples + `mira help --full`.** Point at the offline `examples/` and
   tell the agent the CLI carries its own full help.
+- **Installable.** [`skills.sh`](../skills.sh) (at the repo root) copies this
+  directory into a Claude Code skills root — `--global` (`~/.claude/skills`) or
+  `--local` (`./.claude/skills`, the default). It copies from a checkout when
+  present, else fetches from GitHub raw, so `curl -fsSL .../skills.sh | sh` works
+  with only the prebuilt `mira` binary. Each run is a clean replace, so it is also
+  the upgrade path. The file list lives in `skills.sh` (the `FILES` var) — a file
+  added under `skills/mira/` is added there in the same PR, or it won't install.
 
 A change to the surfaces the skill summarises — install method, the scorer/CLI
 vocabulary, the example set, or the docs/SDK layout — updates `SKILL.md` and the
