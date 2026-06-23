@@ -26,12 +26,19 @@ new features, PATCH = bug fixes/docs. All workspace crates share one version
 | `mira-everruns` | crates.io | library |
 | `mira-judge` | crates.io | library |
 | `mira-eval` (Python SDK, `sdks/python`) | PyPI | `pip install mira-eval` |
+| `@everruns/mira-eval` (TypeScript SDK, `sdks/typescript`) | npm | `npm install @everruns/mira-eval` |
 
 Publish order matters: `mira-macros` first, then `mira-eval` (re-exports it),
 then `mira-cli`, `mira-everruns`, and `mira-judge` (all depend on `mira-eval`).
-The `mira-examples` crate is `publish = false`. The Python SDK is a native
-library (not a binding), so it publishes independently of the crate order; it
-shares the workspace version and CI verifies the two match.
+The `mira-examples` crate is `publish = false`. The Python and TypeScript SDKs are
+native libraries (not bindings), so they publish independently of the crate order;
+each shares the workspace version and CI verifies the match.
+
+> **Status:** SDK publishing (PyPI/npm) is deferred — see
+> [`specs/sdks.md`](sdks.md). The TypeScript SDK ships `@everruns/mira-eval` with
+> `prepublishOnly` building `dist/`; wiring its npm publish into `publish.yml`
+> (npm Trusted Publishing, mirroring the Python `publish-python` job) lands with
+> that work.
 
 ### Python SDK (PyPI)
 

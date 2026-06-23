@@ -109,6 +109,19 @@ jobs:
         run: |
           cargo run -q -p mira-cli -- --cmd "python3 examples/greet-python/study.py" run
 
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      # The TypeScript polyglot example imports the SDK's build, so build it first.
+      - name: Build the TypeScript SDK
+        run: cd sdks/typescript && npm ci && npm run build
+
+      - name: Run the polyglot (TypeScript) eval study via the host CLI
+        run: |
+          cargo run -q -p mira-cli -- --cmd "node examples/greet-typescript/study.mjs" run
+
       - name: Render an HTML report (smoke)
         run: |
           cargo run -q -p mira-cli -- --bin metrics run --format html --out report.html
@@ -136,6 +149,25 @@ jobs:
         run: |
           python3 -m pip install --quiet jsonschema pytest
           cd sdks/python && python3 -m pytest -q
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Install TypeScript SDK deps
+        run: cd sdks/typescript && npm ci
+
+      # The TypeScript SDK's wire types are generated from schema/v1/; fail if a
+      # protocol change landed without regenerating them (the TS dual of the Rust
+      # `--check` drift guard).
+      - name: TypeScript SDK is in sync with the schema
+        run: node sdks/typescript/codegen.mjs --check
+
+      # Builds, then runs the schema-conformance + metadata-coverage + serve-loop
+      # tests against the committed schema.
+      - name: TypeScript SDK build + tests
+        run: cd sdks/typescript && npm test
 
   # Live LLM-as-judge integration tests (mira-judge). These hit real provider
   # APIs and cost money, so they run only on pushes to main and manual dispatch —

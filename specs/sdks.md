@@ -1,6 +1,6 @@
 # Mira — non-Rust study SDKs
 
-- Status: **implemented** (Python; TypeScript planned)
+- Status: **implemented** (Python and TypeScript)
 - Authors: Everruns
 
 Design of record for native study SDKs in other languages. Code complies with
@@ -98,12 +98,12 @@ sdks/<lang>/        one native SDK per language
 ```
 
 - The runtime library has **zero third-party dependencies** where the language
-  allows (Python: stdlib only), so a study runs anywhere the interpreter does;
-  validation/codegen/test tools are dev-only.
+  allows (Python: stdlib only; TypeScript: Node built-ins only), so a study runs
+  anywhere the interpreter does; validation/codegen/test tools are dev-only.
 - **Example studies stay under `examples/`** (the single `just run-examples`
   entry point), importing the SDK; the SDK dir holds only the library + its own
-  tests. `examples/greet-python` is the worked example and mirrors the Rust
-  `greet`.
+  tests. `examples/greet-python` and `examples/greet-typescript` are the worked
+  examples and mirror the Rust `greet`.
 - CI gates each SDK: schema-in-sync (`codegen --check`) + the test suite, wired
   into the `Check` gate, and the polyglot example runs end-to-end through the
   host like every other example.
@@ -126,8 +126,11 @@ aggregate; an unavailable model / infra error short-circuits to a single N/A.
 - **Python** (`sdks/python`) — implemented: schema-driven codegen, full serve
   loop (incl. the `execute`/`score` split and `list_samples` pagination),
   conformance + behaviour tests.
-- **TypeScript** (`sdks/typescript`) — planned, same shape: codegen from
-  `schema/v1/` (`json-schema-to-typescript`), a `serve()` loop, parity authoring
-  API, npm package with zero runtime deps.
+- **TypeScript** (`sdks/typescript`) — implemented, same shape: a self-contained
+  `codegen.mjs` (no external lib, for a hermetic `--check`) generating typed wire
+  interfaces + protocol metadata from `schema/v1/`, a `serve()` loop (incl. the
+  `execute`/`score` split and `list_samples` pagination), parity authoring API,
+  and an npm package (`@everruns/mira-eval`) with **zero runtime deps** (`ajv` /
+  `typescript` are dev-only). Worked example: `examples/greet-typescript`.
 - **Deferred:** emitting `event` progress notifications from SDK studies;
   publishing the SDKs to PyPI/npm (tied to [`release-process`](release-process.md)).
