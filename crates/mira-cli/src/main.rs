@@ -21,8 +21,9 @@
 //!
 //! Each Rust example is a crate exposing a like-named binary, so `--bin <name>`
 //! resolves it across the workspace. Point it at any study: `--bin NAME`,
-//! `--example NAME`, an arbitrary `--cmd "..."` (e.g. a Python study), or
-//! another package with `--package` / `--manifest-path`.
+//! `--example NAME`, an arbitrary `--cmd "..."`, a non-Rust study via
+//! `--uv` / `--python` / `--python3 SCRIPT`, or another package with
+//! `--package` / `--manifest-path`.
 
 use std::collections::BTreeMap;
 use std::io::IsTerminal;
@@ -92,6 +93,15 @@ struct Launcher {
     /// Launch an arbitrary command (split on whitespace).
     #[arg(long, global = true)]
     cmd: Option<String>,
+    /// Run `uv run <SCRIPT...>` (e.g. a Python study; split on whitespace).
+    #[arg(long, global = true, value_name = "SCRIPT")]
+    uv: Option<String>,
+    /// Run `python <SCRIPT...>` (split on whitespace).
+    #[arg(long, global = true, value_name = "SCRIPT")]
+    python: Option<String>,
+    /// Run `python3 <SCRIPT...>` (split on whitespace).
+    #[arg(long, global = true, value_name = "SCRIPT")]
+    python3: Option<String>,
     /// Cargo package to run the bin/example from (`-p`).
     #[arg(long, global = true)]
     package: Option<String>,
@@ -300,7 +310,8 @@ OVERVIEW
   scoring can be split for long runs (`run --execute-only` then `score`).
 
   Point it at any study: `--bin NAME`, `--example NAME`, an arbitrary
-  `--cmd \"...\"` (e.g. a Python study), or `--package` / `--manifest-path`.";
+  `--cmd \"...\"`, a non-Rust study via `--uv` / `--python` / `--python3 SCRIPT`,
+  or `--package` / `--manifest-path`.";
 
     let examples = "\
 EXAMPLES
@@ -314,7 +325,7 @@ EXAMPLES
   mira --bin greet run --save                            # archive run under ./results/<run_id>/
   mira --bin greet run --execute-only --artifacts art/   # capture transcripts
   mira --bin greet score --artifacts art/                # score (or re-score) them
-  mira --cmd \"python study.py\" run     # drive a non-Rust (polyglot) study";
+  mira --python3 study.py run           # drive a non-Rust (polyglot) study";
 
     let links = format!(
         "\
@@ -348,6 +359,25 @@ fn build_command(launcher: &Launcher) -> Command {
         let program = parts.next().unwrap_or("false");
         let mut command = Command::new(program);
         command.args(parts);
+        return command;
+    }
+
+    // Convenience launchers for non-Rust studies: `--uv`/`--python`/`--python3
+    // study.py` instead of the verbose `--cmd "python3 study.py"`. `uv` gets a
+    // `run` subcommand; the rest take the script (and any args) directly.
+    if let Some(script) = &launcher.uv {
+        let mut command = Command::new("uv");
+        command.arg("run").args(script.split_whitespace());
+        return command;
+    }
+    if let Some(script) = &launcher.python {
+        let mut command = Command::new("python");
+        command.args(script.split_whitespace());
+        return command;
+    }
+    if let Some(script) = &launcher.python3 {
+        let mut command = Command::new("python3");
+        command.args(script.split_whitespace());
         return command;
     }
 
@@ -1143,4 +1173,73 @@ fn fmt_meta(meta: &mira::Metadata) -> String {
         .map(|(k, v)| format!("{k}={}", mira::metadata_display(v)))
         .collect::<Vec<_>>()
         .join(", ")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn launcher() -> Launcher {
+        Launcher {
+            bin: None,
+            example: None,
+            cmd: None,
+            uv: None,
+            python: None,
+            python3: None,
+            package: None,
+            manifest_path: None,
+        }
+    }
+
+    fn parts(cmd: &Command) -> (String, Vec<String>) {
+        let std = cmd.as_std();
+        let program = std.get_program().to_string_lossy().into_owned();
+        let args = std
+            .get_args()
+            .map(|a| a.to_string_lossy().into_owned())
+            .collect();
+        (program, args)
+    }
+
+    #[test]
+    fn uv_launcher_prepends_run() {
+        let mut l = launcher();
+        l.uv = Some("study.py".into());
+        let (program, args) = parts(&build_command(&l));
+        assert_eq!(program, "uv");
+        assert_eq!(args, ["run", "study.py"]);
+    }
+
+    #[test]
+    fn python_launchers_take_script_directly() {
+        let mut l = launcher();
+        l.python = Some("study.py --flag".into());
+        let (program, args) = parts(&build_command(&l));
+        assert_eq!(program, "python");
+        assert_eq!(args, ["study.py", "--flag"]);
+
+        let mut l = launcher();
+        l.python3 = Some("examples/greet-python/study.py".into());
+        let (program, args) = parts(&build_command(&l));
+        assert_eq!(program, "python3");
+        assert_eq!(args, ["examples/greet-python/study.py"]);
+    }
+
+    #[test]
+    fn cmd_wins_over_python_launchers() {
+        let mut l = launcher();
+        l.cmd = Some("echo hi".into());
+        l.python3 = Some("study.py".into());
+        let (program, args) = parts(&build_command(&l));
+        assert_eq!(program, "echo");
+        assert_eq!(args, ["hi"]);
+    }
+
+    #[test]
+    fn defaults_to_greet_bin() {
+        let (program, args) = parts(&build_command(&launcher()));
+        assert_eq!(program, "cargo");
+        assert_eq!(args, ["run", "-q", "--bin", "greet"]);
+    }
 }
