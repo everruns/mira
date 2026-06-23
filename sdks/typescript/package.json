@@ -28,7 +28,7 @@
     "codegen": "node codegen.mjs",
     "codegen:check": "node codegen.mjs --check",
     "build": "tsc -p tsconfig.json",
-    "test": "node codegen.mjs --check && tsc -p tsconfig.json && node --test \"tests/*.test.mjs\"",
+    "test": "node codegen.mjs --check && tsc -p tsconfig.json && node --test tests/*.test.mjs",
     "prepublishOnly": "npm run build"
   },
   "dependencies": {},
