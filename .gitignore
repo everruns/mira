@@ -6,8 +6,8 @@ Cargo.lock.bak
 # Local eval artifacts
 /report.json
 /report.html
-/*.checkpoint.json
-# Saved run archive (mira run --save); dir is configurable in mira.toml.
+# Saved runs (save-by-default; opt out with --dry-run). Dir is configurable via
+# [results].dir in mira.toml.
 /results/
 .DS_Store
 

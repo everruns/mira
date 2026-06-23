@@ -31,7 +31,7 @@
 //! * **Over the protocol** — your program is a [`Study`]: it bundles evals and
 //!   calls [`serve`](Study::serve) to expose them. The `mira` host CLI ([`Host`])
 //!   compiles/spawns it, plans the run, and owns selection, the matrix,
-//!   checkpoints, and reporting. Provider keys never cross the wire — models are
+//!   run storage, and reporting. Provider keys never cross the wire — models are
 //!   addressed by *label*. See [`protocol`].
 //!
 //! See the crate `examples/` (`greet`, `coding`, `cli_subject`) for runnable
@@ -54,7 +54,6 @@ pub mod report;
 pub mod run;
 pub mod runner;
 pub mod scorer;
-pub mod session;
 pub mod study;
 pub mod subject;
 pub mod target;
@@ -97,10 +96,9 @@ pub use host::{Host, HostHandle};
 pub use target::Target;
 // `register_eval!` is exported at the crate root via `#[macro_export]`.
 pub use registry::registered_evals;
-pub use run::{RunMeta, RunSummary, new_run_id, new_run_id_at};
+pub use run::{RunMeta, RunSummary, new_run_id, new_run_id_at, now_unix};
 pub use runner::{CaseOutcome, RunReport, Runner};
 pub use scorer::Scorer;
-pub use session::Session;
 pub use study::Study;
 pub use subject::{CliSubject, Subject, subject_fn};
 

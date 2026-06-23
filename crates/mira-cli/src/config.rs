@@ -1,16 +1,24 @@
-//! Host configuration (`mira.toml`) and the `--save` run store.
+//! Host configuration (`mira.toml`) and the run store.
 //!
-//! `--save` writes a self-contained, timestamped folder per run under a results
-//! directory, so runs accumulate in a stable place and can be listed/compared
-//! later. The directory is resolved as: an explicit `--save <DIR>` value, else
-//! `[results].dir` from the nearest `mira.toml`, else `./results`.
+//! Every `mira run`/`mira score` saves a self-contained, timestamped folder under
+//! a results directory (**save-by-default**; opt out with `--dry-run`), so runs
+//! accumulate in a stable place and can be listed, compared, resumed, and
+//! re-reported later. The directory is `[results].dir` from the nearest
+//! `mira.toml`, else `./results`.
 //!
 //! Layout per run (`<results_dir>/<run_id>/`):
 //! ```text
-//! report.json   canonical machine-readable record (summary + per-case)
-//! report.html   self-contained transcript viewer
-//! meta.json     run identity: id, study, timestamps, environment, summary
+//! meta.json                  run identity: id, study, timestamps, environment, summary
+//! report.json                canonical machine-readable record (summary + per-case)
+//! report.html                self-contained transcript viewer
+//! cases/<key>/result.json    one finished case (eval/sample@target[…]#trial)
 //! ```
+//!
+//! `meta.json` is written when the run starts (a header) and rewritten when it
+//! finishes (with the end time and summary). Each case's `result.json` lands as
+//! that case completes — so an interrupted run stays resumable with
+//! `mira run --resume <run_id>` and can be re-rendered with `mira report <run_id>`
+//! without re-executing anything.
 //!
 //! The `[environment]` section controls whether (and with what labels) the run's
 //! environment — git checkout, box, host version — is captured into `meta.json`.
@@ -25,7 +33,7 @@ use mira::protocol::RunResult;
 use mira::report::{self, Format};
 use mira::run::RunMeta;
 
-/// Default results directory when neither `--save <DIR>` nor `mira.toml` sets one.
+/// Default results directory when `mira.toml` doesn't set `[results].dir`.
 pub const DEFAULT_RESULTS_DIR: &str = "./results";
 
 /// Parsed `mira.toml`. All sections optional; an absent file yields defaults.
@@ -166,7 +174,7 @@ impl Config {
     }
 }
 
-/// `[results]` — where `--save` writes run folders.
+/// `[results]` — where saved runs are written (one folder per run).
 #[derive(Debug, Default, Deserialize)]
 pub struct ResultsConfig {
     /// Base directory for per-run folders. Defaults to [`DEFAULT_RESULTS_DIR`].
@@ -258,39 +266,102 @@ fn find_config() -> Option<PathBuf> {
     }
 }
 
-/// Resolve the results base dir for a `--save` value, loading `mira.toml` only
-/// when it's actually needed (a bare `--save`). Returns `None` when `--save`
-/// wasn't given, so a plain run does no config I/O.
-pub fn resolve_save_dir(save: &Option<String>) -> Option<String> {
-    // Only a bare `--save` consults mira.toml; every other case avoids the
-    // directory walk + file read entirely.
-    if matches!(save, Some(s) if s.is_empty()) {
-        resolve_results_dir(save, &Config::load())
-    } else {
-        resolve_results_dir(save, &Config::default())
-    }
+/// The run folder for `run_id` under `base`: `<base>/<run_id>/`.
+pub fn run_dir(base: &str, run_id: &str) -> PathBuf {
+    Path::new(base).join(run_id)
 }
 
-/// Resolve the results dir against an already-loaded config (the pure core of
-/// [`resolve_save_dir`]).
-pub fn resolve_results_dir(save: &Option<String>, config: &Config) -> Option<String> {
-    match save {
-        None => None,
-        Some(s) if s.is_empty() => Some(config.results_dir()),
-        Some(dir) => Some(dir.clone()),
+/// Reversible, filesystem-safe encoding of a case key — `[A-Za-z0-9]` kept
+/// verbatim, every other byte escaped as `_HH` (hex) — so distinct keys can never
+/// collide onto the same path. Shared by the run store (`cases/<enc>/`) and the
+/// execution-artifact store.
+pub fn encode_key(key: &str) -> String {
+    let mut safe = String::with_capacity(key.len());
+    for b in key.bytes() {
+        if b.is_ascii_alphanumeric() {
+            safe.push(b as char);
+        } else {
+            safe.push('_');
+            safe.push_str(&format!("{b:02x}"));
+        }
     }
+    safe
 }
 
-/// Write a run's report bundle into `<base>/<run_id>/`. Returns the run folder.
-/// An optional `--group-by` view is folded into the saved JSON and HTML reports.
-pub fn save_run(
-    base: &str,
+/// Create the run folder (and its `cases/` subdir) and write the header `meta.json`.
+/// Called at run start so a run is resumable from its first completed case.
+pub fn init_run(run_dir: &Path, meta: &RunMeta) -> std::io::Result<()> {
+    std::fs::create_dir_all(run_dir.join("cases"))?;
+    write_meta(run_dir, meta)
+}
+
+/// Persist one finished case under `<run_dir>/cases/<key>/result.json`. Written to
+/// a temp file and renamed, so a crash mid-write never leaves a torn `result.json`
+/// (and a re-run overwrites a case's own folder without touching the others).
+pub fn write_case_result(run_dir: &Path, key: &str, result: &RunResult) -> std::io::Result<()> {
+    let dir = run_dir.join("cases").join(encode_key(key));
+    std::fs::create_dir_all(&dir)?;
+    let json = serde_json::to_string_pretty(result)
+        .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
+    let tmp = dir.join("result.json.tmp");
+    std::fs::write(&tmp, json)?;
+    std::fs::rename(&tmp, dir.join("result.json"))
+}
+
+/// Load every `cases/*/result.json` under `run_dir`, sorted by case key for a
+/// stable order. A missing `cases/` dir yields an empty vec (a fresh or dry run);
+/// unreadable/invalid files are skipped with a warning so a partial write is
+/// visible rather than silently dropped.
+pub fn load_case_results(run_dir: &Path) -> Vec<RunResult> {
+    let mut out = Vec::new();
+    let entries = match std::fs::read_dir(run_dir.join("cases")) {
+        Ok(entries) => entries,
+        Err(_) => return out,
+    };
+    for entry in entries.flatten() {
+        let path = entry.path().join("result.json");
+        if !path.is_file() {
+            continue;
+        }
+        match std::fs::read_to_string(&path) {
+            Ok(text) => match serde_json::from_str::<RunResult>(&text) {
+                Ok(r) => out.push(r),
+                Err(e) => eprintln!(
+                    "warning: skipping {}: invalid result JSON: {e}",
+                    path.display()
+                ),
+            },
+            Err(e) => eprintln!("warning: skipping {}: {e}", path.display()),
+        }
+    }
+    out.sort_by_key(|r| r.key());
+    out
+}
+
+/// Write `meta.json` into the run folder.
+pub fn write_meta(run_dir: &Path, meta: &RunMeta) -> std::io::Result<()> {
+    let json = serde_json::to_string_pretty(meta)
+        .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
+    std::fs::write(run_dir.join("meta.json"), json)
+}
+
+/// Load `meta.json` from a run folder, if present and valid (e.g. to recover a
+/// resumed run's original start time).
+pub fn load_meta(run_dir: &Path) -> Option<RunMeta> {
+    let text = std::fs::read_to_string(run_dir.join("meta.json")).ok()?;
+    serde_json::from_str(&text).ok()
+}
+
+/// Render and write the run's reports (`report.json`/`report.html`) and the final
+/// `meta.json`. An optional `--group-by` view is folded into both reports. Used at
+/// the end of a run and by `mira report` to re-render a saved run in place.
+pub fn finalize_run(
+    run_dir: &Path,
     meta: &RunMeta,
     results: &[RunResult],
     group: Option<report::Group<'_>>,
-) -> std::io::Result<PathBuf> {
-    let run_dir = Path::new(base).join(&meta.run_id);
-    std::fs::create_dir_all(&run_dir)?;
+) -> std::io::Result<()> {
+    std::fs::create_dir_all(run_dir)?;
     std::fs::write(
         run_dir.join("report.json"),
         report::render_with_group(results, Format::Json, group),
@@ -299,15 +370,13 @@ pub fn save_run(
         run_dir.join("report.html"),
         report::render_with_group(results, Format::Html, group),
     )?;
-    let meta_json = serde_json::to_string_pretty(meta)
-        .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
-    std::fs::write(run_dir.join("meta.json"), meta_json)?;
-    Ok(run_dir)
+    write_meta(run_dir, meta)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use mira::protocol::TranscriptSummary;
 
     #[test]
     fn parse_results_dir() {
@@ -379,23 +448,6 @@ mod tests {
     }
 
     #[test]
-    fn resolve_precedence() {
-        let cfg = Config::parse("[results]\ndir = \"from-toml\"\n").unwrap();
-        // Flag absent.
-        assert_eq!(resolve_results_dir(&None, &cfg), None);
-        // Flag present, no value → config.
-        assert_eq!(
-            resolve_results_dir(&Some(String::new()), &cfg),
-            Some("from-toml".to_string())
-        );
-        // Explicit value → override.
-        assert_eq!(
-            resolve_results_dir(&Some("cli-dir".into()), &cfg),
-            Some("cli-dir".to_string())
-        );
-    }
-
-    #[test]
     fn launchers_parse_and_lookup() {
         let cfg = Config::parse(
             "default_launcher = \"greet\"\n\n\
@@ -426,25 +478,63 @@ mod tests {
         assert!(cfg.launcher("x").unwrap_err().contains("none defined"));
     }
 
+    fn run_result(sample: &str, passed: bool) -> RunResult {
+        RunResult {
+            eval: "greet".into(),
+            sample: sample.into(),
+            target: "sim".into(),
+            params: Default::default(),
+            trial: 0,
+            trials: 0,
+            seed: None,
+            passed,
+            aggregate: if passed { 1.0 } else { 0.0 },
+            scores: vec![],
+            transcript: TranscriptSummary::default(),
+            skipped: false,
+        }
+    }
+
     #[test]
-    fn save_writes_bundle() {
+    fn run_store_roundtrips_cases_and_meta() {
         use mira::run::{RUN_META_FORMAT, RunSummary};
-        let dir = tempfile::tempdir().unwrap();
-        let meta = RunMeta {
+        let tmp = tempfile::tempdir().unwrap();
+        let rd = run_dir(tmp.path().to_str().unwrap(), "20260621T090012Z-abcd");
+
+        // Header written at start: cases/ exists and the start time round-trips.
+        let header = RunMeta {
             format: RUN_META_FORMAT,
             run_id: "20260621T090012Z-abcd".into(),
             study: "greet".into(),
             study_version: None,
             started_unix: 100,
-            finished_unix: 200,
+            finished_unix: 0,
             environment: None,
             summary: RunSummary::default(),
         };
-        let run_dir = save_run(dir.path().to_str().unwrap(), &meta, &[], None).unwrap();
-        assert!(run_dir.join("report.json").is_file());
-        assert!(run_dir.join("report.html").is_file());
-        let meta_back = std::fs::read_to_string(run_dir.join("meta.json")).unwrap();
-        assert!(meta_back.contains("20260621T090012Z-abcd"));
-        assert!(meta_back.contains("\"started_unix\": 100"));
+        init_run(&rd, &header).unwrap();
+        assert!(rd.join("cases").is_dir());
+        assert_eq!(load_meta(&rd).unwrap().started_unix, 100);
+
+        // Per-case results land under cases/<enc>/result.json and reload sorted.
+        let hi = run_result("hi", true);
+        let bye = run_result("bye", false);
+        write_case_result(&rd, &hi.key(), &hi).unwrap();
+        write_case_result(&rd, &bye.key(), &bye).unwrap();
+        let loaded = load_case_results(&rd);
+        assert_eq!(loaded.len(), 2);
+        assert_eq!(loaded[0].sample, "bye", "sorted by case key");
+        assert_eq!(loaded[1].sample, "hi");
+
+        // Finalize writes the reports and rewrites meta with the end time/summary.
+        let final_meta = RunMeta {
+            finished_unix: 200,
+            summary: RunSummary::of(&loaded),
+            ..header
+        };
+        finalize_run(&rd, &final_meta, &loaded, None).unwrap();
+        assert!(rd.join("report.json").is_file());
+        assert!(rd.join("report.html").is_file());
+        assert_eq!(load_meta(&rd).unwrap().finished_unix, 200);
     }
 }

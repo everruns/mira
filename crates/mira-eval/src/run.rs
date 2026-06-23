@@ -2,22 +2,22 @@
 //!
 //! A *run* is one `mira run`/`mira score` invocation. Its [`RunMeta`] (a unique,
 //! sortable id, start/finish timestamps, and a result summary) is the record the
-//! host's `--save` writes next to the report, so past runs can later be listed
-//! and compared. This is the data foundation for the "historical trend
-//! aggregation across runs" seam in `specs/architecture.md` §12 — the query
-//! commands consume these records; they don't change this shape.
+//! host writes into the run folder (`<results_dir>/<run_id>/meta.json`) next to
+//! the report and per-case results, so past runs can later be listed and
+//! compared. This is the data foundation for the "historical trend aggregation
+//! across runs" seam in `specs/architecture.md` §12 — the query commands consume
+//! these records; they don't change this shape.
 //!
-//! Design note: a run id is per *invocation*, not per checkpoint. Resuming a
-//! `--checkpoint` continues the same [`Session`](crate::session::Session) but is
-//! a fresh run with its own id/timestamps — exactly what you want when comparing
-//! the same suite over time.
+//! Design note: a run id names a *run folder*. A fresh `mira run` mints a new id;
+//! `mira run --resume <run_id>` reopens that same folder, skips the cases already
+//! recorded under `cases/`, and runs only what's missing — so an interrupted run
+//! finishes in place rather than starting over.
 
 use std::collections::BTreeMap;
 
 use serde::{Deserialize, Serialize};
 
 use crate::protocol::RunResult;
-use crate::session::now_unix;
 
 /// On-disk format version for the run meta file. Bumped on a breaking layout
 /// change; readers treat an unrecognised version as unusable.
@@ -177,6 +177,14 @@ pub fn new_run_id_at(started_unix: u64) -> String {
 /// [`new_run_id_at`] for a run starting now.
 pub fn new_run_id() -> String {
     new_run_id_at(now_unix())
+}
+
+/// Unix seconds now (0 if the clock is before the epoch).
+pub fn now_unix() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0)
 }
 
 /// `YYYYMMDDThhmmssZ` for `secs` (Unix seconds, UTC). Dependency-free on
