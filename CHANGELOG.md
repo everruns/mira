@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- `skills.sh` — install the Mira agent skill into a Claude Code skills directory
+  so an agent can author and run evals. `--global` targets `~/.claude/skills/mira`,
+  `--local` (the default) targets `./.claude/skills/mira`. It copies from a local
+  checkout when present, else fetches from GitHub raw (`--ref`), so
+  `curl -fsSL .../skills.sh | sh` works on a box that only has the prebuilt
+  binary. Each run is a clean replace, so it also serves as the upgrade path.
 - **Native TypeScript SDK** (`sdks/typescript`, `mira-eval`) — author
   eval studies in TypeScript/Node with no Rust dependency: a zero-runtime-dep
   library over the protocol, with wire types and protocol metadata generated from
