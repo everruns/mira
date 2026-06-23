@@ -137,11 +137,11 @@ decision. Full wire reference: [`docs/protocol.md`](../docs/protocol.md).
 
 - **study** — *your* eval program. Defines evals and calls
   `Study::new(…).serve()` / `Study::registered().serve()`. Owns subjects and
-  scoring; knows nothing about selection, matrices, aggregation, checkpoints, or
+  scoring; knows nothing about selection, matrices, aggregation, saved runs, or
   rendering. **Provider API keys live only here and never cross the wire.**
 - **host** — the `mira` CLI. Compiles + spawns the study, enumerates evals
   (`initialize` + `list`), plans the run (selection × matrix), drives execution
-  (`run`), then aggregates / saves / checkpoints / renders.
+  (`run`), then aggregates / saves the run / renders.
 
 Three core methods (`initialize`, `list`, `run`) plus fire-and-forget
 `event`/`log` notifications, and optional capability-gated extensions
@@ -199,14 +199,13 @@ or an explicit `Study::new().eval(…).serve()`. `#[eval]` ships in the proc-mac
 crate `mira-macros`, re-exported as `mira::eval` behind the default `macros`
 feature.
 
-**Running** — the `mira` CLI: `list`, `run [filter]`, `--tag`, `--targets`,
-`--axis`, `--preset`,
-`--format json|junit|md|html`, `--out`, `--checkpoint`/`--fresh`, and concurrency
-controls `-j/--max-concurrent`, `--provider-concurrency`, `--no-adaptive`,
-`--max-retries`. Non-zero exit on failure, so it drops into CI. In-process
-`Runner` for evals as `#[tokio::test]`s.
+**Running** — the `mira` CLI: `list`, `run [filter]`, `report <run_id>`, `--tag`,
+`--targets`, `--axis`, `--preset`, `--format json|junit|md|html`, `--out`,
+`--dry-run`/`--resume <run_id>`, and concurrency controls `-j/--max-concurrent`,
+`--provider-concurrency`, `--no-adaptive`, `--max-retries`. Non-zero exit on
+failure, so it drops into CI. In-process `Runner` for evals as `#[tokio::test]`s.
 
-## 7. Reporting, checkpoints & resume
+## 7. Reporting, run folders & resume
 
 The host owns all of this; the study only returns per-case results.
 
@@ -225,15 +224,18 @@ The host owns all of this; the study only returns per-case results.
   (`done/total`, elapsed, ETA, current case). The total is exact: the host plans
   the full grid up front, so it's a count, not an estimate. Hidden under
   CI/non-TTY so it never pollutes logs.
-- **Sessions & checkpoints** (`--checkpoint`) — the checkpoint is a first-class
-  *session* record (`mira::session::Session`): run metadata (study, planned
-  `total`, created/updated timestamps, per-eval definition fingerprints) plus the
-  per-case results, rewritten after each case. A re-run loads it, skips done
-  cases, and resumes the progress bar at the right `done/total` (`--fresh`
-  ignores it). The fingerprints let a resume **warn when an eval's definition
-  changed** (scorers/axes/models/samples/metadata/`max_turns`) so stale cached
-  cases aren't silently reused. Resumable long matrix runs fall out of the host
-  owning the plan.
+- **Run folders & resume** — every `run`/`score` is **saved by default** under
+  `<results_dir>/<run_id>/` (opt out with `--dry-run`). The run folder is the
+  durable unit: `meta.json` (run identity — a header written at start, finalized
+  at the end with the finish time and summary), `report.json`/`report.html`, and
+  one `cases/<key>/result.json` per finished case, written atomically (temp +
+  rename) as it lands. `mira run --resume <run_id>` reopens that folder, skips the
+  cases already recorded under `cases/`, and runs only what's missing — so an
+  interrupted long matrix run finishes in place. Resume is **explicit**: a fresh
+  run mints a new id and reuses nothing, so there's no silent reuse of stale
+  results. `mira report <run_id>` re-renders a saved run's reports from its stored
+  results with no study process and no re-execution. Resumable runs fall out of
+  the host owning both the plan and the run folder.
 
 ## 8. Migration paths
 
@@ -276,9 +278,9 @@ negotiation, and the operational metrics above.
 Running a subject and scoring its transcript are **separable phases**. The
 `Scorer` trait already depends only on `(Sample, Transcript)`, never on the
 subject — so the only coupling was operational: `run_case` did both in one call,
-and the only persisted artifact (the checkpoint) carried a *summary* transcript
-with the raw `events`/`files` dropped, so a stored case could be resumed but
-never re-scored.
+and a saved case result carries a *summary* transcript with the raw
+`events`/`files` dropped, so a stored case can be resumed but not re-scored from
+the run folder alone (full re-scoring uses execution artifacts; see below).
 
 This matters for two real workflows:
 
@@ -306,10 +308,10 @@ older studies that only implement `run` keep working. The shared in-process seam
 `runner::score_transcript`, with `run_case` composing the two so in-process and
 over-the-wire runs score identically (as before).
 
-**Artifacts.** The host owns persistence (as with checkpoints). `mira run
+**Artifacts.** The host owns persistence (as with saved runs). `mira run
 --execute-only --artifacts <dir>` writes one full-transcript `ExecuteResult`
-JSON per case into `<dir>` (resumable: an existing artifact is skipped unless
-`--fresh`). `mira score --artifacts <dir>` loads those, replays each through
+JSON per case into `<dir>` (resumable: an existing artifact is skipped; delete the
+dir to force a fresh run). `mira score --artifacts <dir>` loads those, replays each through
 `score`, and produces the normal report — re-running it is a re-score. Execution
 artifacts (full transcripts) are thus stored **separately** from eval results
 (scores), and either can be regenerated from the other's inputs.
@@ -346,14 +348,16 @@ rather than letting its id corrupt response routing, so the seam is exercised, n
 theoretical; the concrete reverse methods would stage behind `protocol-unstable`.
 Full design: [`docs/protocol.md`](../docs/protocol.md#reverse-requests-studyhost).
 
-**Run archive (landed seam).** `mira run --save` / `mira score --save` archive
-each invocation into `<results_dir>/<run_id>/` (`report.json`, `report.html`, and
-`meta.json` = `mira::run::RunMeta`: a sortable `YYYYMMDDThhmmssZ-xxxx` run id,
-study, start/finish timestamps, and the rolled-up summary). The results dir
-resolves from `--save <dir>`, else `[results].dir` in the nearest `mira.toml`,
-else `./results`. A run id is per *invocation* (not per checkpoint), so resuming
-a `--checkpoint` is still a fresh run with its own id/timestamps. This is the
-data foundation for *historical trend aggregation*: the deferred `list`/`compare`
+**Run archive (landed seam).** `mira run` / `mira score` save every invocation
+into `<results_dir>/<run_id>/` by default (opt out with `--dry-run`):
+`report.json`, `report.html`, `meta.json` (= `mira::run::RunMeta`: a sortable
+`YYYYMMDDThhmmssZ-xxxx` run id, study, start/finish timestamps, environment, and
+the rolled-up summary — written as a header at start, finalized at the end), and
+`cases/<key>/result.json` per finished case. The results dir resolves from
+`[results].dir` in the nearest `mira.toml`, else `./results`. A run id names a run
+folder: `mira run --resume <run_id>` reopens it and runs only the missing cases,
+and `mira report <run_id>` re-renders it without a study. This is the data
+foundation for *historical trend aggregation*: the deferred `list`/`compare`
 commands read these `meta.json` records and don't change their shape.
 
 ## 13. Machine-readable protocol schema

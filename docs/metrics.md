@@ -105,7 +105,7 @@ stays unreported rather than breaking the report.
 
 Once recorded, a custom metric surfaces three ways: as a **pass/fail score** in
 every report, in the **per-case `metrics` block** of the JSON and HTML reports,
-and (because it rides the transcript) in any checkpoint. A working end-to-end
+and (because it rides the transcript) in any saved run. A working end-to-end
 example is [`examples/metrics`](../examples/metrics) — it reports
 `retrieval_recall@5` and grades it with `metric_at_least`.
 

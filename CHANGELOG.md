@@ -38,6 +38,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   one-line scope, for progressive disclosure) and a link to the `mira` agent skill
   in `LINKS`, so an agent can self-orient to the docs and skill in one read. A
   drift guard keeps the guide list in sync with `docs/README.md`.
+- **Run folders, save-by-default, and resume.** Every `mira run`/`mira score` now
+  saves a run folder under the results dir by default — `<run_id>/` with
+  `meta.json`, `report.json`/`report.html`, and one `cases/<key>/result.json` per
+  finished case (written atomically as it lands). `--dry-run` opts out.
+- `mira run --resume <run_id>` reopens an interrupted run's folder, skips the cases
+  already recorded under `cases/`, and runs only what's missing.
+- `mira report <run_id>` — new subcommand that re-renders a saved run's reports
+  from its stored per-case results, with no study process and no re-execution.
+
+### Changed
+
+- The execution unit (one `eval × sample × target × axis × trial`) is now called a
+  **case** (was "cell"): `Cell`/`CellSpec` → `Case`/`CaseSpec`, `run_cells` →
+  `run_cases`, etc. The dataset-row builder `.case(id, prompt)` → `.sample(id,
+  prompt)`, and the prebuilt-`Sample` adder `.sample(Sample)` → `.add_sample(Sample)`.
+  The `pub type Case = Sample` alias is removed.
+
+### Removed
+
+- `--checkpoint`, `--fresh`, and `--save` on `mira run`/`mira score`, plus the
+  `mira::session::Session` type. The single-file checkpoint is superseded by the
+  always-saved run folder; resume is now explicit via `--resume <run_id>` (a fresh
+  run mints a new id and reuses nothing, so there is no silent stale-result reuse).
+  Configure the results dir via `[results].dir` in `mira.toml` (the `--save <dir>`
+  override is gone).
 
 ## [0.1.0] - 2026-06-22
 

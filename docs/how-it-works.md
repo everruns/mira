@@ -39,11 +39,11 @@ over stdio (MCP-style).
 
 - **study** — *your* eval program. It defines evals and calls
   `Study::registered().serve()` (or `Study::new(…).serve()`). It owns subjects
-  and scoring and knows nothing about selection, matrices, checkpoints, or
+  and scoring and knows nothing about selection, matrices, saved runs, or
   rendering. **Provider API keys live only here and never cross the wire.**
 - **host** — the `mira` CLI. It compiles and spawns the study, enumerates evals
   (`initialize` + `list`), plans the run (selection × matrix), drives execution
-  (`run`), then aggregates, checkpoints, and renders.
+  (`run`), then aggregates, saves the run, and renders.
 
 Three core methods (`initialize`, `list`, `run`) plus fire-and-forget
 `event`/`log` notifications and optional capability-gated extensions
@@ -136,7 +136,7 @@ ordered list of tool calls, and captured files. Budget scorers
 `tools_used_exactly`, …) turn these into pass/fail, and the JSON/HTML reports
 surface them per case and in aggregate.
 
-## Reporting, checkpoints & resume
+## Reporting, saved runs & resume
 
 The host owns all reporting; the study only returns per-case results.
 
@@ -149,10 +149,14 @@ The host owns all reporting; the study only returns per-case results.
   viewer you can open straight from a CI artifact.
 - **JUnit XML** (`--format junit`) and **Markdown** (`--format md`) — for CI
   test UIs and PR job summaries. Non-zero exit on failure drops it into CI.
-- **Checkpoints** (`--checkpoint`) — a first-class *session* record rewritten
-  after each case. A re-run loads it, skips done cases, and resumes the progress
-  bar. Per-eval definition fingerprints warn when a definition changed so stale
-  cached cases aren't silently reused. `--fresh` ignores the checkpoint.
+- **Saved runs** (default) — every `run`/`score` writes a run folder
+  `<results_dir>/<run_id>/` (`--dry-run` opts out): `meta.json` (run identity),
+  `report.json`, `report.html`, and one `cases/<key>/result.json` per case,
+  written atomically as it completes. `--resume <run_id>` reopens a run folder,
+  subtracts the cases already recorded under `cases/`, and runs only what's
+  missing. A fresh `run` mints a new id and reuses nothing, so stale results are
+  never silently reused. `mira report <run_id>` re-renders a saved run's reports
+  from its stored cases without spawning the study or re-executing anything.
 
 ## Crate layout
 

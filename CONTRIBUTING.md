@@ -25,7 +25,7 @@ pulls the everruns runtime and is slow on first build.
   update `docs/protocol.md`; design changes update `specs/`. Doc conventions
   (structure, the SVG-diagram rule) live in [`specs/docs.md`](specs/docs.md).
 - **Conventional commits.** e.g. `feat(scorer): add cost_within`,
-  `fix(cli): correct checkpoint key`.
+  `fix(cli): correct case key encoding`.
 
 ## Pull requests
 

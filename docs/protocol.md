@@ -22,10 +22,10 @@ machine-readable definition, see the generated **JSON Schema** under
 └────────────┘                                         └────────────────┘
 ```
 
-- The **host** owns selection, the target matrix, aggregation, checkpoints, and
+- The **host** owns selection, the target matrix, aggregation, saved runs, and
   rendering. It plans the whole run from `list` before executing anything.
 - The **study** owns subjects and scoring. It answers requests and knows
-  nothing about matrices, checkpoints, or reporting.
+  nothing about matrices, saved runs, or reporting.
 - **Provider API keys live only in the study's environment** and never cross
   the wire. The host addresses targets by *label*; a case whose target is
   unavailable is reported and skipped.
@@ -559,7 +559,7 @@ host                                   study
  │◀───────────── { samples, next_cursor }│
  │                                       │
  │  (host plans grid: selection×matrix,  │
- │   subtracts checkpointed cases)       │
+ │   subtracts cases already saved)      │
  │                                       │
  │ run {greet,hi,sim} ─────────────────▶ │   (many in flight at once)
  │ run {…case 2…} ─────────────────────▶ │
@@ -581,7 +581,8 @@ per-provider cap, and **adaptive** per-provider backoff: a case whose response
 re-queued after an exponential backoff while that provider's concurrency is
 halved, recovering as cases succeed. Models are bucketed by their `list`
 `provider`. Because the host owns the plan, **resume** falls out for free:
-completed cases are persisted to a checkpoint and subtracted on the next
+each completed case is saved under the run folder (`cases/<key>/result.json`),
+and `--resume <run_id>` subtracts those already-saved cases on the next
 invocation.
 
 A host can abort a single in-flight run with [`cancel`](#cancel) — addressing it

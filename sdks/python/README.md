@@ -5,7 +5,7 @@ Author a Mira eval **study** in Python and run it with the `mira` host CLI.
 This is **not** a binding to the Rust core — it's a native, pure-stdlib library
 that speaks the [Mira eval protocol](../../docs/protocol.md) (newline-delimited
 JSON over stdio). The host owns selection, the model matrix, concurrency,
-checkpoints, and reporting; the study owns subjects and scoring. Any language
+saved runs, and reporting; the study owns subjects and scoring. Any language
 that speaks the protocol is a first-class study — this SDK just makes the Python
 side ergonomic.
 

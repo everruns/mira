@@ -98,7 +98,9 @@ mira --bin coding run --axis effort=low                  # restrict any declared
 mira --bin coding run --preset smoke                     # saved selection from mira.toml
 mira --bin coding run --format junit --out results.xml   # CI artifact
 mira --bin coding run --format html  --out report.html   # transcript viewer
-mira --bin coding run --checkpoint ck.json               # resumable
+mira --bin coding run                                    # saves a run folder by default
+mira --bin coding run --resume <run_id>                  # resume; run only the missing cases
+mira report <run_id>                                     # re-render a saved run's reports
 mira --cmd "python3 study.py" run      # a study written in another language
 ```
 
@@ -130,7 +132,7 @@ Recipes for all three (+ in-process `Runner` tests):
 ## Cross-language studies (SDKs)
 
 Any language that speaks the protocol is a first-class study: the host owns
-selection, the model matrix, concurrency, checkpoints, and reporting; the study
+selection, the model matrix, concurrency, saved runs, and reporting; the study
 owns subjects and scoring. The SDKs are native (not FFI bindings) and generated
 from the canonical schema, so they never drift from the wire format.
 

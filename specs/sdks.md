@@ -12,7 +12,7 @@ this or proposes a change here. Related: [`architecture.md`](architecture.md)
 
 Mira's architecture splits the **study** (defines evals, owns subjects and
 scoring, holds provider keys) from the **host** (the `mira` CLI: selection,
-matrix, concurrency, checkpoints, reporting), talking newline-delimited JSON over
+matrix, concurrency, saved runs, reporting), talking newline-delimited JSON over
 stdio. "Implementing a study in another language" already works at the raw
 protocol level — but hand-rolling the stdio loop and mirroring the wire structs
 by hand (as the original `greet-python` did) is tedious and drifts from the Rust
@@ -35,7 +35,7 @@ Rationale:
   subject/scorer helpers) + a stdio `serve()` loop is a few hundred lines of
   idiomatic code per language — cheaper to build and maintain than an FFI bridge.
 - **The heavy parts stay Rust and are reached over the wire.** Selection, the
-  matrix cross-product, adaptive per-provider throttling, checkpoints/resume, and
+  matrix cross-product, adaptive per-provider throttling, saved runs / resume, and
   HTML/JUnit/MD reporting live host-side; an SDK author gets all of it for free
   via the CLI, none of it crossing a binding.
 - **Bindings fight the trait model and distribution.** The core abstractions are

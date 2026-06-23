@@ -147,7 +147,7 @@ let eval = Eval::new("reasoning")
 ```
 
 This expands to `samples × targets × effort` cases, each with a stable key like
-`reasoning/puzzle@sim[effort=high]` that selection, checkpoints, and reports use.
+`reasoning/puzzle@sim[effort=high]` that selection, saved runs, and reports use.
 
 ## Interactive (multi-turn) evals
 
