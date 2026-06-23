@@ -42,12 +42,16 @@ if __name__ == "__main__":
 Drive it with the host:
 
 ```bash
-mira --cmd "python3 study.py" list
-mira --cmd "python3 study.py" run
+mira --python3 study.py list
+mira --python3 study.py run
 # run-now, score-later (split execute/score path):
-mira --cmd "python3 study.py" run --execute-only --artifacts art/
-mira --cmd "python3 study.py" score --artifacts art/
+mira --python3 study.py run --execute-only --artifacts art/
+mira --python3 study.py score --artifacts art/
 ```
+
+`--python3` is a convenience launcher; `--python` and `--uv` (`uv run …`) are
+the equivalents for those interpreters, and `--cmd "python3 study.py"` still
+works for an arbitrary command line.
 
 A complete, runnable example lives in
 [`examples/greet-python`](../../examples/greet-python).

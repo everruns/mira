@@ -81,7 +81,7 @@ run-examples: build-ts-sdk
     cargo run -q -p mira-cli -- --bin llmsim run
     cargo run -q -p mira-cli -- --bin multimodal run
     cargo run -q -p mira-cli -- --bin interactive run
-    cargo run -q -p mira-cli -- --cmd "python3 examples/greet-python/study.py" run
+    cargo run -q -p mira-cli -- --python3 examples/greet-python/study.py run
     cargo run -q -p mira-cli -- --cmd "node examples/greet-typescript/study.mjs" run
 
 # === Release ===
