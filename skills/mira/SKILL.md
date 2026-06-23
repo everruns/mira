@@ -28,51 +28,51 @@ Eval = Dataset(Sample…) + Subject + [Scorer…]  ×  model matrix
 The framework is a library (`mira-eval`, imported as `mira`); the runner is a
 binary (`mira-cli`, installed as `mira`).
 
+**CLI (`mira` host)** — install the prebuilt binary; don't build from source:
+
 ```bash
-cargo add mira-eval                 # the eval framework, used as `mira::…`
-brew install everruns/tap/mira      # the `mira` host CLI (recommended)
-cargo install mira-cli --locked     # …or build the CLI from source
+brew install everruns/tap/mira      # prebuilt binary (recommended)
 ```
 
-The CLI works on macOS (arm64/x86_64) and Linux (x86_64). If Homebrew enforces
-tap trust checks, run `brew trust --tap everruns/tap` once first. For the
-everruns runtime subject, add the integration crate: `cargo add mira-everruns`.
+Prebuilt binaries for macOS (arm64/x86_64) and Linux (x86_64) are also attached
+to each GitHub Release: <https://github.com/everruns/mira/releases>. If Homebrew
+enforces tap trust checks, run `brew trust --tap everruns/tap` once first.
+Building from source (`cargo install mira-cli --locked`) is the fallback only.
+
+**Framework (Rust studies)** — add the library to your crate:
+
+```bash
+cargo add mira-eval                 # the eval framework, used as `mira::…`
+cargo add mira-everruns             # + everruns runtime subject (optional)
+```
+
+Cross-language studies need no Rust framework at all — see [SDKs](#cross-language-studies-sdks).
 
 ## Authoring an eval study
 
-A study is a program that defines evals and calls `mira::Study::registered().serve()`.
-Register factories with `#[eval]` (or `register_eval!`).
+A study is a program that defines evals and calls
+`mira::Study::registered().serve()`; register factories with `#[eval]`. It's just
+a `[[bin]]`, resolved with `--bin NAME`.
 
 ```rust
-use mira::scorer::{file_contains, latency_within, succeeded, tool_called, tokens_within};
+use mira::scorer::{file_contains, succeeded};
 use mira::subject::subject_fn;
-use mira::{eval, Eval, Target, Sample, Transcript};
+use mira::{eval, Eval, Sample, Target, Transcript};
 
 #[eval]
 fn coding() -> Eval {
     Eval::new("coding")
         .describe("Edits a file to satisfy an instruction")
-        .sample(
-            Sample::new("add-fn", "Add a greet function to lib.rs")
-                .file("lib.rs", "// here\n")
-                .tag("smoke"),
-        )
+        .sample(Sample::new("add-fn", "Add a greet function to lib.rs").file("lib.rs", "// here\n"))
         .subject(subject_fn(|sample, cx| async move {
-            // Call the real agent/model (cx.target.provider / cx.target.model).
-            // Report metrics the budget scorers grade: usage, timing, tools.
+            // Call the real agent/model (cx.target.provider / cx.target.model);
+            // report the metrics the budget scorers grade.
             let mut t = Transcript::response("done");
-            t.tool_calls = vec!["edit_file".into()];
-            t.tool_calls_count = 1;
-            t.usage.output_tokens = 80;
-            t.timing.duration_ms = 400;
             t.files.insert("lib.rs".into(), "fn greet() {}\n".into());
             t
         }))
         .scorer(succeeded())
-        .scorer(tool_called("edit_file"))
         .scorer(file_contains("lib.rs", "fn greet"))
-        .scorer(tokens_within(4_000))
-        .scorer(latency_within(5_000))
         .targets([Target::sim(), Target::anthropic("claude-opus-4-8")])
         .build()
 }
@@ -81,9 +81,10 @@ fn coding() -> Eval {
 async fn main() -> std::io::Result<()> { mira::Study::registered().serve().await }
 ```
 
-A study is just a `[[bin]]` that calls `Study::registered().serve()`; `--bin NAME`
-resolves it. A non-Rust study (any language that speaks the protocol) runs via
-`--cmd "..."` — see `examples/greet-python/`.
+Full example (tools + budget scorers + main), the polyglot `CliSubject`, the
+everruns runtime subject, in-process `Runner` tests, and custom scorers:
+[`references/cookbook.md`](references/cookbook.md). A non-Rust study runs via
+`--cmd "..."` — see [`examples/greet-python/`](https://github.com/everruns/mira/tree/main/examples/greet-python).
 
 ## Running
 
@@ -101,57 +102,82 @@ mira --bin coding run --checkpoint ck.json               # resumable
 mira --cmd "python3 study.py" run      # a study written in another language
 ```
 
-Exit code is non-zero if any cell failed — drops straight into CI.
+Exit code is non-zero if any cell failed — drops straight into CI. Run
+`mira help --full` for an overview, every flag, examples, and links.
 
-## Scorers (cheat sheet)
+## Scorers
 
-- **Text/output**: `succeeded` · `non_empty` · `contains` · `not_contains` ·
-  `equals` · `regex` · `matches_expected` · `json_valid` · `json_field_equals`
-- **Tools**: `tool_called` · `tool_not_called` · `tool_calls_within` ·
-  `tools_used_exactly` · `tool_called_before`
-- **Budgets**: `tokens_within` · `output_tokens_within` · `cost_within` ·
-  `turns_within` · `latency_within` · `ttft_within`
-- **Files**: `file_exists` · `file_contains`
-- **Combinators / custom**: `all_of` · `any_of` · `not` · `scorer(name, closure)`
-  · `model_graded(rubric, judge)`
+A cell passes only if every `.scorer(...)` passes. Families: **text/output**
+(`succeeded`, `contains`, `regex`, `json_field_equals`…), **tools**
+(`tool_called`, `tools_used_exactly`, `tool_called_before`…), **budgets**
+(`tokens_within`, `cost_within`, `latency_within`…), **files** (`file_exists`,
+`file_contains`), and **combinators / custom** (`all_of`, `any_of`, `not`,
+`scorer(name, closure)`, `model_graded(rubric, judge)`).
 
-Closure escape hatch:
+Full catalog with semantics: [`references/scorers.md`](references/scorers.md).
 
-```rust
-use mira::{Score, scorer::scorer};
-let s = scorer("nonempty", |_, t| {
-    if t.final_response.trim().is_empty() { Score::fail("nonempty", "empty") }
-    else { Score::pass("nonempty", "ok") }
-});
+## Subjects
+
+What's under test — pick one per eval:
+
+- `subject_fn(...)` — in-process Rust (see Authoring above).
+- `CliSubject` — evaluate **any external binary** (the polyglot path).
+- `mira_everruns::RuntimeSubject` — a real everruns runtime session.
+
+Recipes for all three (+ in-process `Runner` tests):
+[`references/cookbook.md`](references/cookbook.md).
+
+## Cross-language studies (SDKs)
+
+Any language that speaks the protocol is a first-class study: the host owns
+selection, the model matrix, concurrency, checkpoints, and reporting; the study
+owns subjects and scoring. The SDKs are native (not FFI bindings) and generated
+from the canonical schema, so they never drift from the wire format.
+
+- Python SDK — <https://github.com/everruns/mira/blob/main/sdks/python/README.md>
+- Wire protocol (write your own, any language) — <https://github.com/everruns/mira/blob/main/docs/protocol.md>
+- Worked example — <https://github.com/everruns/mira/tree/main/examples/greet-python>
+- Run it: `mira --cmd "python3 study.py" run`
+
+## Examples (runnable, offline)
+
+All run against the `sim` model with no API keys, so they stay green in CI and
+cost nothing. Browse: <https://github.com/everruns/mira/tree/main/examples>
+
+- `greet` — smallest eval: `#[eval]`, a closure subject, text + LLM-judge scorers — <https://github.com/everruns/mira/tree/main/examples/greet>
+- `coding` — seeded files, a model matrix, structural + file scorers — <https://github.com/everruns/mira/tree/main/examples/coding>
+- `cli_subject` — the polyglot path: driving an external program — <https://github.com/everruns/mira/tree/main/examples/cli_subject>
+- `matrix` — a multi-axis matrix (targets × a custom `effort` axis) — <https://github.com/everruns/mira/tree/main/examples/matrix>
+- `greet-python` — a whole study in Python via the SDK — <https://github.com/everruns/mira/tree/main/examples/greet-python>
+
+```bash
+cargo run -p mira-cli -- --bin greet run                                  # a Rust example
+cargo run -p mira-cli -- --cmd "python3 examples/greet-python/study.py" run  # polyglot
 ```
 
-## Polyglot subject (evaluate any binary)
+## Learn more (read on demand)
 
-```rust
-use mira::subject::{CliSubject, TranscriptSource};
-let s = CliSubject::new("my-agent")
-    .arg("--prompt").arg("{prompt}")             // or .stdin_prompt()
-    .transcript(TranscriptSource::EventsFile("events.jsonl".into()))  // JSONL Events
-    .capture_files();                            // read workdir into Transcript.files
-```
+Progressive disclosure: this skill is the overview. Bundled references ship with
+the skill (offline) — read them first:
 
-`{prompt}` and `{workdir}` expand per run; seeded `sample.files` are written into
-a fresh temp workdir; `MIRA_TARGET` / `MIRA_PROVIDER` env vars are set.
+- [`references/cookbook.md`](references/cookbook.md) — recipes for every subject
+  kind, in-process tests, and custom scorers.
+- [`references/scorers.md`](references/scorers.md) — the full scorer catalog.
 
-## In-process testing
+Canonical prose lives in the repo docs — open one only when the task needs that
+depth:
 
-```rust
-use mira::Runner;
-#[tokio::test]
-async fn passes() {
-    let report = Runner::new().add(coding()).run().await;
-    assert!(report.all_passed());
-}
-```
+| Doc | When to read |
+|-----|--------------|
+| [getting-started](https://github.com/everruns/mira/blob/main/docs/getting-started.md) | First study, end-to-end. |
+| [authoring](https://github.com/everruns/mira/blob/main/docs/authoring.md) | Evals, samples, targets, axes, presets. |
+| [scorers](https://github.com/everruns/mira/blob/main/docs/scorers.md) | Every built-in scorer + LLM-as-judge. |
+| [subjects](https://github.com/everruns/mira/blob/main/docs/subjects.md) | `subject_fn`, `CliSubject`, runtime. |
+| [metrics](https://github.com/everruns/mira/blob/main/docs/metrics.md) | Usage/timing/tools the budget scorers grade. |
+| [extensibility](https://github.com/everruns/mira/blob/main/docs/extensibility.md) | Custom scorers/subjects. |
+| [how-it-works](https://github.com/everruns/mira/blob/main/docs/how-it-works.md) | Core model + vocabulary. |
+| [protocol](https://github.com/everruns/mira/blob/main/docs/protocol.md) | Wire format for non-Rust studies. |
+| [specs/architecture](https://github.com/everruns/mira/blob/main/specs/architecture.md) | Design of record (the *why*). |
 
-## References
-
-- `docs/getting-started.md`, `docs/authoring.md`, `docs/scorers.md`,
-  `docs/subjects.md`
-- `docs/protocol.md` — the wire protocol (for non-Rust servers)
-- `specs/architecture.md` — the design of record
+Or run `mira help --full` for the self-orienting CLI guide (overview, every flag,
+examples, links).
