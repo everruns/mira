@@ -40,17 +40,19 @@ jobs:
           EVENT_NAME: ${{ github.event_name }}
           RELEASE_TAG: ${{ github.event.release.tag_name }}
         run: |
-          if [ "$EVENT_NAME" = "release" ]; then
-            TAG_VERSION="$RELEASE_TAG"
-          else
-            if [[ ! "$GITHUB_REF" =~ ^refs/tags/v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-              echo "Error: manual publish must run from a stable release tag"
-              exit 1
-            fi
-            TAG_VERSION="${GITHUB_REF#refs/tags/}"
-          fi
-          TAG_VERSION="${TAG_VERSION#v}"
           CARGO_VERSION=$(grep '^version' Cargo.toml | head -1 | sed 's/.*"\(.*\)".*/\1/')
+          if [ "$EVENT_NAME" = "release" ]; then
+            TAG_VERSION="${RELEASE_TAG#v}"
+          elif [[ "$GITHUB_REF" =~ ^refs/tags/v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            TAG_VERSION="${GITHUB_REF#refs/tags/v}"
+          elif [ "$GITHUB_REF" = "refs/heads/main" ]; then
+            # Manual re-dispatch from main (e.g. to finish a partially-published
+            # release). Publish steps are idempotent, so this only fills gaps.
+            TAG_VERSION="$CARGO_VERSION"
+          else
+            echo "Error: manual publish must run from main or a stable release tag"
+            exit 1
+          fi
           if [ "$TAG_VERSION" != "$CARGO_VERSION" ]; then
             echo "Error: tag ($TAG_VERSION) != Cargo.toml ($CARGO_VERSION)"
             exit 1
@@ -60,7 +62,7 @@ jobs:
       # mira-eval re-exports mira-macros, so the macro crate must be on crates.io
       # first. Wait for the index to update before publishing the dependent.
       - name: Publish mira-macros to crates.io
-        run: cargo publish -p mira-macros
+        run: scripts/cargo_publish_if_needed.sh mira-macros
         env:
           CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
 
@@ -68,7 +70,7 @@ jobs:
         run: sleep 30
 
       - name: Publish mira-eval to crates.io
-        run: cargo publish -p mira-eval
+        run: scripts/cargo_publish_if_needed.sh mira-eval
         env:
           CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
 
@@ -90,17 +92,17 @@ jobs:
         run: sleep 30
 
       - name: Publish mira-cli to crates.io
-        run: cargo publish -p mira-cli
+        run: scripts/cargo_publish_if_needed.sh mira-cli
         env:
           CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
 
       - name: Publish mira-everruns to crates.io
-        run: cargo publish -p mira-everruns
+        run: scripts/cargo_publish_if_needed.sh mira-everruns
         env:
           CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
 
       - name: Publish mira-judge to crates.io
-        run: cargo publish -p mira-judge
+        run: scripts/cargo_publish_if_needed.sh mira-judge
         env:
           CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
 
@@ -160,3 +162,6 @@ jobs:
         uses: pypa/gh-action-pypi-publish@cef221092ed1bacb1cc03d23a2d87d1d172e277b # v1.14.0
         with:
           packages-dir: sdks/python/dist/
+          # Idempotent: a re-dispatch to finish a partial release won't fail on
+          # the version already being on PyPI.
+          skip-existing: true
