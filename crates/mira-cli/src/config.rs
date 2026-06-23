@@ -38,6 +38,13 @@ pub struct Config {
     /// Named selection presets (`[presets.NAME]`), applied with `--preset NAME`.
     #[serde(default)]
     pub presets: BTreeMap<String, Preset>,
+    /// Named launchers (`[launchers.NAME]`), selected with `--launcher NAME`.
+    #[serde(default)]
+    pub launchers: BTreeMap<String, LauncherConfig>,
+    /// Launcher used when neither a launch flag nor `--launcher` picks one.
+    /// Must name a key in `[launchers]`.
+    #[serde(default)]
+    pub default_launcher: Option<String>,
     /// Directory containing the `mira.toml` this was loaded from, used to
     /// resolve relative paths. `None` for a default/parsed-in-memory config, in
     /// which case relative paths are returned verbatim (cwd-relative).
@@ -78,6 +85,54 @@ pub struct Preset {
     pub axes: BTreeMap<String, Vec<String>>,
 }
 
+/// A named **launcher** (`[launchers.NAME]` in `mira.toml`): a saved way to start
+/// the study process, so a repo's invocation lives in config instead of being
+/// retyped on every `mira` call. Selected with `--launcher NAME` (or via
+/// `default_launcher` when no flag picks one); explicit launch flags override the
+/// matching fields, mirroring how `--preset` composes with selection flags.
+///
+/// The launch mode (`cmd` | `bin` | `example` | `uv` | `python` | `python3`) is
+/// mutually exclusive; `package` and `manifest_path` modify a cargo bin/example
+/// launch.
+///
+/// ```toml
+/// [launchers.greet]
+/// bin = "greet"            # cargo run -q --bin greet
+/// package = "myapp"        # …from package `myapp` (optional)
+///
+/// [launchers.py]
+/// python3 = "study.py"     # python3 study.py (a polyglot study)
+///
+/// default_launcher = "greet"
+/// ```
+#[derive(Debug, Default, Clone, Deserialize)]
+pub struct LauncherConfig {
+    /// `cargo run -q --bin <NAME>`.
+    #[serde(default)]
+    pub bin: Option<String>,
+    /// `cargo run -q --example <NAME>`.
+    #[serde(default)]
+    pub example: Option<String>,
+    /// An arbitrary command (split on whitespace).
+    #[serde(default)]
+    pub cmd: Option<String>,
+    /// `uv run <SCRIPT...>` (split on whitespace).
+    #[serde(default)]
+    pub uv: Option<String>,
+    /// `python <SCRIPT...>` (split on whitespace).
+    #[serde(default)]
+    pub python: Option<String>,
+    /// `python3 <SCRIPT...>` (split on whitespace).
+    #[serde(default)]
+    pub python3: Option<String>,
+    /// Cargo package to run the bin/example from (`-p`).
+    #[serde(default)]
+    pub package: Option<String>,
+    /// Passed through to cargo (`--manifest-path`).
+    #[serde(default)]
+    pub manifest_path: Option<String>,
+}
+
 impl Config {
     /// Look up a named preset, erroring (with the available names) when absent so
     /// a typo'd `--preset` fails loudly rather than silently running everything.
@@ -91,6 +146,22 @@ impl Config {
                 names.join(", ")
             };
             format!("no such preset {name:?} (known: {known})")
+        })
+    }
+
+    /// Look up a named launcher, erroring (with the available names) when absent so
+    /// a typo'd `--launcher`/`default_launcher` fails loudly rather than silently
+    /// falling back to the default study.
+    pub fn launcher(&self, name: &str) -> Result<LauncherConfig, String> {
+        self.launchers.get(name).cloned().ok_or_else(|| {
+            let mut names: Vec<&str> = self.launchers.keys().map(String::as_str).collect();
+            names.sort_unstable();
+            let known = if names.is_empty() {
+                "none defined in mira.toml".to_string()
+            } else {
+                names.join(", ")
+            };
+            format!("no such launcher {name:?} (known: {known})")
         })
     }
 }
@@ -322,6 +393,37 @@ mod tests {
             resolve_results_dir(&Some("cli-dir".into()), &cfg),
             Some("cli-dir".to_string())
         );
+    }
+
+    #[test]
+    fn launchers_parse_and_lookup() {
+        let cfg = Config::parse(
+            "default_launcher = \"greet\"\n\n\
+             [launchers.greet]\nbin = \"greet\"\npackage = \"myapp\"\n\n\
+             [launchers.py]\ncmd = \"python study.py\"\n",
+        )
+        .unwrap();
+        assert_eq!(cfg.default_launcher.as_deref(), Some("greet"));
+
+        let greet = cfg.launcher("greet").unwrap();
+        assert_eq!(greet.bin.as_deref(), Some("greet"));
+        assert_eq!(greet.package.as_deref(), Some("myapp"));
+        assert!(greet.cmd.is_none());
+
+        let py = cfg.launcher("py").unwrap();
+        assert_eq!(py.cmd.as_deref(), Some("python study.py"));
+
+        // A typo names the known launchers so it fails loudly.
+        let err = cfg.launcher("nope").unwrap_err();
+        assert!(err.contains("greet") && err.contains("py"), "{err}");
+    }
+
+    #[test]
+    fn no_launchers_is_default() {
+        let cfg = Config::default();
+        assert!(cfg.launchers.is_empty());
+        assert!(cfg.default_launcher.is_none());
+        assert!(cfg.launcher("x").unwrap_err().contains("none defined"));
     }
 
     #[test]

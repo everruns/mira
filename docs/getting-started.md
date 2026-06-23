@@ -99,6 +99,25 @@ mira --example my_evals run --checkpoint ck.json   # resumable; re-run skips don
 mira --example my_evals run --save                 # archive this run under ./results/<run_id>/
 ```
 
+Tired of retyping `--example my_evals`? Save it as a **named launcher** in
+`mira.toml` and select it with `--launcher`, or set a `default_launcher` so a
+bare `mira run` just works:
+
+```toml
+[launchers.evals]
+example = "my_evals"   # or bin = "…" / cmd = "python study.py"
+
+default_launcher = "evals"
+```
+
+```bash
+mira run               # uses default_launcher
+mira --launcher evals run
+```
+
+Explicit launch flags still override the named launcher (handy for a one-off
+`--bin other`).
+
 The exit code is non-zero if any cell failed, so `mira ... run` drops straight
 into CI. The HTML report is a single dependency-free file (summary, matrix, and
 per-case scores/usage/timing) you can open straight from a CI artifact.

@@ -18,6 +18,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   tests. Worked example: `examples/greet-typescript`. Publishes to npm as
   `mira-eval` via OIDC trusted publishing (`publish-typescript` in `publish.yml`),
   mirroring the Python PyPI flow.
+- Named launchers in `mira.toml`: `[launchers.NAME]` saves a study invocation
+  (`bin`/`example`/`cmd`/`uv`/`python`/`python3` + `package`/`manifest_path`),
+  selected with `--launcher NAME`. `default_launcher` makes a bare `mira run`
+  work; explicit launch flags override the named launcher, mirroring `--preset`.
 - `cargo binstall mira-cli` support: `[package.metadata.binstall]` points binstall
   at the prebuilt release tarballs, so the `mira` binary installs without a compile.
 - **Polyglot launcher flags** — `mira --uv` / `--python` / `--python3 SCRIPT`

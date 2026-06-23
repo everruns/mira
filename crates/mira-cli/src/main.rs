@@ -23,7 +23,9 @@
 //! resolves it across the workspace. Point it at any study: `--bin NAME`,
 //! `--example NAME`, an arbitrary `--cmd "..."`, a non-Rust study via
 //! `--uv` / `--python` / `--python3 SCRIPT`, or another package with
-//! `--package` / `--manifest-path`.
+//! `--package` / `--manifest-path`. Save a repo's invocation as
+//! `[launchers.NAME]` in `mira.toml` and select it with `--launcher NAME` (or a
+//! `default_launcher`) instead of retyping the flags.
 
 use std::collections::BTreeMap;
 use std::io::IsTerminal;
@@ -114,6 +116,12 @@ struct Cli {
 /// [`mira::Target`] — the model/harness under evaluation).
 #[derive(Args)]
 struct Launcher {
+    /// Use a named launcher from `mira.toml` (`[launchers.NAME]`): a saved
+    /// bin/example/cmd (+ package/manifest). The explicit launch flags below
+    /// override its fields; `default_launcher` is used when neither a flag nor
+    /// `--launcher` selects one.
+    #[arg(long, global = true, value_name = "NAME")]
+    launcher: Option<String>,
     /// Run `cargo run -q --bin <NAME>` (defaults to `greet`).
     #[arg(long, global = true)]
     bin: Option<String>,
@@ -287,16 +295,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // hidden; `run` gives it a length and a draw target once the plan is known.
     let progress = Arc::new(ProgressBar::hidden());
     let progress_evt = progress.clone();
-    let host = Host::spawn(build_command(&cli.launcher))
-        .await?
-        .on_event(move |n| {
-            // Per-cell `event` notifications correlate to their `run` by
-            // `request_id`; here only study `log`s are surfaced, so they no
-            // longer spam stderr.
-            if let Some(log) = n.as_log() {
-                progress_evt.suspend(|| eprintln!("  study: {}", log.message));
-            }
-        });
+    let command =
+        build_launch_command(&cli.launcher).map_err(Box::<dyn std::error::Error>::from)?;
+    let host = Host::spawn(command).await?.on_event(move |n| {
+        // Per-cell `event` notifications correlate to their `run` by
+        // `request_id`; here only study `log`s are surfaced, so they no
+        // longer spam stderr.
+        if let Some(log) = n.as_log() {
+            progress_evt.suspend(|| eprintln!("  study: {}", log.message));
+        }
+    });
 
     let info = host.initialize("mira-cli").await?;
     eprintln!(
@@ -341,7 +349,9 @@ OVERVIEW
 
   Point it at any study: `--bin NAME`, `--example NAME`, an arbitrary
   `--cmd \"...\"`, a non-Rust study via `--uv` / `--python` / `--python3 SCRIPT`,
-  or `--package` / `--manifest-path`.";
+  or `--package` / `--manifest-path`. Save a repo's invocation as
+  `[launchers.NAME]` in mira.toml and select it with `--launcher NAME` (or a
+  `default_launcher`).";
 
     let examples = "\
 EXAMPLES
@@ -355,7 +365,9 @@ EXAMPLES
   mira --bin greet run --save                            # archive run under ./results/<run_id>/
   mira --bin greet run --execute-only --artifacts art/   # capture transcripts
   mira --bin greet score --artifacts art/                # score (or re-score) them
-  mira --python3 study.py run           # drive a non-Rust (polyglot) study";
+  mira --python3 study.py run           # drive a non-Rust (polyglot) study
+  mira --launcher greet run             # use [launchers.greet] from mira.toml
+  mira run                              # use mira.toml's default_launcher";
 
     // Progressive disclosure of the docs: name + one-line scope per guide, so an
     // agent knows which to open before fetching the tree.
@@ -393,8 +405,67 @@ LINKS
     Ok(())
 }
 
-/// Build the study launch command from the target flags.
-fn build_command(launcher: &Launcher) -> Command {
+/// Resolve the effective launcher from the CLI flags overlaid on `mira.toml`,
+/// then build the study launch command. Loads `mira.toml` only when it could
+/// matter — `--launcher` is given, or no explicit launch mode is set (so a
+/// `default_launcher` might apply) — so a plain `mira --bin greet run` does no
+/// config I/O.
+fn build_launch_command(cli: &Launcher) -> Result<Command, String> {
+    let needs_config = cli.launcher.is_some() || !cli_sets_mode(cli);
+    let cfg = if needs_config {
+        config::Config::load()
+    } else {
+        config::Config::default()
+    };
+    Ok(build_command(&resolve_launcher(cli, &cfg)?))
+}
+
+/// True when the CLI picked an explicit launch **mode** of its own — any of the
+/// mutually-exclusive `cmd`/`bin`/`example`/`uv`/`python`/`python3` flags.
+fn cli_sets_mode(cli: &Launcher) -> bool {
+    cli.cmd.is_some()
+        || cli.bin.is_some()
+        || cli.example.is_some()
+        || cli.uv.is_some()
+        || cli.python.is_some()
+        || cli.python3.is_some()
+}
+
+/// Merge a named launcher (`--launcher`, else `default_launcher`) with the
+/// explicit launch flags. Flags win, mirroring `--preset`: an explicit launch
+/// **mode** (`--cmd`/`--bin`/`--example`/`--uv`/`--python`/`--python3`) replaces
+/// the named launcher's mode entirely (the modes are mutually exclusive), and
+/// `--package`/`--manifest-path` overlay on top.
+fn resolve_launcher(
+    cli: &Launcher,
+    cfg: &config::Config,
+) -> Result<config::LauncherConfig, String> {
+    // Base: an explicit `--launcher` always loads; otherwise the configured
+    // default only applies when the CLI didn't pick a launch mode of its own.
+    let mut base = match &cli.launcher {
+        Some(name) => cfg.launcher(name)?,
+        None if !cli_sets_mode(cli) => match &cfg.default_launcher {
+            Some(name) => cfg.launcher(name)?,
+            None => config::LauncherConfig::default(),
+        },
+        None => config::LauncherConfig::default(),
+    };
+
+    if cli_sets_mode(cli) {
+        base.cmd = cli.cmd.clone();
+        base.bin = cli.bin.clone();
+        base.example = cli.example.clone();
+        base.uv = cli.uv.clone();
+        base.python = cli.python.clone();
+        base.python3 = cli.python3.clone();
+    }
+    base.package = cli.package.clone().or(base.package);
+    base.manifest_path = cli.manifest_path.clone().or(base.manifest_path);
+    Ok(base)
+}
+
+/// Build the study launch command from a resolved launcher.
+fn build_command(launcher: &config::LauncherConfig) -> Command {
     if let Some(raw) = &launcher.cmd {
         let mut parts = raw.split_whitespace();
         let program = parts.next().unwrap_or("false");
@@ -1220,8 +1291,10 @@ fn fmt_meta(meta: &mira::Metadata) -> String {
 mod tests {
     use super::*;
 
-    fn launcher() -> Launcher {
+    /// An all-empty CLI launcher (no flags), the base for these cases.
+    fn empty_launcher() -> Launcher {
         Launcher {
+            launcher: None,
             bin: None,
             example: None,
             cmd: None,
@@ -1231,6 +1304,10 @@ mod tests {
             package: None,
             manifest_path: None,
         }
+    }
+
+    fn cfg(text: &str) -> config::Config {
+        config::Config::parse(text).unwrap()
     }
 
     fn parts(cmd: &Command) -> (String, Vec<String>) {
@@ -1258,8 +1335,10 @@ mod tests {
 
     #[test]
     fn uv_launcher_prepends_run() {
-        let mut l = launcher();
-        l.uv = Some("study.py".into());
+        let l = config::LauncherConfig {
+            uv: Some("study.py".into()),
+            ..Default::default()
+        };
         let (program, args) = parts(&build_command(&l));
         assert_eq!(program, "uv");
         assert_eq!(args, ["run", "study.py"]);
@@ -1267,14 +1346,18 @@ mod tests {
 
     #[test]
     fn python_launchers_take_script_directly() {
-        let mut l = launcher();
-        l.python = Some("study.py --flag".into());
+        let l = config::LauncherConfig {
+            python: Some("study.py --flag".into()),
+            ..Default::default()
+        };
         let (program, args) = parts(&build_command(&l));
         assert_eq!(program, "python");
         assert_eq!(args, ["study.py", "--flag"]);
 
-        let mut l = launcher();
-        l.python3 = Some("examples/greet-python/study.py".into());
+        let l = config::LauncherConfig {
+            python3: Some("examples/greet-python/study.py".into()),
+            ..Default::default()
+        };
         let (program, args) = parts(&build_command(&l));
         assert_eq!(program, "python3");
         assert_eq!(args, ["examples/greet-python/study.py"]);
@@ -1282,9 +1365,11 @@ mod tests {
 
     #[test]
     fn cmd_wins_over_python_launchers() {
-        let mut l = launcher();
-        l.cmd = Some("echo hi".into());
-        l.python3 = Some("study.py".into());
+        let l = config::LauncherConfig {
+            cmd: Some("echo hi".into()),
+            python3: Some("study.py".into()),
+            ..Default::default()
+        };
         let (program, args) = parts(&build_command(&l));
         assert_eq!(program, "echo");
         assert_eq!(args, ["hi"]);
@@ -1292,8 +1377,107 @@ mod tests {
 
     #[test]
     fn defaults_to_greet_bin() {
-        let (program, args) = parts(&build_command(&launcher()));
+        let (program, args) = parts(&build_command(&config::LauncherConfig::default()));
         assert_eq!(program, "cargo");
         assert_eq!(args, ["run", "-q", "--bin", "greet"]);
+    }
+
+    /// A polyglot mode in a named launcher resolves and overrides the default.
+    #[test]
+    fn named_launcher_supports_polyglot_modes() {
+        let cfg = cfg("default_launcher = \"py\"\n[launchers.py]\npython3 = \"study.py\"\n");
+        let l = resolve_launcher(&empty_launcher(), &cfg).unwrap();
+        assert_eq!(l.python3.as_deref(), Some("study.py"));
+        let (program, args) = parts(&build_command(&l));
+        assert_eq!(program, "python3");
+        assert_eq!(args, ["study.py"]);
+    }
+
+    #[test]
+    fn named_launcher_resolves_from_config() {
+        let cfg = cfg("[launchers.greet]\nbin = \"greet\"\npackage = \"myapp\"\n");
+        let cli = Launcher {
+            launcher: Some("greet".into()),
+            ..empty_launcher()
+        };
+        let l = resolve_launcher(&cli, &cfg).unwrap();
+        assert_eq!(l.bin.as_deref(), Some("greet"));
+        assert_eq!(l.package.as_deref(), Some("myapp"));
+    }
+
+    #[test]
+    fn default_launcher_applies_when_no_flag() {
+        let cfg = cfg("default_launcher = \"py\"\n[launchers.py]\ncmd = \"python s.py\"\n");
+        let l = resolve_launcher(&empty_launcher(), &cfg).unwrap();
+        assert_eq!(l.cmd.as_deref(), Some("python s.py"));
+    }
+
+    #[test]
+    fn explicit_mode_overrides_named_launcher() {
+        // --launcher picks `py` (a cmd launcher), but --bin replaces the mode.
+        let cfg = cfg("[launchers.py]\ncmd = \"python s.py\"\n");
+        let cli = Launcher {
+            launcher: Some("py".into()),
+            bin: Some("other".into()),
+            ..empty_launcher()
+        };
+        let l = resolve_launcher(&cli, &cfg).unwrap();
+        assert_eq!(l.bin.as_deref(), Some("other"));
+        assert!(
+            l.cmd.is_none(),
+            "explicit --bin must drop the named cmd mode"
+        );
+    }
+
+    #[test]
+    fn explicit_mode_suppresses_default_launcher() {
+        // A CLI launch mode means the configured default is ignored entirely.
+        let cfg = cfg("default_launcher = \"py\"\n[launchers.py]\ncmd = \"python s.py\"\n");
+        let cli = Launcher {
+            bin: Some("greet".into()),
+            ..empty_launcher()
+        };
+        let l = resolve_launcher(&cli, &cfg).unwrap();
+        assert_eq!(l.bin.as_deref(), Some("greet"));
+        assert!(l.cmd.is_none());
+    }
+
+    #[test]
+    fn package_overlays_named_launcher() {
+        // --package modifies a named bin launcher without replacing its mode.
+        let cfg = cfg("[launchers.greet]\nbin = \"greet\"\npackage = \"a\"\n");
+        let cli = Launcher {
+            launcher: Some("greet".into()),
+            package: Some("b".into()),
+            ..empty_launcher()
+        };
+        let l = resolve_launcher(&cli, &cfg).unwrap();
+        assert_eq!(l.bin.as_deref(), Some("greet"));
+        assert_eq!(l.package.as_deref(), Some("b"));
+    }
+
+    #[test]
+    fn unknown_launcher_errors() {
+        let cfg = cfg("[launchers.greet]\nbin = \"greet\"\n");
+        let cli = Launcher {
+            launcher: Some("nope".into()),
+            ..empty_launcher()
+        };
+        assert!(resolve_launcher(&cli, &cfg).is_err());
+    }
+
+    #[test]
+    fn bare_cli_with_no_config_defaults_to_greet() {
+        // No flags, no config → the bundled greet bin (preserved behaviour).
+        let l = resolve_launcher(&empty_launcher(), &config::Config::default()).unwrap();
+        assert!(l.bin.is_none() && l.cmd.is_none() && l.example.is_none());
+        // build_command fills in the greet default.
+        let cmd = build_command(&l);
+        let argv: Vec<_> = cmd
+            .as_std()
+            .get_args()
+            .map(|a| a.to_string_lossy().into_owned())
+            .collect();
+        assert_eq!(argv, vec!["run", "-q", "--bin", "greet"]);
     }
 }
