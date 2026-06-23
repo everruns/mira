@@ -1,4 +1,4 @@
-# @everruns/mira-eval — TypeScript SDK
+# mira-eval — TypeScript SDK
 
 Author a Mira eval **study** in TypeScript and run it with the `mira` host CLI.
 
@@ -19,7 +19,7 @@ host is generated from — so it never drifts from the wire format:
 ## Install
 
 ```bash
-npm install @everruns/mira-eval
+npm install mira-eval
 ```
 
 Runtime dependencies: **none**. A study runs anywhere Node ≥ 18 does. (`ajv` and
@@ -28,7 +28,7 @@ Runtime dependencies: **none**. A study runs anywhere Node ≥ 18 does. (`ajv` a
 ## Use
 
 ```ts
-import { Study, sample, target, succeeded, contains, transcript, usage } from "@everruns/mira-eval";
+import { Study, sample, target, succeeded, contains, transcript, usage } from "mira-eval";
 
 const study = new Study("my-evals", { version: "0.1.0" });
 

@@ -26,19 +26,15 @@ new features, PATCH = bug fixes/docs. All workspace crates share one version
 | `mira-everruns` | crates.io | library |
 | `mira-judge` | crates.io | library |
 | `mira-eval` (Python SDK, `sdks/python`) | PyPI | `pip install mira-eval` |
-| `@everruns/mira-eval` (TypeScript SDK, `sdks/typescript`) | npm | `npm install @everruns/mira-eval` |
+| `mira-eval` (TypeScript SDK, `sdks/typescript`) | npm | `npm install mira-eval` |
 
 Publish order matters: `mira-macros` first, then `mira-eval` (re-exports it),
 then `mira-cli`, `mira-everruns`, and `mira-judge` (all depend on `mira-eval`).
 The `mira-examples` crate is `publish = false`. The Python and TypeScript SDKs are
 native libraries (not bindings), so they publish independently of the crate order;
-each shares the workspace version and CI verifies the match.
-
-> **Status:** SDK publishing (PyPI/npm) is deferred — see
-> [`specs/sdks.md`](sdks.md). The TypeScript SDK ships `@everruns/mira-eval` with
-> `prepublishOnly` building `dist/`; wiring its npm publish into `publish.yml`
-> (npm Trusted Publishing, mirroring the Python `publish-python` job) lands with
-> that work.
+each shares the workspace version and CI verifies the match. `mira-eval` is the
+same string across crates.io, PyPI, and npm — by design, all three are "the Mira
+eval library" for their language.
 
 ### Python SDK (PyPI)
 
@@ -49,6 +45,20 @@ environment `release`. The `publish-python` job in `publish.yml` builds the
 sdist + wheel from `sdks/python/` and uploads them on the release tag. Crate name
 `mira-eval` is the same string as the PyPI project — by design, both are "the
 Mira eval library" for their language.
+
+### TypeScript SDK (npm)
+
+The TypeScript SDK publishes to npm as `mira-eval` via **OIDC trusted publishing**
+(no `NODE_AUTH_TOKEN`), mirroring the Python flow. The trusted publisher must be
+registered once on npmjs.com: package `mira-eval`, owner `everruns`, repository
+`mira`, workflow `publish.yml`, environment `release`. The `publish-typescript`
+job in `publish.yml` verifies `sdks/typescript/package.json`'s version matches the
+workspace, builds `dist/` (`npm ci` + the package's `build`), and runs
+`npm publish --provenance` on the release tag. It upgrades to a trusted-publishing-
+capable npm (`npm install -g npm@latest`) and guards on `npm view mira-eval@<v>` so
+a re-dispatch to finish a partial release no-ops on an already-published version
+(the npm dual of PyPI `skip-existing`). Independent of the crates and the other
+SDK, so a hiccup in one never blocks another.
 
 ### Homebrew
 

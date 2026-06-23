@@ -13,7 +13,7 @@
 // to stderr.
 //
 // It imports the in-repo SDK build directly so the example runs in CI without a
-// publish; a real project would `npm install @everruns/mira-eval` and import the
+// publish; a real project would `npm install mira-eval` and import the
 // package name. Build the SDK first: `npm --prefix sdks/typescript ci && npm
 // --prefix sdks/typescript run build`.
 import { Study, sample, target, succeeded, contains, transcript, usage, timing } from "../../sdks/typescript/dist/index.js";

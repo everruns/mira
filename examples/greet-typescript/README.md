@@ -17,7 +17,7 @@ mira --cmd "node examples/greet-typescript/study.mjs" run
 a `Transcript`, then `study.serve()` runs the stdio loop (handling
 `initialize`/`list`/`run`/`execute`/`score`). stdout carries only protocol JSON;
 logs go to stderr. The example imports the in-repo SDK **build** directly so it
-runs in CI without a publish; a real project would `npm install @everruns/mira-eval`
+runs in CI without a publish; a real project would `npm install mira-eval`
 and import the package name. Build the SDK first:
 
 ```bash

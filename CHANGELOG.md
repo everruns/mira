@@ -9,13 +9,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- **Native TypeScript SDK** (`sdks/typescript`, `@everruns/mira-eval`) — author
+- **Native TypeScript SDK** (`sdks/typescript`, `mira-eval`) — author
   eval studies in TypeScript/Node with no Rust dependency: a zero-runtime-dep
   library over the protocol, with wire types and protocol metadata generated from
   `schema/v1/` (a self-contained `codegen.mjs --check` drift guard, the TS dual of
   the Rust/Python guards), a `serve()` loop (incl. the `execute`/`score` split and
   `list_samples` pagination), a parity authoring API, and conformance + behaviour
-  tests. Worked example: `examples/greet-typescript`.
+  tests. Worked example: `examples/greet-typescript`. Publishes to npm as
+  `mira-eval` via OIDC trusted publishing (`publish-typescript` in `publish.yml`),
+  mirroring the Python PyPI flow.
 - `cargo binstall mira-cli` support: `[package.metadata.binstall]` points binstall
   at the prebuilt release tarballs, so the `mira` binary installs without a compile.
 
