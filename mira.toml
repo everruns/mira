@@ -17,6 +17,21 @@ enabled = true
 # team = "search"
 # region = "us-east-1"
 
+# Named launchers, selected with `mira --launcher NAME`. A launcher is a saved
+# way to start the study process (bin / example / cmd, plus package / manifest),
+# so a repo's invocation lives here instead of being retyped on every call.
+# Explicit launch flags override the named fields. `default_launcher` is used
+# when neither a flag nor `--launcher` picks one — so a bare `mira run` works.
+default_launcher = "greet"
+
+[launchers.greet]
+# The bundled example study (cargo run -q --bin greet).
+bin = "greet"
+
+# A polyglot (non-Rust) study:
+# [launchers.py]
+# python3 = "study.py"   # or uv = "…" / python = "…" / cmd = "<command line>"
+
 # Named selection presets, applied with `mira run --preset NAME`. A preset is a
 # saved bundle of selection criteria (targets / axes / tag / filter / evals); it
 # only *subsets* the grid the study declared. Explicit flags override the preset.

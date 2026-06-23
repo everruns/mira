@@ -90,6 +90,32 @@ from `list` before running anything, independent of how the evals were authored:
 Selection only ever **subsets** the grid the study declared — the host never adds
 cells.
 
+## Launching the study
+
+The host has to *start* your study before it can enumerate or run it. Point it at
+any study with `--bin NAME` / `--example NAME` (cargo), a non-Rust study via
+`--uv` / `--python` / `--python3 SCRIPT` (or an arbitrary `--cmd "…"`), plus
+`--package` / `--manifest-path`. To avoid retyping a repo's invocation on every
+call, save it as a **named launcher** in `mira.toml`:
+
+```toml
+[launchers.greet]
+bin = "greet"            # cargo run -q --bin greet  (+ optional package/manifest)
+
+[launchers.py]
+python3 = "study.py"     # a polyglot study (python3 study.py)
+
+default_launcher = "greet"
+```
+
+- `--launcher NAME` selects `[launchers.NAME]`.
+- `default_launcher` is used when neither a launch flag nor `--launcher` picks
+  one, so a bare `mira run` just works.
+- Explicit launch flags override the named launcher, mirroring `--preset`: an
+  explicit **mode** (`--cmd`/`--bin`/`--example`/`--uv`/`--python`/`--python3`)
+  replaces the named mode (the modes are mutually exclusive), and
+  `--package`/`--manifest-path` overlay on top.
+
 ## Concurrency & adaptive throttling
 
 The host multiplexes many `run`s over the single pipe (responses correlate by
