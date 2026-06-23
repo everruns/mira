@@ -50,39 +50,29 @@ Cross-language studies need no Rust framework at all — see [SDKs](#cross-langu
 
 ## Authoring an eval study
 
-A study is a program that defines evals and calls `mira::Study::registered().serve()`.
-Register factories with `#[eval]` (or `register_eval!`).
+A study is a program that defines evals and calls
+`mira::Study::registered().serve()`; register factories with `#[eval]`. It's just
+a `[[bin]]`, resolved with `--bin NAME`.
 
 ```rust
-use mira::scorer::{file_contains, latency_within, succeeded, tool_called, tokens_within};
+use mira::scorer::{file_contains, succeeded};
 use mira::subject::subject_fn;
-use mira::{eval, Eval, Target, Sample, Transcript};
+use mira::{eval, Eval, Sample, Target, Transcript};
 
 #[eval]
 fn coding() -> Eval {
     Eval::new("coding")
         .describe("Edits a file to satisfy an instruction")
-        .sample(
-            Sample::new("add-fn", "Add a greet function to lib.rs")
-                .file("lib.rs", "// here\n")
-                .tag("smoke"),
-        )
+        .sample(Sample::new("add-fn", "Add a greet function to lib.rs").file("lib.rs", "// here\n"))
         .subject(subject_fn(|sample, cx| async move {
-            // Call the real agent/model (cx.target.provider / cx.target.model).
-            // Report metrics the budget scorers grade: usage, timing, tools.
+            // Call the real agent/model (cx.target.provider / cx.target.model);
+            // report the metrics the budget scorers grade.
             let mut t = Transcript::response("done");
-            t.tool_calls = vec!["edit_file".into()];
-            t.tool_calls_count = 1;
-            t.usage.output_tokens = 80;
-            t.timing.duration_ms = 400;
             t.files.insert("lib.rs".into(), "fn greet() {}\n".into());
             t
         }))
         .scorer(succeeded())
-        .scorer(tool_called("edit_file"))
         .scorer(file_contains("lib.rs", "fn greet"))
-        .scorer(tokens_within(4_000))
-        .scorer(latency_within(5_000))
         .targets([Target::sim(), Target::anthropic("claude-opus-4-8")])
         .build()
 }
@@ -91,8 +81,9 @@ fn coding() -> Eval {
 async fn main() -> std::io::Result<()> { mira::Study::registered().serve().await }
 ```
 
-A study is just a `[[bin]]` that calls `Study::registered().serve()`; `--bin NAME`
-resolves it. A non-Rust study (any language that speaks the protocol) runs via
+Full example (tools + budget scorers + main), the polyglot `CliSubject`, the
+everruns runtime subject, in-process `Runner` tests, and custom scorers:
+[`references/cookbook.md`](references/cookbook.md). A non-Rust study runs via
 `--cmd "..."` — see [`examples/greet-python/`](https://github.com/everruns/mira/tree/main/examples/greet-python).
 
 ## Running
@@ -114,51 +105,27 @@ mira --cmd "python3 study.py" run      # a study written in another language
 Exit code is non-zero if any cell failed — drops straight into CI. Run
 `mira help --full` for an overview, every flag, examples, and links.
 
-## Scorers (cheat sheet)
+## Scorers
 
-- **Text/output**: `succeeded` · `non_empty` · `contains` · `not_contains` ·
-  `equals` · `regex` · `matches_expected` · `json_valid` · `json_field_equals`
-- **Tools**: `tool_called` · `tool_not_called` · `tool_calls_within` ·
-  `tools_used_exactly` · `tool_called_before`
-- **Budgets**: `tokens_within` · `output_tokens_within` · `cost_within` ·
-  `turns_within` · `latency_within` · `ttft_within`
-- **Files**: `file_exists` · `file_contains`
-- **Combinators / custom**: `all_of` · `any_of` · `not` · `scorer(name, closure)`
-  · `model_graded(rubric, judge)`
+A cell passes only if every `.scorer(...)` passes. Families: **text/output**
+(`succeeded`, `contains`, `regex`, `json_field_equals`…), **tools**
+(`tool_called`, `tools_used_exactly`, `tool_called_before`…), **budgets**
+(`tokens_within`, `cost_within`, `latency_within`…), **files** (`file_exists`,
+`file_contains`), and **combinators / custom** (`all_of`, `any_of`, `not`,
+`scorer(name, closure)`, `model_graded(rubric, judge)`).
 
-Closure escape hatch:
+Full catalog with semantics: [`references/scorers.md`](references/scorers.md).
 
-```rust
-use mira::{Score, scorer::scorer};
-let s = scorer("nonempty", |_, t| {
-    if t.final_response.trim().is_empty() { Score::fail("nonempty", "empty") }
-    else { Score::pass("nonempty", "ok") }
-});
-```
+## Subjects
 
-## Polyglot subject (evaluate any binary)
+What's under test — pick one per eval:
 
-```rust
-use mira::subject::{CliSubject, TranscriptSource};
-let s = CliSubject::new("my-agent")
-    .arg("--prompt").arg("{prompt}")             // or .stdin_prompt()
-    .transcript(TranscriptSource::EventsFile("events.jsonl".into()))  // JSONL Events
-    .capture_files();                            // read workdir into Transcript.files
-```
+- `subject_fn(...)` — in-process Rust (see Authoring above).
+- `CliSubject` — evaluate **any external binary** (the polyglot path).
+- `mira_everruns::RuntimeSubject` — a real everruns runtime session.
 
-`{prompt}` and `{workdir}` expand per run; seeded `sample.files` are written into
-a fresh temp workdir; `MIRA_TARGET` / `MIRA_PROVIDER` env vars are set.
-
-## In-process testing
-
-```rust
-use mira::Runner;
-#[tokio::test]
-async fn passes() {
-    let report = Runner::new().add(coding()).run().await;
-    assert!(report.all_passed());
-}
-```
+Recipes for all three (+ in-process `Runner` tests):
+[`references/cookbook.md`](references/cookbook.md).
 
 ## Cross-language studies (SDKs)
 
@@ -190,8 +157,15 @@ cargo run -p mira-cli -- --cmd "python3 examples/greet-python/study.py" run  # p
 
 ## Learn more (read on demand)
 
-Progressive disclosure: this skill is the overview — open a doc only when the
-task needs that depth.
+Progressive disclosure: this skill is the overview. Bundled references ship with
+the skill (offline) — read them first:
+
+- [`references/cookbook.md`](references/cookbook.md) — recipes for every subject
+  kind, in-process tests, and custom scorers.
+- [`references/scorers.md`](references/scorers.md) — the full scorer catalog.
+
+Canonical prose lives in the repo docs — open one only when the task needs that
+depth:
 
 | Doc | When to read |
 |-----|--------------|

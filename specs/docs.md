@@ -104,9 +104,17 @@ checkout — its conventions differ from the in-repo docs:
   `specs/` are full `https://github.com/everruns/mira/...` URLs (blob for files,
   tree for directories). Relative links would break once the skill is detached
   from this repo. (This is the deliberate exception to §4's relative-link rule.)
-- **Progressive disclosure.** The frontmatter `name`/`description` is the first
-  level (when to invoke); the body is the overview; deep docs are linked, read
-  on demand, never inlined. Keep the body skimmable — one concept per section.
+- **Progressive disclosure.** Three levels: the frontmatter `name`/`description`
+  (when to invoke) → `SKILL.md` (the overview) → bundled files under
+  `skills/mira/references/` (depth, read on demand). `SKILL.md` stays skimmable,
+  one concept per section; copy-paste recipes and lookup tables move to
+  `references/`. Today: `references/cookbook.md` (subject + testing recipes) and
+  `references/scorers.md` (the scorer catalog).
+- **References travel with the skill.** Bundled `references/` files use *relative*
+  links (`references/cookbook.md`) and are self-contained, so they work offline
+  and when the skill is copied out. They are agent-curated lookups/recipes — the
+  canonical, normative prose still lives once in `docs/` and is linked, not
+  duplicated wholesale.
 - **Install the binary.** The skill steers agents to the prebuilt `mira` CLI
   (`brew install everruns/tap/mira` or a Release binary), with `cargo install`
   as the source-build fallback only — see [`release-process.md`](release-process.md).
@@ -116,8 +124,8 @@ checkout — its conventions differ from the in-repo docs:
   tell the agent the CLI carries its own full help.
 
 A change to the surfaces the skill summarises — install method, the scorer/CLI
-vocabulary, the example set, or the docs/SDK layout — updates the skill in the
-same PR.
+vocabulary, the example set, or the docs/SDK layout — updates `SKILL.md` and the
+relevant `references/` file in the same PR.
 
 ## 6. Keeping docs in sync
 
@@ -129,7 +137,7 @@ A change to behaviour updates its documentation in the same PR:
   `protocol::PROTOCOL_VERSION` and the Rust types.
 - **Design decision** → the relevant file in `specs/`.
 - **Agent-facing change** (install, vocabulary, examples, docs/SDK layout) →
-  `skills/mira/SKILL.md` (see §5).
+  `skills/mira/SKILL.md` and the relevant `references/` file (see §5).
 - **Anything user-visible** → `CHANGELOG.md` under `## [Unreleased]`.
 
 This mirrors the “Docs in sync” ground rule in `CONTRIBUTING.md`; this spec is
