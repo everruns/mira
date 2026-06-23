@@ -1,5 +1,5 @@
 {
-  "name": "@everruns/mira-eval",
+  "name": "mira-eval",
   "version": "0.1.0",
   "description": "TypeScript SDK for authoring Mira eval studies (protocol over stdio, no Rust dependency).",
   "license": "MIT OR Apache-2.0",

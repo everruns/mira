@@ -165,3 +165,54 @@ jobs:
           # Idempotent: a re-dispatch to finish a partial release won't fail on
           # the version already being on PyPI.
           skip-existing: true
+
+  # Publish the TypeScript SDK (npm package `mira-eval`) via OIDC trusted
+  # publishing — no token. The publisher must be registered on npmjs.com once:
+  # package `mira-eval`, owner `everruns`, repo `mira`, workflow `publish.yml`,
+  # environment `release`. Independent of the crates and the Python SDK.
+  publish-typescript:
+    name: Publish TypeScript SDK
+    runs-on: ubuntu-latest
+    environment: release
+    permissions:
+      contents: read
+      id-token: write # OIDC token for trusted publishing + provenance
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+        with:
+          persist-credentials: false
+
+      - name: Verify SDK version matches the workspace
+        run: |
+          CARGO_VERSION=$(grep '^version' Cargo.toml | head -1 | sed 's/.*"\(.*\)".*/\1/')
+          SDK_VERSION=$(node -p "require('./sdks/typescript/package.json').version")
+          if [ "$CARGO_VERSION" != "$SDK_VERSION" ]; then
+            echo "Error: SDK version ($SDK_VERSION) != workspace ($CARGO_VERSION)"
+            exit 1
+          fi
+          echo "SDK version verified: $SDK_VERSION"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          registry-url: "https://registry.npmjs.org"
+
+      # Trusted publishing (OIDC, no token) needs a recent npm; the runner ships
+      # an older one. Upgrading also pulls in provenance support.
+      - name: Upgrade npm for trusted publishing
+        run: npm install -g npm@latest
+
+      - name: Build the SDK
+        run: cd sdks/typescript && npm ci && npm run build
+
+      - name: Publish to npm
+        run: |
+          cd sdks/typescript
+          VERSION=$(node -p "require('./package.json').version")
+          # Idempotent: a re-dispatch to finish a partial release no-ops on an
+          # already-published version (the npm dual of PyPI skip-existing).
+          if npm view "mira-eval@$VERSION" version >/dev/null 2>&1; then
+            echo "mira-eval@$VERSION already on npm; skipping"
+            exit 0
+          fi
+          npm publish --provenance --access public

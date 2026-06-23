@@ -130,7 +130,9 @@ aggregate; an unavailable model / infra error short-circuits to a single N/A.
   `codegen.mjs` (no external lib, for a hermetic `--check`) generating typed wire
   interfaces + protocol metadata from `schema/v1/`, a `serve()` loop (incl. the
   `execute`/`score` split and `list_samples` pagination), parity authoring API,
-  and an npm package (`@everruns/mira-eval`) with **zero runtime deps** (`ajv` /
+  and an npm package (`mira-eval`) with **zero runtime deps** (`ajv` /
   `typescript` are dev-only). Worked example: `examples/greet-typescript`.
-- **Deferred:** emitting `event` progress notifications from SDK studies;
-  publishing the SDKs to PyPI/npm (tied to [`release-process`](release-process.md)).
+- **Publishing:** both SDKs publish to their registries (`mira-eval` on PyPI and
+  npm) via OIDC trusted publishing in `publish.yml`, gated on a one-time
+  trusted-publisher registration — see [`release-process`](release-process.md).
+- **Deferred:** emitting `event` progress notifications from SDK studies.
