@@ -24,6 +24,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   drive a non-Rust study directly (e.g. `mira --python3 study.py run`), replacing
   the verbose `--cmd "python3 study.py"`. `--cmd` still works for an arbitrary
   command line.
+- `mira help --full` now surfaces a `GUIDES` section (each `docs/` guide with a
+  one-line scope, for progressive disclosure) and a link to the `mira` agent skill
+  in `LINKS`, so an agent can self-orient to the docs and skill in one read. A
+  drift guard keeps the guide list in sync with `docs/README.md`.
 
 ## [0.1.0] - 2026-06-22
 

@@ -54,6 +54,36 @@ const REPO_URL: &str = "https://github.com/everruns/mira";
 const ISSUES_URL: &str = "https://github.com/everruns/mira/issues";
 const DOCS_URL: &str = "https://github.com/everruns/mira/tree/main/docs";
 const API_DOCS_URL: &str = "https://docs.rs/mira-eval";
+/// The `mira` agent skill — the agent-facing entry point that teaches a coding
+/// agent to author and run evals. Surfaced in `mira help --full` so an agent can
+/// load it on demand. See `skills/mira/SKILL.md` (design of record: specs/docs.md).
+const SKILL_URL: &str = "https://github.com/everruns/mira/tree/main/skills/mira";
+
+/// The guides under `docs/`, mirrored here for progressive disclosure: an agent
+/// reading `mira help --full` sees what each doc covers without fetching the
+/// tree first. Keep in sync with docs/README.md (the index is the design of record).
+const GUIDES: &[(&str, &str)] = &[
+    (
+        "how-it-works",
+        "the core model and moving parts, end to end",
+    ),
+    ("getting-started", "zero to a passing run"),
+    (
+        "authoring",
+        "datasets, the model matrix, axes, metadata, infra-errors vs failures",
+    ),
+    (
+        "scorers",
+        "built-ins, budgets, combinators, closures, LLM-judge",
+    ),
+    ("metrics", "tokens/cost/latency and custom numeric metrics"),
+    ("subjects", "in-process, CLI/polyglot, and runtime sessions"),
+    (
+        "extensibility",
+        "every seam: subjects, scorers, metrics, events, protocol",
+    ),
+    ("protocol", "the normative wire format and its versioning"),
+];
 
 /// Short tagline for `-h`/`--help`. The CLI is the *host*: it plans the run,
 /// drives subjects over the protocol, scores, and reports — not just a runner.
@@ -63,7 +93,7 @@ the Mira host CLI.";
 /// Footer on every `--help`/no-args screen. The one breadcrumb an agent needs to
 /// discover the long-form guide.
 const HELP_HINT: &str = "Tip: run `mira help --full` for an overview, every flag, examples, \
-and links (repo, issues, docs).";
+the doc guides, the agent skill, and links.";
 
 #[derive(Parser)]
 #[command(
@@ -327,13 +357,23 @@ EXAMPLES
   mira --bin greet score --artifacts art/                # score (or re-score) them
   mira --python3 study.py run           # drive a non-Rust (polyglot) study";
 
+    // Progressive disclosure of the docs: name + one-line scope per guide, so an
+    // agent knows which to open before fetching the tree.
+    let width = GUIDES.iter().map(|(name, _)| name.len()).max().unwrap_or(0);
+    let mut guides = format!("GUIDES ({DOCS_URL})\n");
+    for (name, desc) in GUIDES {
+        guides.push_str(&format!("  {name:<width$}  {desc}\n"));
+    }
+    let guides = guides.trim_end();
+
     let links = format!(
         "\
 LINKS
-  Repository:  {REPO_URL}
-  Issues:      {ISSUES_URL}
-  Docs:        {DOCS_URL}
-  API docs:    {API_DOCS_URL}"
+  Repository:   {REPO_URL}
+  Issues:       {ISSUES_URL}
+  Docs:         {DOCS_URL}
+  API docs:     {API_DOCS_URL}
+  Agent skill:  {SKILL_URL}  (`mira` — teaches an agent to author/run evals)"
     );
 
     // The full flag set, straight from the parser so it never drifts. Strip the
@@ -348,6 +388,7 @@ LINKS
     writeln!(out, "{overview}\n")?;
     write!(out, "{flags}")?;
     writeln!(out, "\n{examples}\n")?;
+    writeln!(out, "{guides}\n")?;
     writeln!(out, "{links}")?;
     Ok(())
 }
@@ -1200,6 +1241,19 @@ mod tests {
             .map(|a| a.to_string_lossy().into_owned())
             .collect();
         (program, args)
+    }
+
+    // Drift guard: the help guide list mirrors docs/README.md. If a doc is added,
+    // renamed, or removed there without updating GUIDES (or vice versa), this fails.
+    #[test]
+    fn guides_match_docs_readme() {
+        let readme = include_str!("../../../docs/README.md");
+        for (name, _) in GUIDES {
+            assert!(
+                readme.contains(&format!("]({name}.md)")),
+                "GUIDES entry `{name}` has no matching link in docs/README.md"
+            );
+        }
     }
 
     #[test]
