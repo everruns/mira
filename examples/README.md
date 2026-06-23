@@ -17,8 +17,9 @@ cost nothing.
 cargo run -p mira-cli -- --bin greet list
 cargo run -p mira-cli -- --bin greet run
 
-# Polyglot example (a Python study, no Mira dependency):
+# Polyglot examples (studies in another language, no Mira dependency):
 cargo run -p mira-cli -- --cmd "python3 examples/greet-python/study.py" run
+cargo run -p mira-cli -- --cmd "node examples/greet-typescript/study.mjs" run
 ```
 
 | Example | Lang | Shows |
@@ -33,6 +34,7 @@ cargo run -p mira-cli -- --cmd "python3 examples/greet-python/study.py" run
 | [`llmsim`](llmsim) | Rust | Driving a real `everruns-runtime` session against the offline `LlmSim` driver. |
 | [`llm_judge`](llm_judge) | Rust | Provider-backed LLM-as-judge (`mira-judge`); the judge is N/A without a key, so it stays green offline. |
 | [`greet-python`](greet-python) | Python | A whole eval **study** in another language, via the [Python SDK](../sdks/python) — the protocol seam, no Rust dependency. |
+| [`greet-typescript`](greet-typescript) | TypeScript | The same study via the [TypeScript SDK](../sdks/typescript) — a native Node library over the protocol, no Rust dependency. |
 
 Render a self-contained HTML report from any of them:
 

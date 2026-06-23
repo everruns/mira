@@ -1,0 +1,40 @@
+{
+  "name": "@everruns/mira-eval",
+  "version": "0.1.0",
+  "description": "TypeScript SDK for authoring Mira eval studies (protocol over stdio, no Rust dependency).",
+  "license": "MIT OR Apache-2.0",
+  "author": "Everruns",
+  "keywords": ["eval", "evaluation", "llm", "agent", "mira"],
+  "homepage": "https://github.com/everruns/mira",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/everruns/mira.git",
+    "directory": "sdks/typescript"
+  },
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": ["dist", "README.md"],
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "codegen": "node codegen.mjs",
+    "codegen:check": "node codegen.mjs --check",
+    "build": "tsc -p tsconfig.json",
+    "test": "node codegen.mjs --check && tsc -p tsconfig.json && node --test \"tests/*.test.mjs\"",
+    "prepublishOnly": "npm run build"
+  },
+  "dependencies": {},
+  "devDependencies": {
+    "@types/node": "^20.14.0",
+    "ajv": "^8.17.1",
+    "typescript": "^5.6.0"
+  }
+}

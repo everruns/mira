@@ -55,6 +55,14 @@ test-py:
     python3 sdks/python/codegen.py --check
     cd sdks/python && python3 -m pytest -q
 
+# TypeScript SDK: wire types in sync with the schema, build, + the test suite.
+test-ts:
+    cd sdks/typescript && npm ci && npm test
+
+# Build the TypeScript SDK (its dist/), so the greet-typescript example can run.
+build-ts-sdk:
+    cd sdks/typescript && npm ci && npm run build
+
 # Build the API docs with warnings denied (as CI does).
 doc:
     RUSTDOCFLAGS="-D warnings" cargo doc --no-deps --all-features
@@ -62,7 +70,8 @@ doc:
 # === Examples ===
 
 # Drive each bundled example study through the host CLI (offline, sim only).
-run-examples:
+# The TypeScript polyglot example needs the SDK built first (build-ts-sdk).
+run-examples: build-ts-sdk
     cargo run -q -p mira-cli -- --bin greet run
     cargo run -q -p mira-cli -- --bin coding run
     cargo run -q -p mira-cli -- --bin cli_subject run
@@ -73,6 +82,7 @@ run-examples:
     cargo run -q -p mira-cli -- --bin multimodal run
     cargo run -q -p mira-cli -- --bin interactive run
     cargo run -q -p mira-cli -- --cmd "python3 examples/greet-python/study.py" run
+    cargo run -q -p mira-cli -- --cmd "node examples/greet-typescript/study.mjs" run
 
 # === Release ===
 

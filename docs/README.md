@@ -19,6 +19,8 @@ in [`specs/`](../specs). Conventions for this directory are in
 - [Subjects](subjects.md) — in-process, CLI/polyglot, and runtime sessions.
 - [Python SDK](../sdks/python) — author a study in Python (native library,
   protocol over stdio, no Rust dependency).
+- [TypeScript SDK](../sdks/typescript) — author a study in TypeScript/Node
+  (native, zero-dependency library, protocol over stdio, no Rust dependency).
 
 ## Extending
 

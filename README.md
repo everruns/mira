@@ -125,7 +125,7 @@ mira --example my_evals run --checkpoint ck.json              # resumable long r
 See [`docs/getting-started.md`](docs/getting-started.md) for a full walkthrough,
 and [`examples/`](examples) for runnable servers (`greet`, `coding`,
 `cli_subject`, `metrics`, `matrix`, `swe_bench`, `llmsim`, plus the non-Rust
-`greet-python`):
+`greet-python` and `greet-typescript`):
 
 ```bash
 cargo run -p mira-cli -- --bin metrics run

@@ -695,10 +695,11 @@ No Rust dependency is required — only the JSON shapes above (validate against 
 hand). This is how non-Rust agents (a Python SWE-bench harness, a Node agent)
 plug in as first-class studies.
 
-For Python, the **[Mira Python SDK](../sdks/python)** does this for you: a native
-library whose wire types are generated from `schema/v1/`, with an ergonomic
-authoring API and a `serve()` loop. See [`specs/sdks.md`](../specs/sdks.md) for
-the SDK design (native libraries, not FFI bindings).
+The **[Mira Python SDK](../sdks/python)** and **[TypeScript SDK](../sdks/typescript)**
+do this for you: native, zero-dependency libraries whose wire types are generated
+from `schema/v1/`, each with an ergonomic authoring API and a `serve()` loop. See
+[`specs/sdks.md`](../specs/sdks.md) for the SDK design (native libraries, not FFI
+bindings).
 
 To support deferred / re-scoring, a study may additionally implement `execute`
 (return the full transcript, no scoring) and `score` (score a supplied
