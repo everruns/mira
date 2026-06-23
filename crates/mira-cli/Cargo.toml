@@ -21,6 +21,15 @@ name = "mira"
 path = "src/main.rs"
 doc = false
 
+# cargo-binstall metadata. The crates.io package is `mira-cli` but the binary
+# (and release tarballs) are named `mira`, with no version in the filename, so
+# binstall's default URL/path heuristics won't match — pin them here.
+# `cargo binstall mira-cli` fetches the prebuilt `mira` from the GitHub release.
+[package.metadata.binstall]
+pkg-url = "{ repo }/releases/download/v{ version }/{ bin }-{ target }{ archive-suffix }"
+pkg-fmt = "tgz"
+bin-dir = "{ bin }{ binary-ext }"
+
 [dependencies]
 mira-eval.workspace = true
 tokio.workspace = true

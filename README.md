@@ -72,7 +72,9 @@ brew install everruns/tap/mira
 Works on macOS (arm64/x86_64) and Linux (x86_64). If your Homebrew enforces tap
 trust checks, trust the tap once first with `brew trust --tap everruns/tap`.
 
-Building from source instead? `cargo install mira-cli --locked`.
+Prefer a prebuilt binary without Homebrew? `cargo binstall mira-cli` grabs the
+same release tarball (installs the `mira` binary). Building from source instead?
+`cargo install mira-cli --locked`.
 
 ## Quick start
 
