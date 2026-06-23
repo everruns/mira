@@ -1,19 +1,19 @@
 //! [`Runner`]: the in-process run loop. Expands `evals × targets × samples` into
-//! cells, applies selective filtering, runs each cell through its subject +
+//! cases, applies selective filtering, runs each case through its subject +
 //! scorers, and collects a [`RunReport`].
 //!
 //! Selection mirrors `cargo test`: a free-text `filter` is a substring match on
 //! the case key `eval/sample@target`, and `tag` narrows by sample tag. The same
-//! [`run_cell`] is used by the protocol [`study`](crate::study), so in-process
+//! [`run_case`] is used by the protocol [`study`](crate::study), so in-process
 //! and over-the-wire runs score identically.
 
 use crate::content::{Message, Part, Role};
 use crate::eval::{Eval, Responder};
 use crate::target::Target;
-use crate::{Params, RunCx, Sample, Score, Transcript, Trial, cell_key, trial_suffix};
+use crate::{Params, RunCx, Sample, Score, Transcript, Trial, case_key, trial_suffix};
 
-/// Execute a single matrix cell's subject, returning the full [`Transcript`]
-/// **without scoring**. The first half of [`run_cell`]; used directly by the
+/// Execute a single matrix case's subject, returning the full [`Transcript`]
+/// **without scoring**. The first half of [`run_case`]; used directly by the
 /// protocol `execute` method so a long-running subject can be run once and
 /// scored later from its stored transcript. `trial` carries this run's
 /// repetition index and seed (see [`Trial`]).
@@ -21,7 +21,7 @@ use crate::{Params, RunCx, Sample, Score, Transcript, Trial, cell_key, trial_suf
 /// When the eval has a [`responder`](crate::eval::EvalBuilder::responder), this
 /// drives an **interactive** turn exchange (subject ⇄ simulated user) and
 /// accumulates the dialog into one transcript; otherwise the subject runs once.
-pub async fn execute_cell(
+pub async fn execute_case(
     eval: &Eval,
     sample: &Sample,
     target: &Target,
@@ -118,14 +118,14 @@ fn assistant_parts(t: &Transcript) -> Vec<Part> {
 }
 
 /// Score a (possibly previously stored) `transcript` with an eval's scorers,
-/// independent of how it was produced. The second half of [`run_cell`]; used by
+/// independent of how it was produced. The second half of [`run_case`]; used by
 /// the protocol `score` method to (re-)score without re-executing the subject.
 pub async fn score_transcript(eval: &Eval, sample: &Sample, transcript: &Transcript) -> Vec<Score> {
     // An infrastructure failure (budget, rate limit, provider outage, timeout)
     // isn't the target's fault and didn't produce a transcript worth grading.
-    // Short-circuit to a single N/A score so the cell is excluded from the
-    // verdict and aggregate (neither pass nor fail) — the cell-level dual of a
-    // scorer returning `Score::na`. The host retries such cells.
+    // Short-circuit to a single N/A score so the case is excluded from the
+    // verdict and aggregate (neither pass nor fail) — the case-level dual of a
+    // scorer returning `Score::na`. The host retries such cases.
     if transcript.errored_infra() {
         let reason = transcript
             .error
@@ -141,25 +141,25 @@ pub async fn score_transcript(eval: &Eval, sample: &Sample, transcript: &Transcr
 }
 
 /// True iff at least one *applicable* scorer ran and all of them passed (the
-/// cell verdict). N/A scores (e.g. an unreachable judge) are excluded: a cell
+/// case verdict). N/A scores (e.g. an unreachable judge) are excluded: a case
 /// passes when every score that *could* be evaluated passed, and at least one
 /// did.
 pub fn verdict(scores: &[Score]) -> bool {
     scores.iter().any(|s| !s.na) && scores.iter().filter(|s| !s.na).all(|s| s.pass)
 }
 
-/// Run a single matrix cell: one sample, one target, one set of axis `params`.
-/// Composes [`execute_cell`] + [`score_transcript`] so the fused path scores
+/// Run a single matrix case: one sample, one target, one set of axis `params`.
+/// Composes [`execute_case`] + [`score_transcript`] so the fused path scores
 /// identically to the split `execute`/`score` path. Shared by the in-process
 /// [`Runner`] and the protocol study.
-pub async fn run_cell(
+pub async fn run_case(
     eval: &Eval,
     sample: &Sample,
     target: &Target,
     params: &Params,
     trial: Trial,
 ) -> CaseOutcome {
-    let transcript = execute_cell(eval, sample, target, params, trial).await;
+    let transcript = execute_case(eval, sample, target, params, trial).await;
     let scores = score_transcript(eval, sample, &transcript).await;
 
     let passed = verdict(&scores);
@@ -192,13 +192,13 @@ pub fn aggregate_value(scores: &[Score]) -> f64 {
     if count == 0 { 0.0 } else { sum / count as f64 }
 }
 
-/// The result of one matrix cell: one sample, one target, one axis combination.
+/// The result of one matrix case: one sample, one target, one axis combination.
 #[derive(Clone, Debug)]
 pub struct CaseOutcome {
     pub eval: String,
     pub sample_id: String,
     pub target: String,
-    /// Extra matrix-axis values for this cell (empty for a target-only matrix).
+    /// Extra matrix-axis values for this case (empty for a target-only matrix).
     pub params: Params,
     /// This run's trial (repetition index, count, and seed).
     pub trial: Trial,
@@ -209,7 +209,7 @@ pub struct CaseOutcome {
 }
 
 impl CaseOutcome {
-    /// Trial-aware cell identity (a `#index` suffix when the cell is repeated).
+    /// Trial-aware case identity (a `#index` suffix when the case is repeated).
     pub fn key(&self) -> String {
         format!(
             "{}{}",
@@ -218,9 +218,9 @@ impl CaseOutcome {
         )
     }
 
-    /// Cell identity shared by all trials of this cell (no `#index` suffix).
+    /// Case identity shared by all trials of this case (no `#index` suffix).
     pub fn logical_key(&self) -> String {
-        cell_key(&self.eval, &self.sample_id, &self.target, &self.params)
+        case_key(&self.eval, &self.sample_id, &self.target, &self.params)
     }
 }
 
@@ -290,7 +290,7 @@ impl Runner {
         self
     }
 
-    /// True if a cell passes the active selection (filter, tag, target labels).
+    /// True if a case passes the active selection (filter, tag, target labels).
     fn selected(&self, key: &str, sample: &Sample, target: &Target) -> bool {
         if let Some(f) = &self.filter
             && !key.contains(f.as_str())
@@ -319,7 +319,7 @@ impl Runner {
             for target in &eval.targets {
                 for sample in &eval.dataset.samples {
                     for params in &combos {
-                        let key = cell_key(&eval.name, &sample.id, &target.label, params);
+                        let key = case_key(&eval.name, &sample.id, &target.label, params);
                         if !self.selected(&key, sample, target) {
                             continue;
                         }
@@ -327,7 +327,7 @@ impl Runner {
                             report.skipped.push(format!("{key} (unavailable)"));
                             continue;
                         }
-                        // Repeat the cell `trials` times (1 = a single run),
+                        // Repeat the case `trials` times (1 = a single run),
                         // seeding each trial deterministically when a base seed
                         // is set, so the repetitions are reproducible.
                         for index in 0..trials {
@@ -340,7 +340,7 @@ impl Runner {
                             };
                             report
                                 .outcomes
-                                .push(run_cell(eval, sample, target, params, trial).await);
+                                .push(run_case(eval, sample, target, params, trial).await);
                         }
                     }
                 }
@@ -359,8 +359,8 @@ mod tests {
 
     fn echo_eval(name: &str) -> Eval {
         Eval::new(name)
-            .sample(Sample::new("hi", "say hi").tag("smoke"))
-            .sample(Sample::new("bye", "say bye"))
+            .add_sample(Sample::new("hi", "say hi").tag("smoke"))
+            .add_sample(Sample::new("bye", "say bye"))
             .subject(subject_fn(|s, _| async move {
                 Transcript::response(s.input.join(" "))
             }))
@@ -369,7 +369,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn runs_all_cells() {
+    async fn runs_all_cases() {
         let report = Runner::new().add(echo_eval("greet")).run().await;
         assert_eq!(report.total(), 2);
         assert!(report.all_passed());
@@ -399,7 +399,7 @@ mod tests {
     #[tokio::test]
     async fn unavailable_model_is_skipped_not_failed() {
         let eval = Eval::new("e")
-            .case("a", "x")
+            .sample("a", "x")
             .targets([Target::sim().available(false)])
             .subject(subject_fn(|_, _| async { Transcript::response("x") }))
             .scorer(contains("x"))
@@ -413,10 +413,10 @@ mod tests {
     #[tokio::test]
     async fn na_scores_are_excluded_from_verdict_and_aggregate() {
         use crate::scorer::scorer;
-        // A passing deterministic scorer plus an N/A judge (infra down): the cell
+        // A passing deterministic scorer plus an N/A judge (infra down): the case
         // passes on the applicable score, and the aggregate ignores the N/A one.
         let eval = Eval::new("e")
-            .case("a", "x")
+            .sample("a", "x")
             .subject(subject_fn(|_, _| async { Transcript::response("x") }))
             .scorer(contains("x"))
             .scorer(scorer("judge", |_, _| Score::na("judge", "unreachable")))
@@ -426,9 +426,9 @@ mod tests {
         assert!(out.passed);
         assert_eq!(out.aggregate, 1.0); // mean over applicable scores only
 
-        // A cell whose every scorer is N/A does not pass (nothing was evaluated).
+        // A case whose every scorer is N/A does not pass (nothing was evaluated).
         let all_na = Eval::new("e2")
-            .case("a", "x")
+            .sample("a", "x")
             .subject(subject_fn(|_, _| async { Transcript::response("x") }))
             .scorer(scorer("judge", |_, _| Score::na("judge", "unreachable")))
             .build();
@@ -440,9 +440,9 @@ mod tests {
     #[tokio::test]
     async fn infra_error_short_circuits_scoring_to_na() {
         // A scorer that would FAIL on the errored transcript must never run —
-        // an infra error isn't the target's fault, so the cell is N/A, not failed.
+        // an infra error isn't the target's fault, so the case is N/A, not failed.
         let eval = Eval::new("e")
-            .case("a", "x")
+            .sample("a", "x")
             .subject(subject_fn(|_, _| async {
                 Transcript::infra_error("provider 503: service unavailable")
             }))
@@ -458,11 +458,11 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn trials_repeat_the_cell_with_seeded_reproducibility() {
+    async fn trials_repeat_the_case_with_seeded_reproducibility() {
         // A "stochastic" subject that just echoes its seed, so we can assert each
         // trial ran with a distinct, deterministic seed (base + index).
         let eval = Eval::new("e")
-            .case("a", "x")
+            .sample("a", "x")
             .trials(3)
             .seed(100)
             .subject(subject_fn(|_, cx| async move {
@@ -489,7 +489,7 @@ mod tests {
     async fn single_trial_keeps_plain_key() {
         // The default (trials = 1) adds no trial dimension or `#index` suffix.
         let eval = Eval::new("e")
-            .case("a", "x")
+            .sample("a", "x")
             .subject(subject_fn(|_, cx| async move {
                 assert_eq!(cx.seed(), None);
                 Transcript::response("x")
@@ -507,7 +507,7 @@ mod tests {
         // The subject answers from the running conversation; the simulated user
         // pushes back twice, then a third reply is suppressed by max_turns.
         let eval = Eval::new("chat")
-            .case("open", "hello")
+            .sample("open", "hello")
             .max_turns(3)
             .subject(subject_fn(|_, cx| async move {
                 // One assistant reply per turn, numbered by conversation length.
@@ -535,7 +535,7 @@ mod tests {
     async fn interactive_responder_can_end_early() {
         use crate::scorer::succeeded;
         let eval = Eval::new("chat")
-            .case("open", "hi")
+            .sample("open", "hi")
             .max_turns(10)
             .subject(subject_fn(|_, _| async { Transcript::response("ok") }))
             // End immediately after the first assistant turn.
@@ -550,7 +550,7 @@ mod tests {
     #[tokio::test]
     async fn empty_scorers_means_not_passed() {
         let eval = Eval::new("e")
-            .case("a", "x")
+            .sample("a", "x")
             .subject(subject_fn(|_, _| async { Transcript::response("x") }))
             .build();
         let report = Runner::new().add(eval).run().await;

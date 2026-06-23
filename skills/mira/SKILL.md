@@ -63,7 +63,7 @@ use mira::{eval, Eval, Sample, Target, Transcript};
 fn coding() -> Eval {
     Eval::new("coding")
         .describe("Edits a file to satisfy an instruction")
-        .sample(Sample::new("add-fn", "Add a greet function to lib.rs").file("lib.rs", "// here\n"))
+        .add_sample(Sample::new("add-fn", "Add a greet function to lib.rs").file("lib.rs", "// here\n"))
         .subject(subject_fn(|sample, cx| async move {
             // Call the real agent/model (cx.target.provider / cx.target.model);
             // report the metrics the budget scorers grade.
@@ -102,12 +102,12 @@ mira --bin coding run --checkpoint ck.json               # resumable
 mira --cmd "python3 study.py" run      # a study written in another language
 ```
 
-Exit code is non-zero if any cell failed — drops straight into CI. Run
+Exit code is non-zero if any case failed — drops straight into CI. Run
 `mira help --full` for an overview, every flag, examples, and links.
 
 ## Scorers
 
-A cell passes only if every `.scorer(...)` passes. Families: **text/output**
+A case passes only if every `.scorer(...)` passes. Families: **text/output**
 (`succeeded`, `contains`, `regex`, `json_field_equals`…), **tools**
 (`tool_called`, `tools_used_exactly`, `tool_called_before`…), **budgets**
 (`tokens_within`, `cost_within`, `latency_within`…), **files** (`file_exists`,

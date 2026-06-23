@@ -33,7 +33,7 @@ fn metrics() -> Eval {
             "dashboard",
             "https://observe.example/dashboards/agent-metrics",
         )
-        .case(
+        .sample(
             "lookup",
             "Find the customer's latest order and summarize it.",
         )

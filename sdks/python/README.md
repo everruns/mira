@@ -65,7 +65,7 @@ A complete, runnable example lives in
   paginates large datasets across `list` + `list_samples` (`0` disables).
 - `Sample(id, prompt=…|input=[…], tags=…, expected=…, files=…, metadata=…)` —
   `sample.text` joins the input turns for the subject.
-- `target(label, provider="", available=True)` — a matrix cell (the model or
+- `target(label, provider="", available=True)` — a matrix case (the model or
   harness under evaluation). An unavailable target is reported as **N/A**
   (infra), not a failure.
 - `RunCx` — `cx.target`, `cx.provider`, `cx.max_turns`, `cx.param(name)`.

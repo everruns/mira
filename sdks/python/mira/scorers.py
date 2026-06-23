@@ -2,7 +2,7 @@
 
 A scorer maps `(sample, transcript) -> Score`. `value` is a continuous 0..1
 signal; `pass_` the boolean verdict; `na=True` means "couldn't evaluate"
-(excluded from the cell verdict and aggregate), mirroring `mira::Score`.
+(excluded from the case verdict and aggregate), mirroring `mira::Score`.
 """
 from __future__ import annotations
 

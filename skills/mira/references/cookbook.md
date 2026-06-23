@@ -20,7 +20,7 @@ use mira::{eval, Eval, Target, Sample, Transcript};
 fn coding() -> Eval {
     Eval::new("coding")
         .describe("Edits a file to satisfy an instruction")
-        .sample(
+        .add_sample(
             Sample::new("add-fn", "Add a greet function to lib.rs")
                 .file("lib.rs", "// here\n")
                 .tag("smoke"),

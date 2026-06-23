@@ -36,7 +36,7 @@ use crate::protocol::{
     TranscriptSummary, capabilities, codes, event,
 };
 use crate::registry::registered_evals;
-use crate::runner::{aggregate_value, execute_cell, run_cell, score_transcript, verdict};
+use crate::runner::{aggregate_value, execute_case, run_case, score_transcript, verdict};
 
 /// The shared, line-serialized output sink. Boxed (not a concrete `Stdout`) so
 /// the serve loop is testable over in-memory pipes via [`Study::serve_io`].
@@ -124,7 +124,7 @@ impl Study {
     /// tests). [`serve`](Study::serve) is this over real stdin/stdout.
     ///
     /// Requests are dispatched **concurrently**: each `run` is handled on its own
-    /// task so a host can keep many cells in flight at once. Writes are serialized
+    /// task so a host can keep many cases in flight at once. Writes are serialized
     /// through a shared writer mutex (one whole line per lock), so responses and
     /// `event`/`log` notifications never interleave mid-line. The host bounds how
     /// many runs are in flight (see [`crate::exec`]).
@@ -249,10 +249,10 @@ impl Study {
                 };
                 // Progress so the host can render a live spinner / log. Each
                 // event carries `request.id`, so the host correlates it to this
-                // call even with many cells (or trials) multiplexed at once.
-                let _ = write_line(stdout, &cell_event(request.id, &params, event::STARTED)).await;
+                // call even with many cases (or trials) multiplexed at once.
+                let _ = write_line(stdout, &case_event(request.id, &params, event::STARTED)).await;
                 let result = self.run(&params).await;
-                let _ = write_line(stdout, &cell_event(request.id, &params, event::FINISHED)).await;
+                let _ = write_line(stdout, &case_event(request.id, &params, event::FINISHED)).await;
                 match result {
                     Ok(result) => Response::ok(request.id, json(&result)),
                     Err(e) => Response::err(request.id, e),
@@ -269,9 +269,9 @@ impl Study {
                         );
                     }
                 };
-                let _ = write_line(stdout, &cell_event(request.id, &params, event::STARTED)).await;
+                let _ = write_line(stdout, &case_event(request.id, &params, event::STARTED)).await;
                 let result = self.execute(&params).await;
-                let _ = write_line(stdout, &cell_event(request.id, &params, event::FINISHED)).await;
+                let _ = write_line(stdout, &case_event(request.id, &params, event::FINISHED)).await;
                 match result {
                     Ok(result) => Response::ok(request.id, json(&result)),
                     Err(e) => Response::err(request.id, e),
@@ -390,12 +390,12 @@ impl Study {
     async fn run(&self, params: &RunParams) -> Result<RunResult, String> {
         let (eval, sample, target) = self.locate(&params.eval, &params.sample, &params.target)?;
 
-        // Don't burn time on an unrunnable cell; report it as skipped.
+        // Don't burn time on an unrunnable case; report it as skipped.
         if !target.available {
             return Ok(skipped_result(params));
         }
 
-        let outcome = run_cell(eval, sample, target, &params.params, params.trial()).await;
+        let outcome = run_case(eval, sample, target, &params.params, params.trial()).await;
         Ok(RunResult {
             eval: outcome.eval,
             sample: outcome.sample_id,
@@ -412,7 +412,7 @@ impl Study {
         })
     }
 
-    /// Execute a cell's subject only, returning the **full** transcript with no
+    /// Execute a case's subject only, returning the **full** transcript with no
     /// scoring (the run-now-score-later half of `run`).
     async fn execute(&self, params: &RunParams) -> Result<ExecuteResult, String> {
         let (eval, sample, target) = self.locate(&params.eval, &params.sample, &params.target)?;
@@ -429,7 +429,7 @@ impl Study {
                 skipped: true,
             });
         }
-        let transcript = execute_cell(eval, sample, target, &params.params, params.trial()).await;
+        let transcript = execute_case(eval, sample, target, &params.params, params.trial()).await;
         Ok(ExecuteResult {
             eval: params.eval.clone(),
             sample: params.sample.clone(),
@@ -476,7 +476,7 @@ impl Study {
         })
     }
 
-    /// Resolve a cell to its `(eval, sample, target)` definitions.
+    /// Resolve a case to its `(eval, sample, target)` definitions.
     fn locate(
         &self,
         eval: &str,
@@ -503,7 +503,7 @@ impl Study {
     }
 }
 
-/// A skipped (unexecuted) cell result, e.g. when the target is unavailable.
+/// A skipped (unexecuted) case result, e.g. when the target is unavailable.
 fn skipped_result(params: &RunParams) -> RunResult {
     RunResult {
         eval: params.eval.clone(),
@@ -564,8 +564,8 @@ fn advertised_capability_params() -> crate::Metadata {
     ])
 }
 
-/// A typed cell-progress `event`, correlated to its request by `req_id`.
-fn cell_event(req_id: u64, p: &RunParams, kind: &str) -> Notification {
+/// A typed case-progress `event`, correlated to its request by `req_id`.
+fn case_event(req_id: u64, p: &RunParams, kind: &str) -> Notification {
     Notification::event(EventParams {
         request_id: req_id,
         eval: p.eval.clone(),
@@ -600,7 +600,7 @@ mod tests {
             Eval::new("greet")
                 .describe("greeting eval")
                 .meta("suite", "smoke")
-                .sample(
+                .add_sample(
                     Sample::new("hi", "say hi")
                         .tag("smoke")
                         .meta("difficulty", "easy"),
@@ -662,7 +662,7 @@ mod tests {
             .subject(subject_fn(|_, _| async { Transcript::response("ok") }))
             .scorer(contains("ok"));
         for i in 0..samples {
-            eval = eval.sample(Sample::new(format!("s{i}"), "go"));
+            eval = eval.add_sample(Sample::new(format!("s{i}"), "go"));
         }
         Study::new().page_size(page).eval(eval.build())
     }
@@ -748,7 +748,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn run_scores_a_cell() {
+    async fn run_scores_a_case() {
         let params = RunParams {
             eval: "greet".into(),
             sample: "hi".into(),
@@ -769,7 +769,7 @@ mod tests {
         // trial/seed params reached the subject and round-tripped into the result.
         let s = Study::new().eval(
             Eval::new("rng")
-                .case("a", "x")
+                .sample("a", "x")
                 .trials(4)
                 .subject(subject_fn(|_, cx| async move {
                     Transcript::response(format!("seed={:?}", cx.seed()))
@@ -895,12 +895,12 @@ mod tests {
         assert!(study().score(&sp).await.is_err());
     }
 
-    /// A study whose only cell sleeps far longer than the test, so a `run`
+    /// A study whose only case sleeps far longer than the test, so a `run`
     /// observably stays in flight until cancelled.
     fn slow_study() -> Study {
         Study::new().eval(
             Eval::new("slow")
-                .sample(Sample::new("s", "go"))
+                .add_sample(Sample::new("s", "go"))
                 .subject(subject_fn(|_, _| async {
                     tokio::time::sleep(std::time::Duration::from_secs(30)).await;
                     Transcript::response("done")

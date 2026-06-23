@@ -1,11 +1,11 @@
 //! `mira` — the host CLI. Compiles + spawns an eval **study** (a program that
 //! calls `mira::Study::registered().serve()`), enumerates its evals, plans the
-//! run (selection × matrix), executes each cell over the protocol, then
+//! run (selection × matrix), executes each case over the protocol, then
 //! aggregates, saves, and checkpoints.
 //!
 //! ```bash
 //! mira --bin greet list
-//! mira --bin greet run                          # all cells (sim runs; keyed cells skip)
+//! mira --bin greet run                          # all cases (sim runs; keyed cases skip)
 //! mira --bin greet run greet                    # substring filter
 //! mira --bin greet run --tag smoke
 //! mira --bin greet run --targets sim --format junit --out results.xml
@@ -16,7 +16,7 @@
 //! ```
 //!
 //! Execution and scoring can be split: `run --execute-only` captures one
-//! full-transcript artifact per cell (for long-running subjects), and `score`
+//! full-transcript artifact per case (for long-running subjects), and `score`
 //! (re-)scores those artifacts without re-executing the subject.
 //!
 //! Each Rust example is a crate exposing a like-named binary, so `--bin <name>`
@@ -42,7 +42,7 @@ mod env;
 
 use mira::Host;
 use mira::Trial;
-use mira::exec::{self, CellSpec, Concurrency};
+use mira::exec::{self, CaseSpec, Concurrency};
 use mira::protocol::{
     ExecuteResult, InitializeResult, ListResult, RunResult, TranscriptSummary, capabilities,
 };
@@ -152,7 +152,7 @@ struct Launcher {
 enum Cmd {
     /// List the evals, samples, scorers, and targets the study advertises.
     List,
-    /// Run selected cells and report.
+    /// Run selected cases and report.
     Run(RunArgs),
     /// Score (or re-score) previously captured execution artifacts.
     Score(ScoreArgs),
@@ -189,9 +189,9 @@ struct RunArgs {
     /// the preset.
     #[arg(long)]
     preset: Option<String>,
-    /// Run each cell this many times (trials/repetitions) for pass@k / variance.
+    /// Run each case this many times (trials/repetitions) for pass@k / variance.
     /// Overrides the eval's declared trials. The host groups the repetitions and
-    /// reports pass-rate, pass@k, and score standard deviation per cell.
+    /// reports pass-rate, pass@k, and score standard deviation per case.
     #[arg(long)]
     trials: Option<usize>,
     /// Base seed for reproducible trials: trial `t` runs with seed `seed + t`.
@@ -199,7 +199,7 @@ struct RunArgs {
     #[arg(long)]
     seed: Option<u64>,
     /// Break resolve-rate down by a metadata key (e.g. `repo`, `difficulty`,
-    /// `agent`). The value is resolved per cell from, in order: axis params,
+    /// `agent`). The value is resolved per case from, in order: axis params,
     /// sample metadata, target metadata, then transcript metadata.
     #[arg(long)]
     group_by: Option<String>,
@@ -215,13 +215,13 @@ struct RunArgs {
     /// Report file format: json | junit | md | html.
     #[arg(long, default_value = "json")]
     format: String,
-    /// Persist/resume results here; completed cells are skipped on re-run.
+    /// Persist/resume results here; completed cases are skipped on re-run.
     #[arg(long)]
     checkpoint: Option<String>,
     /// Ignore an existing checkpoint/artifact and run everything fresh.
     #[arg(long)]
     fresh: bool,
-    /// Max cells to run in parallel across all providers.
+    /// Max cases to run in parallel across all providers.
     #[arg(long, short = 'j', default_value_t = 8)]
     max_concurrent: usize,
     /// Per-provider concurrency ceilings, e.g. `anthropic=2,openai=4`. Caps a
@@ -232,7 +232,7 @@ struct RunArgs {
     /// retry when it returns rate-limit / overload errors).
     #[arg(long)]
     no_adaptive: bool,
-    /// Times a rate-limited cell is retried (after backoff) before it's failed.
+    /// Times a rate-limited case is retried (after backoff) before it's failed.
     #[arg(long, default_value_t = 4)]
     max_retries: u32,
     /// Execute subjects only (no scoring), writing full transcripts to
@@ -240,7 +240,7 @@ struct RunArgs {
     /// --checkpoint/--out don't apply in this mode (no scores are produced).
     #[arg(long, requires = "artifacts", conflicts_with_all = ["checkpoint", "out", "save"])]
     execute_only: bool,
-    /// Directory for full-transcript execution artifacts (one JSON per cell).
+    /// Directory for full-transcript execution artifacts (one JSON per case).
     /// Written when --execute-only; read by `mira score`.
     #[arg(long)]
     artifacts: Option<String>,
@@ -298,7 +298,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let command =
         build_launch_command(&cli.launcher).map_err(Box::<dyn std::error::Error>::from)?;
     let host = Host::spawn(command).await?.on_event(move |n| {
-        // Per-cell `event` notifications correlate to their `run` by
+        // Per-case `event` notifications correlate to their `run` by
         // `request_id`; here only study `log`s are surfaced, so they no
         // longer spam stderr.
         if let Some(log) = n.as_log() {
@@ -343,7 +343,7 @@ OVERVIEW
   You write evals as code (in Rust, or any language that speaks the protocol);
   this binary is the HOST. It owns the run end to end: it launches your eval
   program (the `study`), enumerates what it advertises, plans the grid
-  (selection x target matrix x axes), executes each cell over the protocol,
+  (selection x target matrix x axes), executes each case over the protocol,
   scores the results, then aggregates, reports, and checkpoints. Execution and
   scoring can be split for long runs (`run --execute-only` then `score`).
 
@@ -533,7 +533,7 @@ async fn run(
     validate_selection(&selection, &listing).map_err(Box::<dyn std::error::Error>::from)?;
     let plan = plan_grid(&listing, &args, &selection);
     if plan.is_empty() {
-        eprintln!("no cells matched the selection");
+        eprintln!("no cases matched the selection");
     }
 
     // Execute-only: run subjects, persist full transcripts, defer scoring.
@@ -548,7 +548,7 @@ async fn run(
 
     // Resume from a session checkpoint unless --fresh. The session carries the
     // planned `total` and per-eval fingerprints, so we can report accurate
-    // progress and warn when a cached cell's eval definition has changed.
+    // progress and warn when a cached case's eval definition has changed.
     let mut done: BTreeMap<String, RunResult> = BTreeMap::new();
     let mut session = Session::new(
         info.study.clone(),
@@ -568,12 +568,12 @@ async fn run(
                 session.created_unix = prev.created_unix;
                 let resumable = plan.iter().filter(|c| done.contains_key(&c.key())).count();
                 eprintln!(
-                    "resuming checkpoint: {resumable}/{} cells already done",
+                    "resuming checkpoint: {resumable}/{} cases already done",
                     plan.len()
                 );
                 if !stale.is_empty() {
                     eprintln!(
-                        "warning: {} cached cell(s) are stale — their eval definition changed \
+                        "warning: {} cached case(s) are stale — their eval definition changed \
                          since they were recorded. They'll be reused as-is; re-run with --fresh \
                          to recompute. e.g. {}",
                         stale.len(),
@@ -606,44 +606,44 @@ async fn run(
     progress.set_length(plan.len() as u64);
     progress.set_position(resumable as u64);
 
-    // Only run cells not already checkpointed.
-    let todo: Vec<CellSpec> = plan
+    // Only run cases not already checkpointed.
+    let todo: Vec<CaseSpec> = plan
         .iter()
-        .filter(|cell| !done.contains_key(&cell.key()))
+        .filter(|case| !done.contains_key(&case.key()))
         .cloned()
         .collect();
 
     let cfg = concurrency(&args);
 
-    // Run cells concurrently under the bounded, provider-aware policy. Each
-    // finished cell advances the bar and is persisted to the session checkpoint
+    // Run cases concurrently under the bounded, provider-aware policy. Each
+    // finished case advances the bar and is persisted to the session checkpoint
     // as it lands, so a long run stays resumable.
     {
         let handle = host.handle();
-        exec::run_cells(
+        exec::run_cases(
             todo,
             &cfg,
-            |cell| {
+            |case| {
                 let handle = handle.clone();
                 async move {
                     handle
                         .run(
-                            &cell.eval,
-                            &cell.sample,
-                            &cell.target,
-                            &cell.params,
-                            cell.trial,
+                            &case.eval,
+                            &case.sample,
+                            &case.target,
+                            &case.params,
+                            case.trial,
                         )
                         .await
                 }
             },
-            |cell, result| {
-                progress.set_message(cell.key());
-                done.insert(cell.key(), result);
+            |case, result| {
+                progress.set_message(case.key());
+                done.insert(case.key(), result);
                 progress.inc(1);
                 if let Some(path) = &args.checkpoint {
-                    // Persist only the planned cells, in plan order — so the file
-                    // stays deterministic and doesn't accumulate cells dropped by a
+                    // Persist only the planned cases, in plan order — so the file
+                    // stays deterministic and doesn't accumulate cases dropped by a
                     // narrower selection on resume.
                     let results = plan
                         .iter()
@@ -661,10 +661,10 @@ async fn run(
     progress.finish_and_clear();
     host.shutdown().await?;
 
-    // Report only the planned cells, in plan order.
+    // Report only the planned cases, in plan order.
     let results: Vec<RunResult> = plan
         .iter()
-        .filter_map(|cell| done.get(&cell.key()).cloned())
+        .filter_map(|case| done.get(&case.key()).cloned())
         .collect();
 
     report::print_results(&results);
@@ -692,7 +692,7 @@ async fn run(
         save_results(base, &run_id, &info, started_unix, &results, group)?;
     }
 
-    // A cell that's N/A (all scores N/A — e.g. an infra failure) is neither
+    // A case that's N/A (all scores N/A — e.g. an infra failure) is neither
     // passed nor failed, so it doesn't make CI red.
     let failed = results
         .iter()
@@ -774,36 +774,36 @@ fn require_capability(
     .into())
 }
 
-/// `run --execute-only`: run each cell's subject, persist the full transcript as
-/// an artifact, and skip scoring. Resumable — a cell whose artifact already
+/// `run --execute-only`: run each case's subject, persist the full transcript as
+/// an artifact, and skip scoring. Resumable — a case whose artifact already
 /// exists is skipped unless `--fresh`.
 async fn execute_only(
     host: Host,
-    plan: &[CellSpec],
+    plan: &[CaseSpec],
     dir: &str,
     fresh: bool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     std::fs::create_dir_all(dir)?;
     let mut wrote = 0usize;
-    for cell in plan {
-        let path = artifact_path(dir, &cell.key());
+    for case in plan {
+        let path = artifact_path(dir, &case.key());
         if !fresh && path.exists() {
             continue;
         }
         let result = host
             .execute(
-                &cell.eval,
-                &cell.sample,
-                &cell.target,
-                &cell.params,
-                cell.trial,
+                &case.eval,
+                &case.sample,
+                &case.target,
+                &case.params,
+                case.trial,
             )
             .await?;
         std::fs::write(&path, serde_json::to_string_pretty(&result)?)?;
         wrote += 1;
     }
     host.shutdown().await?;
-    eprintln!("executed {wrote} cell(s); artifacts in {dir}");
+    eprintln!("executed {wrote} case(s); artifacts in {dir}");
     eprintln!("score them with: mira score --artifacts {dir}");
     Ok(())
 }
@@ -832,7 +832,7 @@ async fn score(
 
     let mut results = Vec::with_capacity(artifacts.len());
     for artifact in &artifacts {
-        // A skipped (unexecuted) cell has no transcript to score; pass it through.
+        // A skipped (unexecuted) case has no transcript to score; pass it through.
         if artifact.skipped {
             results.push(skipped_result(artifact));
         } else {
@@ -866,7 +866,7 @@ async fn score(
         save_results(base, &run_id, &info, started_unix, &results, group)?;
     }
 
-    // A cell that's N/A (all scores N/A — e.g. an infra failure) is neither
+    // A case that's N/A (all scores N/A — e.g. an infra failure) is neither
     // passed nor failed, so it doesn't make CI red.
     let failed = results
         .iter()
@@ -892,7 +892,7 @@ fn skipped_result(a: &ExecuteResult) -> RunResult {
     }
 }
 
-/// Filesystem path for a cell's artifact under `dir`. The cell key is encoded
+/// Filesystem path for a case's artifact under `dir`. The case key is encoded
 /// reversibly — `[A-Za-z0-9]` kept verbatim, every other byte escaped as `_HH`
 /// (hex) — so distinct keys can never collide onto the same filename (which would
 /// overwrite an artifact or wrongly skip execution on resume).
@@ -909,7 +909,7 @@ fn artifact_path(dir: &str, key: &str) -> std::path::PathBuf {
     Path::new(dir).join(format!("{safe}.json"))
 }
 
-/// Load every execution artifact in `dir`, sorted by cell key for stable order.
+/// Load every execution artifact in `dir`, sorted by case key for stable order.
 /// Unreadable or invalid files are skipped with a warning, so a corrupted or
 /// partially-written artifact is visible rather than silently dropped.
 fn load_artifacts(dir: &str) -> Vec<ExecuteResult> {
@@ -1082,7 +1082,7 @@ fn validate_selection(sel: &Selection, listing: &ListResult) -> Result<(), Strin
     Ok(())
 }
 
-/// True when a cell's axis params satisfy the (non-target) axis constraints.
+/// True when a case's axis params satisfy the (non-target) axis constraints.
 fn axes_allowed(sel: &Selection, params: &mira::Params) -> bool {
     params.iter().all(|(name, value)| {
         sel.axes
@@ -1091,9 +1091,9 @@ fn axes_allowed(sel: &Selection, params: &mira::Params) -> bool {
     })
 }
 
-/// Expand the advertised listing into an ordered, selected list of cells. Each
-/// cell carries its target's provider so the executor can bucket concurrency.
-fn plan_grid(listing: &ListResult, args: &RunArgs, sel: &Selection) -> Vec<CellSpec> {
+/// Expand the advertised listing into an ordered, selected list of cases. Each
+/// case carries its target's provider so the executor can bucket concurrency.
+fn plan_grid(listing: &ListResult, args: &RunArgs, sel: &Selection) -> Vec<CaseSpec> {
     let mut plan = Vec::new();
     for eval in &listing.evals {
         if let Some(evals) = &sel.evals
@@ -1123,16 +1123,16 @@ fn plan_grid(listing: &ListResult, args: &RunArgs, sel: &Selection) -> Vec<CellS
                     if !axes_allowed(sel, params) {
                         continue;
                     }
-                    let key = mira::cell_key(&eval.name, &sample.id, &target.label, params);
+                    let key = mira::case_key(&eval.name, &sample.id, &target.label, params);
                     // Filter on the logical key, so `--filter` keeps or drops all
-                    // trials of a cell together (a stable group to aggregate).
+                    // trials of a case together (a stable group to aggregate).
                     if let Some(f) = &sel.filter
                         && !key.contains(f.as_str())
                     {
                         continue;
                     }
                     for index in 0..trials {
-                        plan.push(CellSpec {
+                        plan.push(CaseSpec {
                             eval: eval.name.clone(),
                             sample: sample.id.clone(),
                             target: target.label.clone(),
@@ -1176,8 +1176,8 @@ fn meta_indexes(listing: &ListResult) -> (MetaIndex, MetaIndex) {
     (sample_meta, model_meta)
 }
 
-/// Resolve a `--group-by` key for one cell, in priority order: axis params,
-/// sample metadata, target metadata, then transcript metadata. `None` ⇒ the cell
+/// Resolve a `--group-by` key for one case, in priority order: axis params,
+/// sample metadata, target metadata, then transcript metadata. `None` ⇒ the case
 /// carried no value for the key.
 fn group_value(
     r: &RunResult,

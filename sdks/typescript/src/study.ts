@@ -85,7 +85,7 @@ export function sample(id: string, opts: SampleOptions = {}): Sample {
   };
 }
 
-/** A matrix cell: the model or harness under evaluation. An unavailable target
+/** A matrix case: the model or harness under evaluation. An unavailable target
  * is reported as N/A (infra), not a failure. */
 export interface Target {
   label: string;
@@ -109,7 +109,7 @@ export function target(label: string, opts: TargetOptions = {}): Target {
   };
 }
 
-/** Per-cell context handed to a subject: the matrix target, turn budget, and the
+/** Per-case context handed to a subject: the matrix target, turn budget, and the
  * chosen axis values. */
 export class RunCx {
   constructor(
@@ -302,7 +302,7 @@ export class Study {
     return toWire("ListSamplesResult", { samples, next_cursor: next });
   }
 
-  /** Run one cell's subject. Returns [transcript, skipped]; an unavailable target
+  /** Run one case's subject. Returns [transcript, skipped]; an unavailable target
    * is skipped with an infra-error transcript (scored N/A, not failed). */
   private async execute(params: Record<string, unknown>): Promise<[Transcript, boolean]> {
     const ev = this.getEval(params.eval as string);

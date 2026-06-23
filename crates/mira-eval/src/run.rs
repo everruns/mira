@@ -113,19 +113,19 @@ pub struct GitInfo {
 /// Rolled-up counts and totals over a run's results. The single source of truth
 /// for the report JSON `summary` block and the saved run `meta.json`.
 ///
-/// A cell is one of three states (see [`report::is_na`](crate::report::is_na)):
+/// A case is one of three states (see [`report::is_na`](crate::report::is_na)):
 /// *scored* (a real verdict — counts toward `passed`/`failed`), *N/A* (ran but
 /// nothing could be evaluated — an unreachable judge or infra failure; excluded
 /// from the verdict like a skip), or *skipped* (never executed).
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct RunSummary {
-    /// Cells with a real verdict (ran, not N/A): `passed + failed`.
+    /// Cases with a real verdict (ran, not N/A): `passed + failed`.
     pub scored: usize,
     pub passed: usize,
     pub failed: usize,
-    /// Cells that ran but were all-N/A — neither passed nor failed.
+    /// Cases that ran but were all-N/A — neither passed nor failed.
     pub na: usize,
-    /// Cells that never executed.
+    /// Cases that never executed.
     pub skipped: usize,
     pub total_tokens: u64,
     pub total_cost_usd: f64,
@@ -134,7 +134,7 @@ pub struct RunSummary {
 }
 
 impl RunSummary {
-    /// Aggregate a slice of results. Usage/timing totals cover every cell that
+    /// Aggregate a slice of results. Usage/timing totals cover every case that
     /// actually ran (including N/A ones, which may have burned tokens before
     /// failing); only never-run skips drop out.
     pub fn of(results: &[RunResult]) -> Self {
@@ -284,7 +284,7 @@ mod tests {
 
     #[test]
     fn summary_counts_and_totals() {
-        // A pass, a fail, an all-N/A cell (ran but unevaluated), and a skip.
+        // A pass, a fail, an all-N/A case (ran but unevaluated), and a skip.
         let na = {
             let mut r = run_result(false, false, 7);
             r.scores = vec![Score::na("judge", "unreachable")];
@@ -300,9 +300,9 @@ mod tests {
         assert_eq!(s.scored, 2);
         assert_eq!(s.passed, 1);
         assert_eq!(s.failed, 1);
-        assert_eq!(s.na, 1, "all-N/A cell is N/A, not failed");
+        assert_eq!(s.na, 1, "all-N/A case is N/A, not failed");
         assert_eq!(s.skipped, 1);
-        // Totals include the N/A cell (it ran), exclude only the skip.
+        // Totals include the N/A case (it ran), exclude only the skip.
         assert_eq!(s.total_tokens, 15);
         assert_eq!(s.total_tool_calls, 3);
         assert_eq!(s.total_duration_ms, 30);

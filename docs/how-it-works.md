@@ -27,7 +27,7 @@ Eval = Dataset(Sample…) + Subject + [Scorer…]  ×  model matrix × axes
   `pass`, and a `reason`). Deterministic built-ins, operational budgets, an
   arbitrary-closure escape hatch, and `model_graded` LLM-as-judge — one open
   vocabulary, freely composed.
-- **`Target`** — one matrix cell. It is **provider-agnostic**: a `(label,
+- **`Target`** — one matrix case. It is **provider-agnostic**: a `(label,
   provider, model, available, metadata)` tuple with no API keys and no SDK
   types. Subjects interpret it.
 
@@ -61,13 +61,13 @@ an older host interoperate.
 The **target** is the first-class axis — the configured thing under evaluation.
 For an LLM eval a `Target` *is* a model; for an agent eval it is a harness
 (`Target::cli("yolop")`), optionally wrapping a model. The runner expands `evals
-× targets × axes × samples` into independently-addressable cells. A missing API
-key marks a cell `available: false`, so it is **skipped, not failed** — a fresh
+× targets × axes × samples` into independently-addressable cases. A missing API
+key marks a case `available: false`, so it is **skipped, not failed** — a fresh
 run is green offline.
 
 **Arbitrary axes** beyond the target are first-class too: `Eval::axis(name,
 values)` adds a discrete axis (reasoning effort, a retrieval setting, …) and the
-runner crosses every axis with the target matrix. The chosen value per cell
+runner crosses every axis with the target matrix. The chosen value per case
 reaches the subject via `RunCx::param(name)`. (A harness like yolop-vs-codex can
 be either a set of **targets** or its own **axis** — they compose.)
 
@@ -88,7 +88,7 @@ from `list` before running anything, independent of how the evals were authored:
   flags override the preset.
 
 Selection only ever **subsets** the grid the study declared — the host never adds
-cells.
+cases.
 
 ## Launching the study
 
@@ -122,7 +122,7 @@ The host multiplexes many `run`s over the single pipe (responses correlate by
 `id`) and the study dispatches them on independent tasks. How many run at once
 is the host's call, smallest-wins across three knobs: a **global** cap
 (`-j/--max-concurrent`), a **per-provider** cap (`--provider-concurrency`), and
-**adaptive reduction** — a cell whose result carries a rate-limit signal halves
+**adaptive reduction** — a case whose result carries a rate-limit signal halves
 that provider's in-flight limit (AIMD) and is re-queued after exponential
 backoff, recovering one slot per success streak. `--no-adaptive` disables it.
 
@@ -134,11 +134,11 @@ token usage (input/output plus cache-read and reasoning breakdowns and
 ordered list of tool calls, and captured files. Budget scorers
 (`tokens_within`, `cost_within`, `latency_within`, `ttft_within`,
 `tools_used_exactly`, …) turn these into pass/fail, and the JSON/HTML reports
-surface them per cell and in aggregate.
+surface them per case and in aggregate.
 
 ## Reporting, checkpoints & resume
 
-The host owns all reporting; the study only returns per-cell results.
+The host owns all reporting; the study only returns per-case results.
 
 - **Terminal** — a per-case list with metrics, a model×eval pass-rate matrix,
   and totals. On an interactive terminal it also renders a live progress bar
@@ -150,9 +150,9 @@ The host owns all reporting; the study only returns per-cell results.
 - **JUnit XML** (`--format junit`) and **Markdown** (`--format md`) — for CI
   test UIs and PR job summaries. Non-zero exit on failure drops it into CI.
 - **Checkpoints** (`--checkpoint`) — a first-class *session* record rewritten
-  after each cell. A re-run loads it, skips done cells, and resumes the progress
+  after each case. A re-run loads it, skips done cases, and resumes the progress
   bar. Per-eval definition fingerprints warn when a definition changed so stale
-  cached cells aren't silently reused. `--fresh` ignores the checkpoint.
+  cached cases aren't silently reused. `--fresh` ignores the checkpoint.
 
 ## Crate layout
 

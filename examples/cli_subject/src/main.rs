@@ -19,7 +19,7 @@ fn shell() -> Eval {
         .subject(
             CliSubject::new(concat!(env!("CARGO_MANIFEST_DIR"), "/subject.sh")).arg("{prompt}"),
         )
-        .case("greet", "hello world")
+        .sample("greet", "hello world")
         .scorer(succeeded())
         .scorer(contains("HELLO WORLD"))
         .build()

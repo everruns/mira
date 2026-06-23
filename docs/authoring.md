@@ -17,8 +17,8 @@ use mira::scorer::{succeeded, contains};
 let eval = Eval::new("greet")
     .describe("Greets the user")          // shown in `list`
     .meta("suite", "smoke")               // free-form metadata
-    .case("hi", "say hi")                 // inline single-turn sample
-    .sample(Sample::new("ho", "say ho").tag("smoke"))  // full sample
+    .sample("hi", "say hi")                 // inline single-turn sample
+    .add_sample(Sample::new("ho", "say ho").tag("smoke"))  // full sample
     .subject(subject_fn(|s, _| async move { mira::Transcript::response("hi") }))
     .scorer(succeeded())
     .scorer(contains("hi"))
@@ -71,7 +71,7 @@ polyglot subjects.
 ## The model matrix
 
 The **target** is the first-class axis. The runner expands `evals × targets ×
-samples` into independently-addressable cells (`greet/hi@sim`).
+samples` into independently-addressable cases (`greet/hi@sim`).
 
 ```rust
 .targets([
@@ -83,7 +83,7 @@ samples` into independently-addressable cells (`greet/hi@sim`).
 ])
 ```
 
-A cell whose model is **unavailable** (missing API key) is skipped, never failed
+A case whose model is **unavailable** (missing API key) is skipped, never failed
 — so the default run is green offline and lights up as keys appear. The
 `provider` and `model` fields are passed to the subject via `cx.target`; how
 they're used is the subject's business.
@@ -115,11 +115,11 @@ subject-attributed `Transcript::failed(..)`:
 }))
 ```
 
-An infra error **short-circuits scoring to a single N/A score** — the cell-level
-dual of a scorer returning [`Score::na`](scorers.md). The cell is then excluded
+An infra error **short-circuits scoring to a single N/A score** — the case-level
+dual of a scorer returning [`Score::na`](scorers.md). The case is then excluded
 from the pass-rate (neither pass nor fail, like a skip), and is **retry-eligible**:
-the host's concurrent executor re-queues it (alongside rate-limited cells) up to
-`--max-retries`. A cell that stays broken is reported **N/A**, never counted
+the host's concurrent executor re-queues it (alongside rate-limited cases) up to
+`--max-retries`. A case that stays broken is reported **N/A**, never counted
 against the model, so an outage can't turn a green suite red.
 
 The `mira-everruns` adapter does this for you: `classify_runtime_error`
@@ -130,11 +130,11 @@ ambiguous errors attributed to the subject.
 
 Beyond the model, add arbitrary discrete axes with `.axis(name, values)`. The
 runner takes the cross-product of every axis with the model matrix, and the
-subject reads the chosen value per cell via `cx.param(name)`:
+subject reads the chosen value per case via `cx.param(name)`:
 
 ```rust
 let eval = Eval::new("reasoning")
-    .case("puzzle", "What is 17 * 23?")
+    .sample("puzzle", "What is 17 * 23?")
     .axis("effort", ["low", "high"])             // a second axis
     .targets([Target::sim(), Target::anthropic("claude-opus-4-8")])
     .subject(subject_fn(|_s, cx| async move {
@@ -146,7 +146,7 @@ let eval = Eval::new("reasoning")
     .build();
 ```
 
-This expands to `samples × targets × effort` cells, each with a stable key like
+This expands to `samples × targets × effort` cases, each with a stable key like
 `reasoning/puzzle@sim[effort=high]` that selection, checkpoints, and reports use.
 
 ## Interactive (multi-turn) evals
@@ -163,7 +163,7 @@ use mira::{Eval, Message, Part, Role, Transcript, subject::subject_fn};
 use mira::scorer::{contains, succeeded};
 
 let eval = Eval::new("clarify")
-    .case("weather", "What's the weather?")
+    .sample("weather", "What's the weather?")
     .max_turns(4)
     // The subject answers from the conversation so far.
     .subject(subject_fn(|_s, cx| async move {
@@ -218,7 +218,7 @@ mira --bin swe_bench run --group-by difficulty   # one resolve-rate row per diff
 mira --bin swe_bench run --group-by agent         # …or per model-level config key
 ```
 
-Each cell's group value is resolved in order: axis `params`, then sample
+Each case's group value is resolved in order: axis `params`, then sample
 metadata, then model metadata, then transcript metadata. The breakdown prints to
 the terminal and is folded into the JSON, Markdown, and HTML reports (a `groups`
 block in the JSON record).

@@ -83,7 +83,7 @@ use mira::subject::subject_fn;
 use mira::{Eval, Transcript};
 
 let eval = Eval::new("retrieval")
-    .case("q1", "Find the relevant passages.")
+    .sample("q1", "Find the relevant passages.")
     .subject(subject_fn(|_sample, _cx| async move {
         // 1. Measure whatever you care about and record it (f64, keyed by name).
         let recall = hits_at_k as f64 / relevant_total as f64;
@@ -121,11 +121,11 @@ detail (per-step traces, retrieval hits), prefer `Transcript.events` over
 ## Where metrics go
 
 - **CLI** — a per-case line (`68 tok · $0.0003 · 88ms · 3 tool calls`).
-- **JSON** (`--format json`) — the full `RunResult` per cell, including `usage`,
+- **JSON** (`--format json`) — the full `RunResult` per case, including `usage`,
   `timing`, and the `metrics` map, plus rolled-up totals in `summary`.
 - **HTML** (`--format html`) — summary cards, the pass/fail matrix, and a
   per-case breakdown that lists scores, tools, the `metrics` map, and metadata.
-- **JUnit** (`--format junit`) — pass/fail per cell for any CI.
+- **JUnit** (`--format junit`) — pass/fail per case for any CI.
 
 ## See also
 

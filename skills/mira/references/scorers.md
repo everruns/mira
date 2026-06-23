@@ -1,7 +1,7 @@
 # Scorer catalog
 
 A scorer grades a `Transcript` and returns a `Score` (pass / fail / N/A). Add
-them with `.scorer(...)`; a cell passes only if every scorer passes. Import from
+them with `.scorer(...)`; a case passes only if every scorer passes. Import from
 `mira::scorer`. Canonical prose + semantics:
 <https://github.com/everruns/mira/blob/main/docs/scorers.md>.
 

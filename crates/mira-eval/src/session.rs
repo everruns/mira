@@ -1,17 +1,17 @@
 //! Resumable evaluation sessions — the checkpoint as a first-class record.
 //!
 //! The host (the `mira` CLI) persists a [`Session`] as it drives a run, one
-//! write per completed cell. A re-run loads it to:
-//! * resume with **accurate progress** — the session carries the planned cell
+//! write per completed case. A re-run loads it to:
+//! * resume with **accurate progress** — the session carries the planned case
 //!   `total`, so a progress bar can show `done/total` immediately instead of
-//!   only counting cells run in the current process; and
+//!   only counting cases run in the current process; and
 //! * **warn on stale results** — it fingerprints each eval's advertised
 //!   definition (scorers, axes, targets, samples, metadata, max_turns) at save
 //!   time, so a resume can detect evals whose definition changed and flag their
-//!   cached cells rather than silently reusing them.
+//!   cached cases rather than silently reusing them.
 //!
 //! Design note: the session lives host-side on purpose. The study returns
-//! per-cell [`RunResult`]s and knows nothing about checkpoints (see
+//! per-case [`RunResult`]s and knows nothing about checkpoints (see
 //! `specs/architecture.md` §7); this module is the durable wrapper the host owns.
 //!
 //! Staleness is detected at eval granularity. Sample *content* is not visible in
@@ -30,7 +30,7 @@ use crate::protocol::{EvalInfo, ListResult, RunResult};
 /// run starts fresh (pre-1.0: no migration of old checkpoints).
 pub const SESSION_FORMAT: u32 = 1;
 
-/// A resumable evaluation session: run metadata plus the per-cell results
+/// A resumable evaluation session: run metadata plus the per-case results
 /// gathered so far. This is the unit persisted to the `--checkpoint` path.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Session {
@@ -41,19 +41,19 @@ pub struct Session {
     /// Study version, when the study advertises one.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub study_version: Option<String>,
-    /// Total planned cells for the run this session belongs to. Lets a resume
+    /// Total planned cases for the run this session belongs to. Lets a resume
     /// report `done/total` without re-deriving the plan.
     pub total: usize,
     /// Unix seconds when the session was first created.
     pub created_unix: u64,
-    /// Unix seconds of the last write (one per completed cell).
+    /// Unix seconds of the last write (one per completed case).
     pub updated_unix: u64,
     /// Per-eval fingerprint of the advertised definition at save time, keyed by
     /// eval name. A resume compares these against the current listing to flag
-    /// stale cells. See [`fingerprints`].
+    /// stale cases. See [`fingerprints`].
     #[serde(default)]
     pub fingerprints: BTreeMap<String, String>,
-    /// The per-cell results gathered so far.
+    /// The per-case results gathered so far.
     pub results: Vec<RunResult>,
 }
 
@@ -113,7 +113,7 @@ impl Session {
     }
 
     /// Replace the results and refresh `total`/`fingerprints` for the current
-    /// plan, keeping `created_unix`. Used as the host records each cell.
+    /// plan, keeping `created_unix`. Used as the host records each case.
     pub fn update(
         &mut self,
         total: usize,
@@ -125,9 +125,9 @@ impl Session {
         self.results = results;
     }
 
-    /// Keys of cached cells whose eval definition changed since they were
+    /// Keys of cached cases whose eval definition changed since they were
     /// recorded — i.e. the current listing's fingerprint differs from the one
-    /// stored in this session. Cells for evals no longer in the plan are not
+    /// stored in this session. Cases for evals no longer in the plan are not
     /// reported (they're unused, not stale).
     pub fn stale_keys(&self, current: &BTreeMap<String, String>) -> Vec<String> {
         self.results
@@ -171,7 +171,7 @@ pub fn fingerprints(listing: &ListResult) -> BTreeMap<String, String> {
 ///
 /// Deliberately *not* `DefaultHasher`: std's SipHash algorithm is not contracted
 /// to be stable across Rust releases, so a toolchain bump could silently change
-/// fingerprints and flag every cached cell as stale. Instead we serialize the
+/// fingerprints and flag every cached case as stale. Instead we serialize the
 /// relevant fields to canonical JSON (deterministic field/`BTreeMap` order) and
 /// hash the bytes with FNV-1a — a fixed algorithm that won't drift. Not
 /// cryptographic; it only needs to change when the definition changes. The
@@ -293,7 +293,7 @@ mod tests {
         // Unchanged listing ⇒ nothing stale.
         assert!(session.stale_keys(&fingerprints(&listing)).is_empty());
 
-        // Changed scorers ⇒ the greet cell is stale.
+        // Changed scorers ⇒ the greet case is stale.
         let changed = ListResult {
             evals: vec![eval_info(&["contains", "regex"])],
         };

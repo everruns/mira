@@ -11,7 +11,7 @@
 //!
 //! fn greet() -> Eval {
 //!     Eval::new("greet")
-//!         .case("hi", "say hi")
+//!         .sample("hi", "say hi")
 //!         .subject(subject_fn(|_, _| async { Transcript::response("hi there") }))
 //!         .scorer(contains("hi"))
 //!         .build()
@@ -43,7 +43,7 @@ inventory::collect!(EvalFactory);
 /// # use mira::subject::subject_fn;
 /// fn my_eval() -> Eval {
 ///     Eval::new("e")
-///         .case("a", "x")
+///         .sample("a", "x")
 ///         .subject(subject_fn(|_, _| async { Transcript::default() }))
 ///         .build()
 /// }

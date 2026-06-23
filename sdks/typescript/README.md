@@ -89,10 +89,10 @@ A complete, runnable example lives in
   — `run(sample, cx) => Transcript | Promise<Transcript>` is the subject.
 - **`sample(id, { prompt? | input?, tags?, expected?, files?, metadata? })`** —
   one dataset row; `sample.text` is the prompt, or the input turns joined.
-- **`target(label, { provider?, available?, metadata? })`** — a matrix cell (the
+- **`target(label, { provider?, available?, metadata? })`** — a matrix case (the
   model or harness under evaluation). An unavailable target is reported as
   **N/A** (infra), not a failure.
-- **`RunCx`** — the per-cell context: `cx.target`, `cx.provider`, `cx.maxTurns`,
+- **`RunCx`** — the per-case context: `cx.target`, `cx.provider`, `cx.maxTurns`,
   `cx.param(name, default?)` (axis values).
 - **`transcript(finalResponse, { usage?, timing?, iterations?, toolCalls?, metrics?, metadata?, error?, errorKind?, … })`**
   plus the `usage({…})` and `timing({…})` builders.
@@ -104,7 +104,7 @@ A complete, runnable example lives in
   matrix); read it in a subject via `cx.param(name)`.
 
 Scoring semantics match the Rust `crate::runner` exactly: an N/A score is
-excluded from the cell verdict and the aggregate; an unavailable target / infra
+excluded from the case verdict and the aggregate; an unavailable target / infra
 error short-circuits to a single N/A (neither pass nor fail).
 
 ## How it stays in sync

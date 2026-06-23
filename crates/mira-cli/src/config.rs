@@ -56,7 +56,7 @@ pub struct Config {
 /// of selection criteria, applied with `--preset NAME`. Every field is optional;
 /// explicit CLI flags override the preset. The host owns selection, so a preset
 /// only *subsets* the grid the study declared (targets, axes, samples, evals) —
-/// it never adds cells.
+/// it never adds cases.
 ///
 /// ```toml
 /// [presets.smoke]

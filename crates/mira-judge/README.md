@@ -18,7 +18,7 @@ A judge depends on a network call, so it *will* sometimes fail for reasons that
 have nothing to do with the subject (no API key, rate limit, 5xx, timeout). In
 those cases the scorer returns `Score::na` — neither pass nor fail — rather than
 crashing the run or scoring a spurious `fail`. A run with no credentials
-therefore stays green: every judge cell is simply N/A.
+therefore stays green: every judge case is simply N/A.
 
 `Include` selects the surface graded: just the agent's final response, the
 response plus its tool calls, or the full picture including operational metrics

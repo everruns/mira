@@ -118,7 +118,7 @@ escape hatch returning a bool or a full `Score` (incl. `na`); `axis(name,
 values)` for extra matrix axes; and `serve()` handling
 `initialize`/`list`/`list_samples`/`run`/`execute`/`score` (with
 `Study(page_size=…)` paging large datasets). Scoring semantics match
-`crate::runner` exactly: an N/A score is excluded from the cell verdict and
+`crate::runner` exactly: an N/A score is excluded from the case verdict and
 aggregate; an unavailable model / infra error short-circuits to a single N/A.
 
 ## 6. Status & deferred

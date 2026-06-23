@@ -13,13 +13,13 @@ use mira::scorer::{contains, model_graded, succeeded};
 use mira::subject::subject_fn;
 use mira::{Eval, Score, Target, Transcript, eval};
 
-/// A tiny greeting eval across the offline sim plus a (key-gated) cloud cell.
+/// A tiny greeting eval across the offline sim plus a (key-gated) cloud case.
 #[eval]
 fn greet() -> Eval {
     Eval::new("greet")
         .describe("Greets the user and reports the answer to life")
         .meta("suite", "smoke")
-        .sample(
+        .add_sample(
             mira::Sample::new("hi", "Say hi and tell me the answer to life.")
                 .tag("smoke")
                 .meta("trace", "https://observe.example/greet/hi"),

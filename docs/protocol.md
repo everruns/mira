@@ -27,7 +27,7 @@ machine-readable definition, see the generated **JSON Schema** under
 - The **study** owns subjects and scoring. It answers requests and knows
   nothing about matrices, checkpoints, or reporting.
 - **Provider API keys live only in the study's environment** and never cross
-  the wire. The host addresses targets by *label*; a cell whose target is
+  the wire. The host addresses targets by *label*; a case whose target is
   unavailable is reported and skipped.
 
 ## Transport & framing
@@ -84,7 +84,7 @@ classified without parsing the human message:
 |-------|------|-------|
 | `code` | integer | Failure class (JSON-RPC convention): `-32602` invalid params, `-32601` method not found, `-32603` internal. `0` = unclassified. Optional, defaults `0`. |
 | `message` | string | Human-readable description. The only required field. |
-| `retryable` | boolean | Hint that retrying the identical request may succeed (a transient infra fault, not the caller's mistake). The host re-attempts retryable cells up to `--max-retries`. Optional, defaults `false`. |
+| `retryable` | boolean | Hint that retrying the identical request may succeed (a transient infra fault, not the caller's mistake). The host re-attempts retryable cases up to `--max-retries`. Optional, defaults `false`. |
 | `data` | any | Optional structured payload for programmatic handling. Omitted when absent. |
 
 All fields beyond `message` are optional and defaulted, so a peer that sends
@@ -104,7 +104,7 @@ A notification can't carry the envelope `id` — that field classifies a line as
 [Response](#response-study--host) — so an `event` correlates to the `run`/`execute`
 request that triggered it via a **`request_id`** in the payload, the same
 demultiplexing key responses use. This lets the host bind progress to a specific
-in-flight call even when many cells (including repeated trials of one cell) are
+in-flight call even when many cases (including repeated trials of one case) are
 multiplexed over the single pipe. `request_id` defaults to `0` ("uncorrelated"),
 so a study that omits it still validates.
 
@@ -214,20 +214,20 @@ eval carries the first page inline and a `next_cursor` the host follows with
   the token back verbatim, until it comes back absent. A study that fits its
   whole dataset inline omits `next_cursor` — identical to a non-paginated `list`,
   so an older host that ignores the field still works for non-paginated studies.
-- `available: false` marks a cell the study cannot run (e.g. a missing API
+- `available: false` marks a case the study cannot run (e.g. a missing API
   key). The host skips it rather than failing.
 - `provider` (optional, default empty) is the model's provider id (`sim`,
   `anthropic`, …). The host uses it to bucket concurrency per provider and to
   back off a provider that returns rate-limit errors. A study that omits it
-  groups all such cells under the empty provider.
+  groups all such cases under the empty provider.
 - `axes` (optional, default empty) advertises **extra matrix axes** beyond the
   model. The host takes the cross-product of every axis with the target matrix and
-  sends the chosen value per cell in `run.params`. A cell's identity is
+  sends the chosen value per case in `run.params`. A case's identity is
   `eval/sample@target` with a sorted `[k=v,…]` suffix when axes vary.
 - `metadata` is free-form, open-ended `string → JSON` (provenance, observability
   links, structured context). Values may be a string, number, bool, or a nested
   object/array. (Axis `params`, by
-  contrast, stay `string → string`: they form part of a cell's identity.)
+  contrast, stay `string → string`: they form part of a case's identity.)
   Carried at three levels, each optional and defaulting to empty: on the **eval**
   (shown above), on each **sample** (`samples[].metadata` — repo, difficulty,
   dataset split, …), and on each **model** (`targets[].metadata` — agent,
@@ -235,9 +235,9 @@ eval carries the first page inline and a `next_cursor` the host follows with
   are optional; an older study that omits them still parses. The host
   surfaces them in `list` and can break resolve-rate down by any of their keys
   with `mira run --group-by <key>`.
-- `trials` (optional, default 1) is how many times each cell should be **repeated**
+- `trials` (optional, default 1) is how many times each case should be **repeated**
   for pass@k / pass-rate / variance over a stochastic subject. Unlike an axis,
-  trials don't form new cells — they're re-runs of one cell, grouped back by the
+  trials don't form new cases — they're re-runs of one case, grouped back by the
   host. `seed` (optional) is the study's base seed: trial `t` runs with `seed + t`,
   so the repetition set replays deterministically. The host may override both with
   `--trials` / `--seed`. See [`run`](#run) for how a trial is addressed.
@@ -282,7 +282,7 @@ sample offset, but a study may use any token — a DB keyset, an API page token)
 
 ### `run`
 
-Runs exactly one matrix cell, addressed by `(eval, sample, target label)`, and
+Runs exactly one matrix case, addressed by `(eval, sample, target label)`, and
 returns the scored result. The study may emit `event` notifications before the
 response.
 
@@ -297,10 +297,10 @@ response.
 advertised in `list.axes`.
 
 `trial`/`trials`/`seed` (all optional, default `0`/`1`/none) address one
-**repetition** of the cell: `trial` is the 0-based index, `trials` the planned
+**repetition** of the case: `trial` is the 0-based index, `trials` the planned
 count, and `seed` the per-trial seed the study threads into the subject. A
-repeated cell's identity gains a `#trial` suffix (`greet/hi@sim[effort=high]#2`);
-a single-trial cell keeps its plain key. The study **echoes** these back in the
+repeated case's identity gains a `#trial` suffix (`greet/hi@sim[effort=high]#2`);
+a single-trial case keeps its plain key. The study **echoes** these back in the
 result so its key matches the host's plan. The host groups results by the
 *logical* key (without the `#trial` suffix) to aggregate pass@k / pass-rate /
 variance.
@@ -334,13 +334,13 @@ variance.
 
 | Field | Type | Notes |
 |-------|------|-------|
-| `params` | object | Echoes the cell's axis values (optional, default empty). |
-| `trial` / `trials` / `seed` | int / int / int | Echo the cell's trial identity (optional; omitted for a single, unseeded run). |
+| `params` | object | Echoes the case's axis values (optional, default empty). |
+| `trial` / `trials` / `seed` | int / int / int | Echo the case's trial identity (optional; omitted for a single, unseeded run). |
 | `passed` | bool | True iff every scorer passed (and at least one ran). |
 | `aggregate` | number | Mean of score `value`s, `0.0..=1.0`. |
 | `scores` | array | One [`Score`](#score) per scorer. |
 | `transcript` | object | Lightweight summary (raw events omitted on the wire). |
-| `skipped` | bool | True when the cell was not executed (e.g. unavailable model). |
+| `skipped` | bool | True when the case was not executed (e.g. unavailable model). |
 
 The `transcript.usage` object may also carry `cache_read_tokens` and
 `reasoning_tokens` (default 0), and `transcript.timing` carries `duration_ms`
@@ -376,7 +376,7 @@ same vocabulary off-wire; `output` puts it on the wire.
 
 ### `execute`
 
-Runs one cell's subject **without scoring** and returns the **full** transcript
+Runs one case's subject **without scoring** and returns the **full** transcript
 (raw `events` and captured `files` included, unlike `run`, which returns a
 lightweight summary). This is the run-now-score-later half of `run`: a
 long-running subject is executed once and its transcript persisted as an
@@ -408,8 +408,8 @@ execution artifact, to be scored — or re-scored — later. Advertised by the
 | Field | Type | Notes |
 |-------|------|-------|
 | `transcript` | object | The **full** transcript, including raw `events` and `files`. |
-| `trial` / `trials` / `seed` | int / int / int | Echo the cell's trial identity (optional), so a per-trial artifact stays distinct. |
-| `skipped` | bool | True when the cell was not executed (e.g. unavailable model). |
+| `trial` / `trials` / `seed` | int / int / int | Echo the case's trial identity (optional), so a per-trial artifact stays distinct. |
+| `skipped` | bool | True when the case was not executed (e.g. unavailable model). |
 
 ### `score`
 
@@ -444,7 +444,7 @@ The `trial`/`trials`/`seed` fields (optional) are echoed into the resulting
 ### `cancel`
 
 Aborts one in-flight `run`/`execute`/`score` by its request `id`, so a host can
-enforce per-cell timeouts, hard cost caps, or fail-fast without tearing down the
+enforce per-case timeouts, hard cost caps, or fail-fast without tearing down the
 whole connection. Advertised by the `cancel` capability.
 
 **Params**
@@ -454,8 +454,8 @@ whole connection. Advertised by the `cancel` capability.
 ```
 
 `id` is the **request id** of the call to abort — the `id` the host put on the
-`run` and is awaiting a response on — not a cell key. So a host can target one
-specific outstanding call even when several runs of the same cell are in flight.
+`run` and is awaiting a response on — not a case key. So a host can target one
+specific outstanding call even when several runs of the same case are in flight.
 
 **Result**
 
@@ -493,7 +493,7 @@ opposite direction — the study asking the host for something mid-run:
 - **host-brokered model access** — central credentials, caching, and budgeting
   in the host instead of per-study keys;
 - **shared resources** — a sandbox, fixture, or dataset the host owns;
-- **human-in-the-loop** — pause a cell to ask the operator a question.
+- **human-in-the-loop** — pause a case to ask the operator a question.
 
 Each needs a study→host **request** (with a host **response**), a direction that
 doesn't exist yet. The framing already admits it without a breaking change,
@@ -532,7 +532,7 @@ behaviour is implemented today, so the seam is real, not theoretical.
 `value` is a continuous score in `0.0..=1.0`; `pass` is the boolean verdict (for
 graded scorers, typically `value >= threshold`). A score may also carry
 `"na": true` — the scorer **could not be evaluated** (an unreachable judge, an
-infra hiccup). N/A scores are excluded from the cell verdict and aggregate:
+infra hiccup). N/A scores are excluded from the case verdict and aggregate:
 neither pass nor fail.
 
 #### Infrastructure errors
@@ -540,10 +540,10 @@ neither pass nor fail.
 A subject that fails for an **infrastructure** reason (budget/quota, rate limit,
 provider 5xx/outage, network/timeout — not the model's fault) sets
 `transcript.error` and `transcript.error_kind: "infra"` (the default,
-`"subject"`, is omitted). The study then scores the cell with a single N/A score,
+`"subject"`, is omitted). The study then scores the case with a single N/A score,
 so it is excluded from the pass-rate — neither passed nor failed, like a skip.
-The host **retries** infra-errored cells (keyed off `error_kind`) up to
-`--max-retries`, and a cell whose every score is N/A is reported as N/A, not a
+The host **retries** infra-errored cases (keyed off `error_kind`) up to
+`--max-retries`, and a case whose every score is N/A is reported as N/A, not a
 failure. `error_kind` is optional and defaulted, so a study that omits it still
 interoperates.
 
@@ -559,10 +559,10 @@ host                                   study
  │◀───────────── { samples, next_cursor }│
  │                                       │
  │  (host plans grid: selection×matrix,  │
- │   subtracts checkpointed cells)       │
+ │   subtracts checkpointed cases)       │
  │                                       │
  │ run {greet,hi,sim} ─────────────────▶ │   (many in flight at once)
- │ run {…cell 2…} ─────────────────────▶ │
+ │ run {…case 2…} ─────────────────────▶ │
  │◀──── event {kind:"started"}           │   (0+ notifications, any order)
  │◀──── { id:2, passed, … }              │   responses correlate by id
  │ cancel { id:1 } ────────────────────▶ │   abort one run by request id
@@ -572,21 +572,21 @@ host                                   study
  │ (close stdin) ──────────────────────▶ │   EOF ⇒ study exits
 ```
 
-The host issues one `run` per planned cell. Requests are **multiplexed**: the
+The host issues one `run` per planned case. Requests are **multiplexed**: the
 host may keep many runs in flight over the single pipe, and the study dispatches
 them concurrently — responses are correlated to requests by `id`, so they may
 arrive in any order. The host bounds how many run at once with a global cap, a
-per-provider cap, and **adaptive** per-provider backoff: a cell whose response
+per-provider cap, and **adaptive** per-provider backoff: a case whose response
 (or transcript) carries a rate-limit signal (HTTP 429, "overloaded", quota) is
 re-queued after an exponential backoff while that provider's concurrency is
-halved, recovering as cells succeed. Models are bucketed by their `list`
+halved, recovering as cases succeed. Models are bucketed by their `list`
 `provider`. Because the host owns the plan, **resume** falls out for free:
-completed cells are persisted to a checkpoint and subtracted on the next
+completed cases are persisted to a checkpoint and subtracted on the next
 invocation.
 
 A host can abort a single in-flight run with [`cancel`](#cancel) — addressing it
 by request `id` — without disturbing the others or closing the connection. This
-is the lever for per-cell timeouts, hard cost caps, and fail-fast. (Closing
+is the lever for per-case timeouts, hard cost caps, and fail-fast. (Closing
 stdin, by contrast, ends *every* in-flight run at once.)
 
 ## Errors

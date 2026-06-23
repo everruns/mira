@@ -14,7 +14,7 @@ use mira::{Eval, Transcript, register_eval};
 
 fn greet() -> Eval {
     Eval::new("greet")
-        .case("hi", "Say hi and tell me the answer to life.")
+        .sample("hi", "Say hi and tell me the answer to life.")
         .subject(subject_fn(|_s, _cx| async move {
             Transcript::response("Hi! The answer is 42.")
         }))

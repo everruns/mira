@@ -23,7 +23,7 @@ const PIXEL_PNG: &str = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABC
 fn multimodal() -> Eval {
     Eval::new("multimodal")
         .describe("Answers a question about an attached image")
-        .sample(
+        .add_sample(
             Sample::new("describe-image", "What format is the attached image?")
                 .attach(Part::image_uri("image/png", PIXEL_PNG))
                 .tag("smoke"),

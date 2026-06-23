@@ -94,7 +94,7 @@ use mira::{eval, Eval, Transcript};
 #[eval]
 fn greet() -> Eval {
     Eval::new("greet")
-        .case("hi", "Say hi and tell me the answer to life.")
+        .sample("hi", "Say hi and tell me the answer to life.")
         .subject(subject_fn(|_sample, _cx| async move {
             // A real subject calls a model; this one fakes a good answer.
             Transcript::response("Hi! The answer is 42.")
@@ -148,7 +148,7 @@ somewhere else. Mira is the one framework they can converge on:
   LLM-judge into one trait.
 - **Operational metrics first-class** — tokens (incl. cache/reasoning), cost,
   wall-clock latency, time-to-first-token, and exact tool usage are scorable
-  fields, surfaced per-cell in the JSON/HTML reports.
+  fields, surfaced per-case in the JSON/HTML reports.
 - **Built for CI** — JSON, JUnit, Markdown, and a self-contained HTML report;
   checkpoints for resume; non-zero exit on failure.
 
