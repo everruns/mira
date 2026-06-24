@@ -67,32 +67,37 @@ pub struct Config {
 /// A named **selection preset** (`[presets.NAME]` in `mira.toml`): a saved bundle
 /// of selection criteria, applied with `--preset NAME`. Every field is optional;
 /// explicit CLI flags override the preset. The host owns selection, so a preset
-/// only *subsets* the grid the study declared (targets, axes, samples, evals) —
+/// only *subsets* the grid the study declared (targets, samples, evals, axes) —
 /// it never adds cases.
+///
+/// `targets`, `samples`, and `evals` are per-dimension selectors that match the
+/// target label / sample id / eval name by **glob** (`*`, `?`, `[set]`,
+/// `{a,b}`); a literal value (no wildcard) is an exact match. Each accepts a
+/// single string or a list.
 ///
 /// ```toml
 /// [presets.smoke]
-/// targets = ["sim"]            # primary axis (target labels)
-/// tag = "quick"               # only samples carrying this tag
-/// filter = "greet"            # substring on the case key
-/// evals = ["greet", "coding"] # restrict to these evals (hence their subjects)
-/// axes = { effort = ["low"] } # restrict secondary axes
+/// targets = "anthropic/*"            # glob on target labels (or a list)
+/// samples = ["france", "spain"]      # glob on sample ids
+/// evals   = ["greet", "coding"]      # glob on eval names (hence their subjects)
+/// tag     = "quick"                  # only samples carrying this tag
+/// axes    = { effort = ["low"] }     # restrict secondary axes (values are globs)
 /// ```
 #[derive(Debug, Default, Clone, Deserialize)]
 pub struct Preset {
-    /// Substring filter on the case key (`eval/sample@target`).
-    #[serde(default)]
-    pub filter: Option<String>,
+    /// Restrict to sample ids matching these glob patterns.
+    #[serde(default, deserialize_with = "string_or_seq")]
+    pub samples: Vec<String>,
     /// Only run samples carrying this tag.
     #[serde(default)]
     pub tag: Option<String>,
-    /// Restrict the primary (target) axis to these labels.
-    #[serde(default)]
+    /// Restrict the primary (target) axis to labels matching these globs.
+    #[serde(default, deserialize_with = "string_or_seq")]
     pub targets: Vec<String>,
-    /// Restrict to these evals (and therefore their subjects).
-    #[serde(default)]
+    /// Restrict to evals whose name matches these globs (and therefore their subjects).
+    #[serde(default, deserialize_with = "string_or_seq")]
     pub evals: Vec<String>,
-    /// Restrict secondary axes: axis name → allowed values.
+    /// Restrict secondary axes: axis name → allowed values (each a glob).
     #[serde(default)]
     pub axes: BTreeMap<String, Vec<String>>,
     /// Default per-case wall-clock timeout (seconds) for this preset. Overridden
@@ -116,6 +121,27 @@ pub struct TargetConfig {
     /// limit. Takes precedence over a preset's `timeout`; `--timeout` overrides it.
     #[serde(default)]
     pub timeout: Option<u64>,
+}
+
+/// Accept either a single string (`targets = "sim"`) or a list
+/// (`targets = ["a", "b"]`) for a `Vec<String>` field, so presets read naturally
+/// whether one value or many. Commas are *not* split here — a comma is a literal
+/// glob char (and `{a,b}` brace-alternation is the in-pattern "or") — list
+/// multiple patterns as an array.
+fn string_or_seq<'de, D>(de: D) -> Result<Vec<String>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    #[derive(Deserialize)]
+    #[serde(untagged)]
+    enum OneOrMany {
+        One(String),
+        Many(Vec<String>),
+    }
+    Ok(match OneOrMany::deserialize(de)? {
+        OneOrMany::One(s) => vec![s],
+        OneOrMany::Many(v) => v,
+    })
 }
 
 /// A named **launcher** (`[launchers.NAME]` in `mira.toml`): a saved way to start
@@ -516,6 +542,28 @@ mod tests {
         let cfg = Config::parse("[presets.smoke]\ntargets = [\"sim\"]\n").unwrap();
         assert!(cfg.targets.is_empty());
         assert!(cfg.preset("smoke").unwrap().timeout.is_none());
+    }
+
+    #[test]
+    fn preset_accepts_string_or_list() {
+        // `targets` as a single string, `samples`/`evals` as lists.
+        let cfg = Config::parse(
+            "[presets.smoke]\n\
+             targets = \"anthropic/*\"\n\
+             samples = [\"france\", \"spain\"]\n\
+             evals = \"greet\"\n\
+             tag = \"quick\"\n",
+        )
+        .unwrap();
+        let p = cfg.preset("smoke").unwrap();
+        assert_eq!(p.targets, vec!["anthropic/*"]);
+        assert_eq!(p.samples, vec!["france", "spain"]);
+        assert_eq!(p.evals, vec!["greet"]);
+        assert_eq!(p.tag.as_deref(), Some("quick"));
+
+        // A typo names the known presets so it fails loudly.
+        let err = cfg.preset("nope").unwrap_err();
+        assert!(err.contains("smoke"), "{err}");
     }
 
     #[test]

@@ -263,5 +263,6 @@ async fn greet_passes() {
 }
 ```
 
-`Runner` supports the same selection as the CLI: `.filter(…)`, `.tag(…)`,
-`.targets(…)`.
+`Runner` supports the same selection as the CLI: `.filter(…)` (cross-cutting
+substring on the case key), `.tag(…)`, and the glob dimension selectors
+`.samples(…)` / `.targets(…)`.

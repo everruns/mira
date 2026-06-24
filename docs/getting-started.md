@@ -90,9 +90,10 @@ Set `ANTHROPIC_API_KEY` and the cloud column lights up too.
 ## 4. Select, report, resume
 
 ```bash
-mira --example my_evals run france                 # substring filter on the case key
+mira --example my_evals run france                 # substring grep on the case key
+mira --example my_evals run --samples 'geo/*'      # glob on sample ids
 mira --example my_evals run --tag smoke            # by sample tag
-mira --example my_evals run --targets sim           # restrict the matrix
+mira --example my_evals run --targets 'anthropic/*' # glob on target labels
 mira --example my_evals run --format junit --out results.xml   # CI artifact
 mira --example my_evals run --format html  --out report.html   # self-contained viewer
 mira --example my_evals run                        # saves a run folder by default

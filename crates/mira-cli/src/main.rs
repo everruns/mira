@@ -157,8 +157,9 @@ struct Launcher {
 enum Cmd {
     /// List the evals, samples, scorers, and targets the study advertises.
     List,
-    /// Run selected cases and report.
-    Run(RunArgs),
+    /// Run selected cases and report. Boxed: `RunArgs` is much larger than the
+    /// other variants, so boxing keeps the enum small (clippy large_enum_variant).
+    Run(Box<RunArgs>),
     /// Score (or re-score) previously captured execution artifacts.
     Score(ScoreArgs),
     /// Re-render a saved run's reports from its stored results (no study needed).
@@ -177,22 +178,33 @@ struct HelpArgs {
 
 #[derive(Args)]
 struct RunArgs {
-    /// Substring filter on the case key `eval/sample@target`.
+    /// Substring filter on the case key `eval/sample@target` (the `cargo test
+    /// PAT` convenience). For precise, per-dimension selection use the glob
+    /// flags `--targets` / `--samples` / `--evals`.
     filter: Option<String>,
     /// Only run samples carrying this tag.
     #[arg(long)]
     tag: Option<String>,
-    /// Restrict the primary (target) axis to these labels (comma-separated).
+    /// Restrict the primary (target) axis to labels matching these globs
+    /// (comma-separated), e.g. `--targets 'anthropic/*'` or `--targets sim`.
     /// Sugar for `--axis target=…`.
     #[arg(long)]
     targets: Option<String>,
+    /// Restrict to sample ids matching these globs (comma-separated), e.g.
+    /// `--samples 'geo/*'` or `--samples france,spain`.
+    #[arg(long)]
+    samples: Option<String>,
+    /// Restrict to evals whose name matches these globs (comma-separated),
+    /// hence which subjects run.
+    #[arg(long)]
+    evals: Option<String>,
     /// Restrict a matrix axis to a subset, e.g. `--axis effort=high,low`
     /// (repeatable). `NAME` is `target` (the primary axis) or any declared axis;
     /// values OR within one flag, multiple `--axis` flags AND (intersect).
     #[arg(long = "axis", value_name = "NAME=V1,V2")]
     axes: Vec<String>,
     /// Apply a named selection preset from `mira.toml` (`[presets.NAME]`): a saved
-    /// bundle of targets / axes / tag / filter / evals. Explicit flags override
+    /// bundle of targets / samples / evals / axes / tag. Explicit flags override
     /// the preset.
     #[arg(long)]
     preset: Option<String>,
@@ -358,7 +370,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             host.shutdown().await?;
             Ok(())
         }
-        Some(Cmd::Run(args)) => run(host, info, listing, args, progress).await,
+        Some(Cmd::Run(args)) => run(host, info, listing, *args, progress).await,
         Some(Cmd::Score(args)) => score(host, info, listing, args).await,
         // Help/report/no-args returned earlier, before the host was spawned.
         None | Some(Cmd::Help(_)) | Some(Cmd::Report(_)) => {
@@ -1092,12 +1104,16 @@ fn axis_combinations(eval: &mira::protocol::EvalInfo) -> Vec<BTreeMap<String, St
 /// axis name (`target` for the primary axis, or any declared axis) to the values
 /// kept; `evals` restricts which evals (hence subjects) run.
 struct Selection {
+    /// Cross-cutting substring on the whole case key (`cargo test PAT`-style),
+    /// from the positional arg. Orthogonal to the glob dimension selectors.
     filter: Option<String>,
     tag: Option<String>,
-    /// `None` = every eval; `Some` = only these.
+    /// `None` = every eval; `Some` = only those whose name matches a glob here.
     evals: Option<Vec<String>>,
-    /// Axis name → allowed values. `target` is the primary axis. An axis absent
-    /// here is unconstrained.
+    /// `None` = every sample; `Some` = only those whose id matches a glob here.
+    samples: Option<Vec<String>>,
+    /// Axis name → allowed value globs. `target` is the primary axis. An axis
+    /// absent here is unconstrained.
     axes: BTreeMap<String, Vec<String>>,
     /// Default per-case wall-clock timeout (seconds) from the preset, if any.
     /// Lowest-priority source — see [`Timeouts`].
@@ -1111,6 +1127,7 @@ struct Selection {
 /// The CLI flag wins over saved config (mirroring how explicit flags override a
 /// preset elsewhere); among saved config the more specific per-target setting
 /// beats the preset default.
+#[derive(Default)]
 struct Timeouts {
     cli: Option<u64>,
     preset: Option<u64>,
@@ -1143,9 +1160,19 @@ fn resolve_selection(args: &RunArgs) -> Result<Selection, String> {
         None => config::Preset::default(),
     };
 
-    let filter = args.filter.clone().or(preset.filter);
+    // Positional arg is the cross-cutting grep; presets no longer carry it.
+    let filter = args.filter.clone();
     let tag = args.tag.clone().or(preset.tag);
-    let evals = (!preset.evals.is_empty()).then_some(preset.evals.clone());
+    // Dimension selectors: an explicit flag (comma-separated) overrides the
+    // preset's list; absent both ⇒ unconstrained.
+    let evals = match &args.evals {
+        Some(s) => Some(split_csv(s)),
+        None => (!preset.evals.is_empty()).then(|| preset.evals.clone()),
+    };
+    let samples = match &args.samples {
+        Some(s) => Some(split_csv(s)),
+        None => (!preset.samples.is_empty()).then(|| preset.samples.clone()),
+    };
 
     // Start from the preset's axis constraints, then layer flags on top.
     let mut axes: BTreeMap<String, Vec<String>> = preset.axes.clone();
@@ -1175,6 +1202,7 @@ fn resolve_selection(args: &RunArgs) -> Result<Selection, String> {
         filter,
         tag,
         evals,
+        samples,
         axes,
         timeout: preset.timeout,
     })
@@ -1213,9 +1241,9 @@ fn validate_selection(sel: &Selection, listing: &ListResult) -> Result<(), Strin
             ));
         };
         for v in allowed {
-            if !valid.contains(v) {
+            if !valid.iter().any(|d| mira::glob_match(v, d)) {
                 return Err(format!(
-                    "axis {name:?} has no value {v:?} (declared: {})",
+                    "axis {name:?} has no value matching {v:?} (declared: {})",
                     listed(valid)
                 ));
             }
@@ -1224,11 +1252,17 @@ fn validate_selection(sel: &Selection, listing: &ListResult) -> Result<(), Strin
     if let Some(evals) = &sel.evals {
         let known: BTreeSet<String> = listing.evals.iter().map(|e| e.name.clone()).collect();
         for e in evals {
-            if !known.contains(e) {
-                return Err(format!("unknown eval {e:?} (declared: {})", listed(&known)));
+            if !known.iter().any(|k| mira::glob_match(e, k)) {
+                return Err(format!(
+                    "no eval matching {e:?} (declared: {})",
+                    listed(&known)
+                ));
             }
         }
     }
+    // `samples` aren't pre-validated: the listing may be a paginated first page,
+    // so a valid id could be absent here. A glob that matches nothing simply
+    // selects no cases (the run reports an empty plan).
     Ok(())
 }
 
@@ -1237,7 +1271,7 @@ fn axes_allowed(sel: &Selection, params: &mira::Params) -> bool {
     params.iter().all(|(name, value)| {
         sel.axes
             .get(name)
-            .is_none_or(|allowed| allowed.contains(value))
+            .is_none_or(|allowed| allowed.iter().any(|p| mira::glob_match(p, value)))
     })
 }
 
@@ -1252,7 +1286,7 @@ fn plan_grid(
     let mut plan = Vec::new();
     for eval in &listing.evals {
         if let Some(evals) = &sel.evals
-            && !evals.iter().any(|e| e == &eval.name)
+            && !evals.iter().any(|p| mira::glob_match(p, &eval.name))
         {
             continue;
         }
@@ -1268,9 +1302,14 @@ fn plan_grid(
             {
                 continue;
             }
+            if let Some(allow) = &sel.samples
+                && !allow.iter().any(|p| mira::glob_match(p, &sample.id))
+            {
+                continue;
+            }
             for target in &eval.targets {
                 if let Some(allow) = sel.axes.get("target")
-                    && !allow.contains(&target.label)
+                    && !allow.iter().any(|p| mira::glob_match(p, &target.label))
                 {
                     continue;
                 }
@@ -1465,6 +1504,123 @@ mod tests {
 
     fn cfg(text: &str) -> config::Config {
         config::Config::parse(text).unwrap()
+    }
+
+    /// A default `RunArgs` (no selection); tests tweak the fields they exercise.
+    fn run_args() -> RunArgs {
+        RunArgs {
+            filter: None,
+            tag: None,
+            targets: None,
+            samples: None,
+            evals: None,
+            axes: Vec::new(),
+            preset: None,
+            trials: None,
+            seed: None,
+            group_by: None,
+            out: None,
+            format: "json".into(),
+            dry_run: false,
+            resume: None,
+            max_concurrent: 8,
+            provider_concurrency: None,
+            no_adaptive: false,
+            max_retries: 4,
+            execute_only: false,
+            artifacts: None,
+            timeout: None,
+        }
+    }
+
+    fn sample(id: &str) -> mira::protocol::SampleInfo {
+        mira::protocol::SampleInfo {
+            id: id.into(),
+            tags: Vec::new(),
+            metadata: Default::default(),
+        }
+    }
+
+    fn target(label: &str) -> mira::protocol::TargetInfo {
+        mira::protocol::TargetInfo {
+            label: label.into(),
+            provider: "sim".into(),
+            available: true,
+            metadata: Default::default(),
+        }
+    }
+
+    /// Two evals, each with samples `france`/`spain` over targets `sim` and
+    /// `anthropic/opus` — enough to exercise every glob dimension.
+    fn listing() -> ListResult {
+        let eval = |name: &str| mira::protocol::EvalInfo {
+            name: name.into(),
+            description: String::new(),
+            samples: vec![sample("france"), sample("spain")],
+            next_cursor: None,
+            scorers: vec!["contains".into()],
+            targets: vec![target("sim"), target("anthropic/opus")],
+            axes: Vec::new(),
+            max_turns: 0,
+            trials: 0,
+            seed: None,
+            metadata: Default::default(),
+        };
+        ListResult {
+            evals: vec![eval("greet"), eval("coding")],
+        }
+    }
+
+    /// The distinct `eval/sample@target` keys a plan covers (trials collapsed).
+    fn keys(plan: &[CaseSpec]) -> std::collections::BTreeSet<String> {
+        plan.iter()
+            .map(|c| format!("{}/{}@{}", c.eval, c.sample, c.target))
+            .collect()
+    }
+
+    #[test]
+    fn glob_targets_select_by_pattern() {
+        let args = RunArgs {
+            targets: Some("anthropic/*".into()),
+            ..run_args()
+        };
+        let sel = resolve_selection(&args).unwrap();
+        let plan = plan_grid(&listing(), &args, &sel, &Timeouts::default());
+        assert!(keys(&plan).iter().all(|k| k.ends_with("@anthropic/opus")));
+        assert_eq!(plan.len(), 4); // 2 evals × 2 samples × 1 target
+    }
+
+    #[test]
+    fn glob_samples_and_evals_narrow_the_grid() {
+        let args = RunArgs {
+            samples: Some("s*".into()), // matches `spain`, not `france`
+            evals: Some("greet".into()),
+            ..run_args()
+        };
+        let sel = resolve_selection(&args).unwrap();
+        assert_eq!(
+            keys(&plan_grid(&listing(), &args, &sel, &Timeouts::default())),
+            ["greet/spain@anthropic/opus", "greet/spain@sim"]
+                .into_iter()
+                .map(String::from)
+                .collect()
+        );
+    }
+
+    #[test]
+    fn preset_samples_apply_and_flags_override() {
+        let cfg = cfg("[presets.fr]\nsamples = \"france\"\n");
+        let preset = cfg.preset("fr").unwrap();
+        assert_eq!(preset.samples, vec!["france"]);
+
+        // A glob that matches no declared target still validates loudly.
+        let args = RunArgs {
+            targets: Some("openai/*".into()),
+            ..run_args()
+        };
+        let sel = resolve_selection(&args).unwrap();
+        let err = validate_selection(&sel, &listing()).unwrap_err();
+        assert!(err.contains("no value matching"), "{err}");
     }
 
     fn parts(cmd: &Command) -> (String, Vec<String>) {

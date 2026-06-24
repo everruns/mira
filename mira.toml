@@ -33,11 +33,13 @@ bin = "greet"
 # python3 = "study.py"   # or uv = "…" / python = "…" / cmd = "<command line>"
 
 # Named selection presets, applied with `mira run --preset NAME`. A preset is a
-# saved bundle of selection criteria (targets / axes / tag / filter / evals); it
+# saved bundle of selection criteria (targets / samples / evals / axes / tag); it
 # only *subsets* the grid the study declared. Explicit flags override the preset.
+# `targets`/`samples`/`evals` glob-match (`*`, `?`, `[set]`, `{a,b}`; a literal is
+# exact) and take a single string or a list.
 [presets.smoke]
 # Fast offline pass: only the sim target, only the "low" effort axis value.
-targets = ["sim"]
+targets = "sim"
 axes = { effort = ["low"] }
 # Optional preset default: give up on any case after 120s (lowest-priority
 # timeout source — `--timeout` and [targets.LABEL].timeout override it).

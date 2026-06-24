@@ -253,6 +253,7 @@ pub struct Runner {
     filter: Option<String>,
     tag: Option<String>,
     targets: Option<Vec<String>>,
+    samples: Option<Vec<String>>,
 }
 
 impl Runner {
@@ -284,13 +285,23 @@ impl Runner {
         self
     }
 
-    /// Restrict the matrix to these target labels.
+    /// Restrict the matrix to target labels matching these glob patterns
+    /// (`anthropic/*`, `sim`, …). A literal pattern is an exact label.
     pub fn targets(mut self, targets: Option<Vec<String>>) -> Self {
         self.targets = targets;
         self
     }
 
-    /// True if a case passes the active selection (filter, tag, target labels).
+    /// Restrict the matrix to sample ids matching these glob patterns. A literal
+    /// pattern is an exact id; `france*`, `geo/{a,b}` select by shape.
+    pub fn samples(mut self, samples: Option<Vec<String>>) -> Self {
+        self.samples = samples;
+        self
+    }
+
+    /// True if a case passes the active selection. `filter` is a cross-cutting
+    /// substring on the whole case key (the `cargo test PAT` convenience);
+    /// `samples`/`targets` are per-dimension glob selectors.
     fn selected(&self, key: &str, sample: &Sample, target: &Target) -> bool {
         if let Some(f) = &self.filter
             && !key.contains(f.as_str())
@@ -302,8 +313,13 @@ impl Runner {
         {
             return false;
         }
+        if let Some(allow) = &self.samples
+            && !allow.iter().any(|p| crate::glob_match(p, &sample.id))
+        {
+            return false;
+        }
         if let Some(allow) = &self.targets
-            && !allow.iter().any(|m| m == &target.label)
+            && !allow.iter().any(|p| crate::glob_match(p, &target.label))
         {
             return false;
         }
@@ -384,6 +400,18 @@ mod tests {
             .await;
         assert_eq!(report.total(), 1);
         assert_eq!(report.outcomes[0].sample_id, "hi");
+    }
+
+    #[tokio::test]
+    async fn samples_select_by_glob() {
+        // `b*` matches sample id `bye` but not `hi`.
+        let report = Runner::new()
+            .add(echo_eval("greet"))
+            .samples(Some(vec!["b*".into()]))
+            .run()
+            .await;
+        assert_eq!(report.total(), 1);
+        assert_eq!(report.outcomes[0].sample_id, "bye");
     }
 
     #[tokio::test]

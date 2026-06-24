@@ -123,7 +123,8 @@ Honest boundaries, so you don't fight the grain:
   lives in the study. Shared scorers are an authoring-time helper, not a host
   feature.
 - **Host-defined matrix.** The study defines targets/axes; the host can *subset*
-  (`--targets`, `--axis`, `--preset`, `--tag`, filter) but not add cases.
+  (`--targets`, `--samples`, `--evals`, `--axis`, `--preset`, `--tag`, filter)
+  but not add cases.
 - **Run-to-run comparison.** Each run emits a stable JSON record (cases keyed by
   `eval/sample@target[k=v,…]`), but diffing two runs is left to a consumer on top.
 

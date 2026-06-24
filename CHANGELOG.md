@@ -16,6 +16,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   preset default (`[presets.NAME].timeout`). Precedence, first set wins:
   `--timeout` > per-target > preset; unset ⇒ no limit. A timeout is non-retryable
   (retrying would burn the same budget) and counts as a target failure.
+- **Glob case selection.** `--targets`, `--samples` (new), and `--evals` (new)
+  match the target label / sample id / eval name by glob (`*`, `?`, `[set]`,
+  `{a,b}`); a literal value stays an exact match. `--axis` values are globbed
+  too. A small dep-free matcher (`mira::glob_match`) backs both the host and the
+  in-process `Runner` (`Runner::samples(…)`, glob-aware `Runner::targets(…)`).
+
+### Changed
+
+- **BREAKING (preset):** the preset `filter` key is replaced by per-dimension
+  `samples` (glob on sample id). `targets`/`samples`/`evals` in `[presets.NAME]`
+  now glob-match and accept either a single string or a list. The cross-cutting
+  case-key substring stays available as the positional `mira run [filter]`.
 
 ## [0.2.0] - 2026-06-24
 

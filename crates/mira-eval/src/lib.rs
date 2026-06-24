@@ -47,6 +47,7 @@ pub mod content;
 pub mod dataset;
 pub mod eval;
 pub mod exec;
+pub mod glob;
 pub mod host;
 pub mod protocol;
 pub mod registry;
@@ -92,6 +93,7 @@ pub use content::{Message, Part, Role, Source};
 pub use dataset::{Dataset, Sample};
 pub use eval::Eval;
 pub use exec::{Concurrency, run_cases};
+pub use glob::glob_match;
 pub use host::{Host, HostHandle};
 pub use target::Target;
 // `register_eval!` is exported at the crate root via `#[macro_export]`.
