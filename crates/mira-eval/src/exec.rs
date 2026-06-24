@@ -46,6 +46,12 @@ pub struct CaseSpec {
     /// Which trial of this case to run (index, count, seed). [`Trial::single`]
     /// for an unrepeated case — its key then has no `#index` suffix.
     pub trial: Trial,
+    /// Wall-clock budget for this case. When set and exceeded, the scheduler
+    /// drops the case's future — which best-effort cancels the in-flight run (see
+    /// [`HostHandle`](crate::HostHandle) cancel-on-drop) — and records the case
+    /// failed with a timeout error. `None` ⇒ no time limit. Resolved per target by
+    /// the host (CLI `--timeout` / `mira.toml` per-target / preset).
+    pub timeout: Option<Duration>,
 }
 
 impl CaseSpec {
@@ -320,8 +326,26 @@ pub async fn run_cases<F, Fut>(
             let (case, attempts) = pending.remove(idx).expect("index in bounds");
             limiter.start(&case.provider);
             let task_case = case.clone();
+            let timeout = case.timeout;
             let fut = run(case);
-            let id = tasks.spawn(fut).id();
+            // Per-case wall-clock budget: dropping the timed-out future best-effort
+            // cancels the in-flight run (HostHandle cancel-on-drop), so an
+            // over-budget case stops burning cost instead of running unobserved.
+            // A timeout is recorded as a non-retryable failure — retrying would
+            // just burn the same budget again — so it isn't re-queued below.
+            let task = async move {
+                match timeout {
+                    Some(dur) => match tokio::time::timeout(dur, fut).await {
+                        Ok(res) => res,
+                        Err(_) => Err(RpcError::new(format!(
+                            "timed out after {}s (target timeout)",
+                            dur.as_secs()
+                        ))),
+                    },
+                    None => fut.await,
+                }
+            };
+            let id = tasks.spawn(task).id();
             inflight.insert(id, (task_case, attempts));
         }
 
@@ -395,6 +419,7 @@ mod tests {
             provider: provider.into(),
             params: Params::new(),
             trial: Trial::single(),
+            timeout: None,
         }
     }
 
@@ -704,5 +729,66 @@ mod tests {
         assert_eq!(results.len(), 1);
         assert!(!results[0].passed);
         assert!(results[0].transcript.error.is_some());
+    }
+
+    /// A case that outruns its per-case timeout is given up on: recorded once as a
+    /// failure with a timeout error, and *not* retried (retrying would burn the
+    /// same budget again). The run-count proves it ran a single attempt.
+    #[tokio::test]
+    async fn times_out_slow_case_without_retrying() {
+        let cfg = Concurrency {
+            base_backoff: Duration::from_millis(1),
+            max_retries: 4,
+            ..Concurrency::new(2)
+        };
+        let count = Arc::new(AtomicUsize::new(0));
+        let c2 = count.clone();
+        let slow = CaseSpec {
+            timeout: Some(Duration::from_millis(10)),
+            ..case("sim", "slow")
+        };
+        let mut results = Vec::new();
+        run_cases(
+            vec![slow],
+            &cfg,
+            move |c| {
+                let c2 = c2.clone();
+                async move {
+                    c2.fetch_add(1, Ordering::SeqCst);
+                    // Outlast the 10ms budget.
+                    tokio::time::sleep(Duration::from_secs(60)).await;
+                    Ok(ok_result(&c))
+                }
+            },
+            |_, r| results.push(r),
+        )
+        .await;
+        assert_eq!(count.load(Ordering::SeqCst), 1, "no retry after timeout");
+        assert_eq!(results.len(), 1);
+        assert!(!results[0].passed);
+        let err = results[0].transcript.error.as_deref().unwrap();
+        assert!(err.contains("timed out"), "{err}");
+        // A timeout is the target's fault, not infra: it fails the case (red CI).
+        assert_eq!(results[0].transcript.error_kind, crate::ErrorKind::Subject);
+    }
+
+    /// A case that finishes within its timeout is unaffected.
+    #[tokio::test]
+    async fn fast_case_under_timeout_passes() {
+        let cfg = Concurrency::new(2);
+        let fast = CaseSpec {
+            timeout: Some(Duration::from_secs(30)),
+            ..case("sim", "fast")
+        };
+        let mut results = Vec::new();
+        run_cases(
+            vec![fast],
+            &cfg,
+            move |c| async move { Ok(ok_result(&c)) },
+            |_, r| results.push(r),
+        )
+        .await;
+        assert_eq!(results.len(), 1);
+        assert!(results[0].passed);
     }
 }

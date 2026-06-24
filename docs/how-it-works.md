@@ -126,6 +126,33 @@ is the host's call, smallest-wins across three knobs: a **global** cap
 that provider's in-flight limit (AIMD) and is re-queued after exponential
 backoff, recovering one slot per success streak. `--no-adaptive` disables it.
 
+## Per-case timeout
+
+A case can be given a **wall-clock budget**: when exceeded, the host gives up —
+it drops the case's future (which best-effort `cancel`s the in-flight run over the
+protocol, so an abandoned run stops burning cost) and records the case as failed
+with a timeout error. A timeout is *not* retried (a retry would just burn the same
+budget again) and counts as a target failure (red CI), distinct from an infra
+error.
+
+Set it three ways, first set wins:
+
+- `mira run --timeout SECONDS` — applies to every target this run.
+- `mira.toml` `[targets.LABEL].timeout` — per target (seconds).
+- `mira.toml` `[presets.NAME].timeout` — a preset default.
+
+```toml
+[targets."anthropic/claude-opus-4-8"]
+timeout = 300            # give up on a case for this target after 5 minutes
+
+[presets.smoke]
+timeout = 120            # preset default (overridden by the two above)
+```
+
+Unset everywhere ⇒ no time limit. The CLI flag wins over saved config (as
+explicit flags do elsewhere); among saved config the more specific per-target
+setting beats the preset default.
+
 ## Operational metrics
 
 A `Transcript` carries the operational signals of a run, not just its text:

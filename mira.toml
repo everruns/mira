@@ -39,3 +39,13 @@ bin = "greet"
 # Fast offline pass: only the sim target, only the "low" effort axis value.
 targets = ["sim"]
 axes = { effort = ["low"] }
+# Optional preset default: give up on any case after 120s (lowest-priority
+# timeout source — `--timeout` and [targets.LABEL].timeout override it).
+# timeout = 120
+
+# Per-target host settings, keyed by target label. `timeout` (seconds) is the
+# wall-clock budget for one case against that target: when exceeded, the host
+# cancels the in-flight run and records the case failed. `mira run --timeout`
+# overrides this; it in turn overrides a preset's timeout.
+# [targets."anthropic/claude-opus-4-8"]
+# timeout = 300
