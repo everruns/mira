@@ -1,0 +1,65 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 470" font-family="-apple-system, Segoe UI, Helvetica, Arial, sans-serif">
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0 0 L10 5 L0 10 z" fill="#64748b"/>
+    </marker>
+  </defs>
+
+  <!-- host actor -->
+  <rect x="60" y="20" width="140" height="50" rx="10" fill="#eff6ff" stroke="#3b82f6" stroke-width="2"/>
+  <text x="130" y="42" text-anchor="middle" font-size="16" font-weight="700" fill="#1e3a8a">host</text>
+  <text x="130" y="59" text-anchor="middle" font-size="11" fill="#475569">mira CLI · runner</text>
+
+  <!-- study actor -->
+  <rect x="440" y="20" width="140" height="50" rx="10" fill="#f0fdf4" stroke="#22c55e" stroke-width="2"/>
+  <text x="510" y="42" text-anchor="middle" font-size="16" font-weight="700" fill="#14532d">study</text>
+  <text x="510" y="59" text-anchor="middle" font-size="11" fill="#475569">your eval program</text>
+
+  <!-- lifelines -->
+  <line x1="130" y1="70" x2="130" y2="436" stroke="#cbd5e1" stroke-width="1.5" stroke-dasharray="4 4"/>
+  <line x1="510" y1="70" x2="510" y2="436" stroke="#cbd5e1" stroke-width="1.5" stroke-dasharray="4 4"/>
+
+  <text x="130" y="90" text-anchor="middle" font-size="10" fill="#94a3b8">compiles + spawns the study →</text>
+
+  <!-- initialize -->
+  <line x1="130" y1="112" x2="510" y2="112" stroke="#64748b" stroke-width="2" marker-end="url(#arrow)"/>
+  <text x="320" y="106" text-anchor="middle" font-size="12" font-weight="600" fill="#334155">initialize</text>
+  <line x1="510" y1="138" x2="130" y2="138" stroke="#64748b" stroke-width="1.5" stroke-dasharray="5 3" marker-end="url(#arrow)"/>
+  <text x="320" y="132" text-anchor="middle" font-size="11" fill="#475569">protocol_version · capabilities</text>
+
+  <!-- list -->
+  <line x1="130" y1="170" x2="510" y2="170" stroke="#64748b" stroke-width="2" marker-end="url(#arrow)"/>
+  <text x="320" y="164" text-anchor="middle" font-size="12" font-weight="600" fill="#334155">list</text>
+  <line x1="510" y1="196" x2="130" y2="196" stroke="#64748b" stroke-width="1.5" stroke-dasharray="5 3" marker-end="url(#arrow)"/>
+  <text x="320" y="190" text-anchor="middle" font-size="11" fill="#475569">evals · samples · axes · targets</text>
+
+  <!-- host plans -->
+  <rect x="36" y="214" width="188" height="34" rx="6" fill="#eff6ff" stroke="#3b82f6" stroke-width="1.2"/>
+  <text x="130" y="229" text-anchor="middle" font-size="10.5" fill="#1e3a8a">plan the grid</text>
+  <text x="130" y="242" text-anchor="middle" font-size="10" fill="#475569">selection × matrix ⇒ cases</text>
+
+  <!-- loop frame -->
+  <rect x="86" y="262" width="468" height="124" rx="8" fill="none" stroke="#94a3b8" stroke-width="1.2" stroke-dasharray="3 3"/>
+  <rect x="86" y="262" width="210" height="20" rx="0" fill="#f1f5f9"/>
+  <text x="96" y="276" font-size="10.5" font-weight="600" fill="#334155">per case — multiplexed, concurrent</text>
+
+  <!-- run -->
+  <line x1="130" y1="304" x2="510" y2="304" stroke="#64748b" stroke-width="2" marker-end="url(#arrow)"/>
+  <text x="320" y="298" text-anchor="middle" font-size="12" font-weight="600" fill="#334155">run (or execute) · case</text>
+
+  <!-- event/log notifications -->
+  <line x1="510" y1="330" x2="130" y2="330" stroke="#f97316" stroke-width="1.5" stroke-dasharray="2 3" marker-end="url(#arrow)"/>
+  <text x="320" y="324" text-anchor="middle" font-size="10.5" fill="#9a3412">event · log  (started · tool_call · finished)</text>
+
+  <!-- result -->
+  <line x1="510" y1="362" x2="130" y2="362" stroke="#64748b" stroke-width="1.5" stroke-dasharray="5 3" marker-end="url(#arrow)"/>
+  <text x="320" y="356" text-anchor="middle" font-size="11" fill="#475569">RunResult · scores · usage · timing</text>
+
+  <!-- host aggregates -->
+  <rect x="36" y="400" width="188" height="34" rx="6" fill="#eff6ff" stroke="#3b82f6" stroke-width="1.2"/>
+  <text x="130" y="415" text-anchor="middle" font-size="10.5" fill="#1e3a8a">aggregate · save run · render</text>
+  <text x="130" y="428" text-anchor="middle" font-size="10" fill="#475569">terminal · JSON · HTML · JUnit</text>
+
+  <!-- caption -->
+  <text x="320" y="458" text-anchor="middle" font-size="11" fill="#94a3b8">Every request flows host → study over one stdio pipe; API keys and scoring stay study-side.</text>
+</svg>

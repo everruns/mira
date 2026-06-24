@@ -1,0 +1,74 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 300" font-family="-apple-system, Segoe UI, Helvetica, Arial, sans-serif">
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0 0 L10 5 L0 10 z" fill="#64748b"/>
+    </marker>
+  </defs>
+
+  <!-- top brackets -->
+  <line x1="24" y1="62" x2="144" y2="62" stroke="#cbd5e1" stroke-width="1.5"/>
+  <line x1="24" y1="62" x2="24" y2="90" stroke="#cbd5e1" stroke-width="1.5"/>
+  <line x1="144" y1="62" x2="144" y2="90" stroke="#cbd5e1" stroke-width="1.5"/>
+  <text x="84" y="54" text-anchor="middle" font-size="11" font-weight="600" fill="#475569">what you author</text>
+
+  <line x1="170" y1="62" x2="874" y2="62" stroke="#cbd5e1" stroke-width="1.5"/>
+  <line x1="170" y1="62" x2="170" y2="90" stroke="#cbd5e1" stroke-width="1.5"/>
+  <line x1="874" y1="62" x2="874" y2="90" stroke="#cbd5e1" stroke-width="1.5"/>
+  <text x="522" y="54" text-anchor="middle" font-size="11" font-weight="600" fill="#475569">what the host (mira CLI) does for you</text>
+
+  <!-- 1 author study -->
+  <rect x="24" y="96" width="120" height="92" rx="10" fill="#f0fdf4" stroke="#22c55e" stroke-width="2"/>
+  <text x="84" y="124" text-anchor="middle" font-size="14" font-weight="700" fill="#14532d">Author</text>
+  <text x="84" y="146" text-anchor="middle" font-size="10" fill="#64748b">eval + subject</text>
+  <text x="84" y="161" text-anchor="middle" font-size="10" fill="#64748b">+ scorers</text>
+  <text x="84" y="178" text-anchor="middle" font-size="10" fill="#64748b">Rust · Py · TS</text>
+
+  <!-- 2 mira run -->
+  <rect x="170" y="96" width="120" height="92" rx="10" fill="#eff6ff" stroke="#3b82f6" stroke-width="2"/>
+  <text x="230" y="124" text-anchor="middle" font-size="14" font-weight="700" fill="#1e3a8a">mira run</text>
+  <text x="230" y="146" text-anchor="middle" font-size="10" fill="#64748b">--targets …</text>
+  <text x="230" y="161" text-anchor="middle" font-size="10" fill="#64748b">--axis · --tag</text>
+  <text x="230" y="178" text-anchor="middle" font-size="10" fill="#64748b">spawns the study</text>
+
+  <!-- 3 plan grid -->
+  <rect x="316" y="96" width="120" height="92" rx="10" fill="#eff6ff" stroke="#3b82f6" stroke-width="2"/>
+  <text x="376" y="124" text-anchor="middle" font-size="14" font-weight="700" fill="#1e3a8a">Plan grid</text>
+  <text x="376" y="146" text-anchor="middle" font-size="10" fill="#64748b">cases =</text>
+  <text x="376" y="161" text-anchor="middle" font-size="10" fill="#64748b">evals × targets</text>
+  <text x="376" y="176" text-anchor="middle" font-size="10" fill="#64748b">× axes × samples</text>
+
+  <!-- 4 execute -->
+  <rect x="462" y="96" width="120" height="92" rx="10" fill="#fef3f2" stroke="#f97316" stroke-width="2"/>
+  <text x="522" y="124" text-anchor="middle" font-size="14" font-weight="700" fill="#7c2d12">Execute</text>
+  <text x="522" y="146" text-anchor="middle" font-size="10" fill="#64748b">subjects → models</text>
+  <text x="522" y="161" text-anchor="middle" font-size="10" fill="#64748b">concurrent</text>
+  <text x="522" y="178" text-anchor="middle" font-size="10" fill="#64748b">retry · throttle</text>
+
+  <!-- 5 score -->
+  <rect x="608" y="96" width="120" height="92" rx="10" fill="#f8fafc" stroke="#94a3b8" stroke-width="2"/>
+  <text x="668" y="124" text-anchor="middle" font-size="14" font-weight="700" fill="#334155">Score</text>
+  <text x="668" y="146" text-anchor="middle" font-size="10" fill="#64748b">scorers ⇒</text>
+  <text x="668" y="161" text-anchor="middle" font-size="10" fill="#64748b">pass · fail</text>
+  <text x="668" y="178" text-anchor="middle" font-size="10" fill="#64748b">infra ⇒ N/A</text>
+
+  <!-- 6 report -->
+  <rect x="754" y="96" width="120" height="92" rx="10" fill="#eff6ff" stroke="#3b82f6" stroke-width="2"/>
+  <text x="814" y="124" text-anchor="middle" font-size="14" font-weight="700" fill="#1e3a8a">Report</text>
+  <text x="814" y="146" text-anchor="middle" font-size="10" fill="#64748b">terminal · JSON</text>
+  <text x="814" y="161" text-anchor="middle" font-size="10" fill="#64748b">HTML · JUnit · md</text>
+  <text x="814" y="178" text-anchor="middle" font-size="10" fill="#64748b">non-zero ⇒ CI gate</text>
+
+  <!-- arrows between stages -->
+  <line x1="144" y1="142" x2="168" y2="142" stroke="#64748b" stroke-width="2" marker-end="url(#arrow)"/>
+  <line x1="290" y1="142" x2="314" y2="142" stroke="#64748b" stroke-width="2" marker-end="url(#arrow)"/>
+  <line x1="436" y1="142" x2="460" y2="142" stroke="#64748b" stroke-width="2" marker-end="url(#arrow)"/>
+  <line x1="582" y1="142" x2="606" y2="142" stroke="#64748b" stroke-width="2" marker-end="url(#arrow)"/>
+  <line x1="728" y1="142" x2="752" y2="142" stroke="#64748b" stroke-width="2" marker-end="url(#arrow)"/>
+
+  <!-- resume feedback arrow: report -> plan grid -->
+  <path d="M814 188 C 814 228, 376 228, 376 190" fill="none" stroke="#64748b" stroke-width="1.5" stroke-dasharray="5 3" marker-end="url(#arrow)"/>
+  <text x="595" y="244" text-anchor="middle" font-size="10.5" fill="#475569">saved run folder  →  mira run --resume · mira report</text>
+
+  <!-- caption -->
+  <text x="450" y="284" text-anchor="middle" font-size="11" fill="#94a3b8">In real life: write the eval once — mira plans the matrix, runs every case per target, scores, and renders a resumable, CI-ready report.</text>
+</svg>

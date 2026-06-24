@@ -35,6 +35,10 @@ pub struct Transcript {
 
 Mira ships two general subjects, plus a runtime adapter in `mira-everruns`.
 
+<p align="center">
+<img src="assets/mira-subjects.svg" alt="Three subject shapes — subject_fn (in-process closure), CliSubject (external binary), and RuntimeSubject (everruns session) — all normalize a sample into the same Transcript, which scoring and reporting share" width="720" />
+</p>
+
 ## In-process: `subject_fn`
 
 Wrap an async closure. Ideal for evals that live next to the code under test,
