@@ -16,7 +16,7 @@ use mira::scorer::contains;
 #[eval]
 fn greet() -> Eval {
     Eval::new("greet")
-        .case("hi", "say hi")
+        .sample("hi", "say hi")
         .subject(subject_fn(|_, _| async { Transcript::response("hi there") }))
         .scorer(contains("hi"))
         .build()

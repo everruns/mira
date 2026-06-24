@@ -10,7 +10,7 @@ pub trait Subject: Send + Sync {
 }
 ```
 
-`RunCx` carries the matrix cell's `Target` (`cx.target`) and the run limit
+`RunCx` carries the matrix case's `Target` (`cx.target`) and the run limit
 (`cx.max_turns`). Each run gets a fresh subject invocation, so state from one
 sample cannot leak into another.
 
@@ -83,13 +83,13 @@ everruns coding CLIs. A line with a `final_response` / `response` / `text` field
 sets the final response.
 
 The subprocess also receives `MIRA_TARGET` and `MIRA_PROVIDER` env vars so it can
-route on the matrix cell.
+route on the matrix case.
 
 ## Runtime sessions: `mira-everruns`
 
 `mira_everruns::RuntimeSubject` drives a real `everruns-runtime`
 `InProcessRuntime` session — the in-process path to evaluating everruns agents.
-The embedder supplies a factory that builds a runtime for each matrix cell; Mira
+The embedder supplies a factory that builds a runtime for each matrix case; Mira
 normalizes the `TurnResult` and `Event` stream into a `Transcript`.
 
 ```rust
@@ -135,11 +135,11 @@ no protocol change. Runnable example: `examples/multimodal/`. Multimodal *output
 
 Reach for a `subject_fn` closure first. Implement `Subject` directly when you
 want a **reusable adapter that holds state** — a connection pool, an HTTP client,
-an auth token shared across every cell.
+an auth token shared across every case.
 
 The contract:
 
-- **Isolated per call.** One invocation per `(sample, model, axis)` cell; never
+- **Isolated per call.** One invocation per `(sample, model, axis)` case; never
   let state from one sample leak into the next.
 - **Fill what you can measure.** Set `iterations`, `tool_calls` (names, in order)
   and `tool_calls_count`, `usage`, `timing`, `files` so structural and budget
@@ -149,7 +149,7 @@ The contract:
 - **Separate infra errors from failures.** When the fault is the scaffolding —
   budget/quota, rate limit, provider outage, network/timeout — use
   `Transcript::infra_error(msg)` instead. Scoring short-circuits to a single
-  **N/A** score, so the cell is excluded from the pass-rate (neither pass nor
+  **N/A** score, so the case is excluded from the pass-rate (neither pass nor
   fail, like a scorer's `Score::na`) and the host retries it. See
   [authoring](authoring.md#infrastructure-errors-vs-failures).
 
@@ -158,7 +158,7 @@ use async_trait::async_trait;
 use mira::{RunCx, Sample, Transcript, Usage, subject::Subject};
 
 /// Posts the prompt to an HTTP agent and normalizes the reply. The `reqwest`
-/// client is built once and shared across every matrix cell.
+/// client is built once and shared across every matrix case.
 struct HttpAgent {
     client: reqwest::Client,
     base_url: String,
@@ -169,7 +169,7 @@ impl Subject for HttpAgent {
     async fn run(&self, sample: &Sample, cx: &RunCx) -> Transcript {
         let started = std::time::Instant::now();
 
-        // Route on the matrix cell's model (cx.target.provider / cx.target.model).
+        // Route on the matrix case's model (cx.target.provider / cx.target.model).
         let req = self.client
             .post(format!("{}/run", self.base_url))
             .json(&serde_json::json!({

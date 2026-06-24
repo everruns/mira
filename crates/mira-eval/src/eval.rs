@@ -12,9 +12,6 @@ use crate::subject::Subject;
 use crate::target::Target;
 use crate::{Dataset, Metadata, Params, Sample};
 
-/// A dataset row, in eval-authoring terms.
-pub type Case = Sample;
-
 /// A simulated user for an **interactive** (multi-turn) eval. Given the
 /// conversation so far (ending with the subject's latest `Assistant` turn), it
 /// returns the next user [`Part`]s to send, or `None` to end the exchange.
@@ -61,8 +58,8 @@ pub struct Eval {
     /// Extra matrix axes beyond the target (empty for a target-only matrix).
     pub axes: Vec<Axis>,
     pub max_turns: usize,
-    /// How many times to run each cell (trials/repetitions). `1` = a single run.
-    /// `> 1` repeats the cell so the host can report pass@k / pass-rate /
+    /// How many times to run each case (trials/repetitions). `1` = a single run.
+    /// `> 1` repeats the case so the host can report pass@k / pass-rate /
     /// variance over a stochastic subject (see [`crate::aggregate`]). The host
     /// may override this with `--trials`.
     pub trials: usize,
@@ -81,7 +78,7 @@ pub struct Eval {
 impl Eval {
     /// Every combination of axis values, as `params` maps, in cross-product
     /// order. Always yields at least one (empty) map, so a no-axis eval runs a
-    /// single cell per `(sample, target)`.
+    /// single case per `(sample, target)`.
     pub fn axis_combinations(&self) -> Vec<Params> {
         let mut combos = vec![Params::new()];
         for axis in &self.axes {
@@ -151,14 +148,14 @@ impl EvalBuilder {
         self
     }
 
-    /// Inline one single-turn case — no dataset file needed for small evals.
-    pub fn case(mut self, id: impl Into<String>, prompt: impl Into<String>) -> Self {
+    /// Inline one single-turn sample — no dataset file needed for small evals.
+    pub fn sample(mut self, id: impl Into<String>, prompt: impl Into<String>) -> Self {
         self.dataset.samples.push(Sample::new(id, prompt));
         self
     }
 
     /// Inline a fully-built [`Sample`] (with tags, target, seeded files).
-    pub fn sample(mut self, sample: Sample) -> Self {
+    pub fn add_sample(mut self, sample: Sample) -> Self {
         self.dataset.samples.push(sample);
         self
     }
@@ -175,13 +172,13 @@ impl EvalBuilder {
         self
     }
 
-    /// Add a scorer. Every scorer runs against every sample × target cell.
+    /// Add a scorer. Every scorer runs against every sample × target case.
     pub fn scorer(mut self, scorer: Box<dyn Scorer>) -> Self {
         self.scorers.push(scorer);
         self
     }
 
-    /// Add one matrix cell (a target). Omit entirely to default to `sim`.
+    /// Add one matrix case (a target). Omit entirely to default to `sim`.
     pub fn target(mut self, target: Target) -> Self {
         self.targets.push(target);
         self
@@ -200,14 +197,14 @@ impl EvalBuilder {
     /// ```
     /// # use mira::{Eval, Transcript, subject::subject_fn, scorer::succeeded};
     /// let eval = Eval::new("e")
-    ///     .case("a", "x")
+    ///     .sample("a", "x")
     ///     .axis("effort", ["low", "high"])
     ///     .subject(subject_fn(|_, cx| async move {
     ///         Transcript::response(cx.param("effort").unwrap_or("?").to_string())
     ///     }))
     ///     .scorer(succeeded())
     ///     .build();
-    /// // One sample × one (default sim) target × two effort values = 2 cells.
+    /// // One sample × one (default sim) target × two effort values = 2 cases.
     /// assert_eq!(eval.axis_combinations().len(), 2);
     /// ```
     pub fn axis(
@@ -225,10 +222,10 @@ impl EvalBuilder {
         self
     }
 
-    /// Run each cell `n` times (trials/repetitions) instead of once, so the host
+    /// Run each case `n` times (trials/repetitions) instead of once, so the host
     /// can report pass@k, pass-rate, and score variance over a stochastic
-    /// subject. Trials are repetitions of the *same* cell (unlike an [`axis`],
-    /// which forms new cells), grouped back for aggregation. `n` is clamped to at
+    /// subject. Trials are repetitions of the *same* case (unlike an [`axis`],
+    /// which forms new cases), grouped back for aggregation. `n` is clamped to at
     /// least 1. The host may override this with `--trials`.
     ///
     /// Pair with [`seed`](EvalBuilder::seed) for reproducible repetitions.
@@ -257,7 +254,7 @@ impl EvalBuilder {
     /// ```
     /// # use mira::{Eval, Part, Transcript, subject::subject_fn, scorer::succeeded};
     /// let eval = Eval::new("haggle")
-    ///     .case("open", "I'd like a discount.")
+    ///     .sample("open", "I'd like a discount.")
     ///     .max_turns(3)
     ///     // The subject answers from the running conversation (cx.conversation).
     ///     .subject(subject_fn(|_, cx| async move {
@@ -319,7 +316,7 @@ mod tests {
     #[test]
     fn builder_defaults_to_sim() {
         let eval = Eval::new("greet")
-            .case("hi", "say hi")
+            .sample("hi", "say hi")
             .subject(subject_fn(|_, _| async { Transcript::response("hi") }))
             .scorer(contains("hi"))
             .build();
@@ -344,21 +341,21 @@ mod tests {
     #[test]
     fn trials_default_to_one_and_are_clamped() {
         let eval = Eval::new("e")
-            .case("a", "x")
+            .sample("a", "x")
             .subject(subject_fn(|_, _| async { Transcript::default() }))
             .build();
         assert_eq!(eval.trials, 1);
         assert_eq!(eval.seed, None);
 
         let repeated = Eval::new("e")
-            .case("a", "x")
+            .sample("a", "x")
             .trials(0) // clamped up to 1
             .subject(subject_fn(|_, _| async { Transcript::default() }))
             .build();
         assert_eq!(repeated.trials, 1);
 
         let seeded = Eval::new("e")
-            .case("a", "x")
+            .sample("a", "x")
             .trials(8)
             .seed(123)
             .subject(subject_fn(|_, _| async { Transcript::default() }))

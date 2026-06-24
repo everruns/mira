@@ -1,8 +1,8 @@
 //! End-to-end cancellation across the host↔study seam, wired over in-memory
 //! pipes (no child process): a real [`Host`] talks to a real [`Study`] running a
-//! deliberately slow cell. Covers both levers — an explicit
+//! deliberately slow case. Covers both levers — an explicit
 //! [`HostHandle::cancel`] by request id, and cancel-on-drop, where abandoning a
-//! `run` future (a per-cell timeout / fail-fast) aborts the study-side run.
+//! `run` future (a per-case timeout / fail-fast) aborts the study-side run.
 
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -26,13 +26,13 @@ impl Drop for AbortFlag {
     }
 }
 
-/// A study whose only cell signals when it starts, then sleeps far past the test
+/// A study whose only case signals when it starts, then sleeps far past the test
 /// before returning — so a `run` stays observably in flight until cancelled, and
 /// `aborted` flips iff the run was dropped rather than allowed to finish.
 fn slow_study(started: Arc<tokio::sync::Notify>, aborted: Arc<AtomicBool>) -> Study {
     Study::new().eval(
         Eval::new("slow")
-            .sample(Sample::new("s", "go"))
+            .add_sample(Sample::new("s", "go"))
             .subject(subject_fn(move |_, _| {
                 let started = started.clone();
                 let aborted = aborted.clone();
@@ -123,7 +123,7 @@ async fn dropping_a_run_future_cancels_it() {
     host.initialize("test-host").await.expect("initialize");
     let handle = host.handle();
 
-    // A per-cell timeout drops the run future; cancel-on-drop must abort the
+    // A per-case timeout drops the run future; cancel-on-drop must abort the
     // study-side run rather than leaving it to sleep out the full 30s.
     let timed = tokio::time::timeout(
         Duration::from_millis(300),

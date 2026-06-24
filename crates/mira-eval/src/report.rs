@@ -42,7 +42,7 @@ impl Format {
 }
 
 /// A `--group-by` view over a result set: the metadata key, plus the resolved
-/// group value for each cell (parallel to the results; `None` ⇒ the cell had no
+/// group value for each case (parallel to the results; `None` ⇒ the case had no
 /// value for the key). The host resolves the values (it owns the listing join);
 /// the reporters only bucket and render, so this module stays pure.
 #[derive(Clone, Copy)]
@@ -81,7 +81,7 @@ pub fn render_with_group(
     }
 }
 
-/// `[k=v,…]` for a cell's axis params, or empty when there are none.
+/// `[k=v,…]` for a case's axis params, or empty when there are none.
 fn params_suffix(params: &crate::Params) -> String {
     if params.is_empty() {
         return String::new();
@@ -97,7 +97,7 @@ fn params_suffix(params: &crate::Params) -> String {
 }
 
 /// The full per-row key suffix: axis params (`[k=v,…]`) then the `#trial` index
-/// when this cell was repeated, so every trial's row is individually identifiable.
+/// when this case was repeated, so every trial's row is individually identifiable.
 fn case_suffix(r: &RunResult) -> String {
     format!(
         "{}{}",
@@ -196,9 +196,9 @@ impl GroupRate {
     }
 }
 
-/// Resolve-rate bucketed by a pre-resolved per-cell group value (`values`
+/// Resolve-rate bucketed by a pre-resolved per-case group value (`values`
 /// parallel to `results`; `None` ⇒ the `(unset)` bucket). Skipped and all-N/A
-/// cells are excluded from `scored`, exactly like the matrix, so infra hiccups
+/// cases are excluded from `scored`, exactly like the matrix, so infra hiccups
 /// don't skew a group's rate. Buckets are ordered by value, `(unset)` last.
 pub fn group_rates(results: &[RunResult], values: &[Option<String>]) -> Vec<GroupRate> {
     use std::collections::BTreeMap;
@@ -267,7 +267,7 @@ pub fn print_group_breakdown(results: &[RunResult], key: &str, values: &[Option<
     }
 }
 
-/// Escape a value for a Markdown table cell: a `|` would start a new column and a
+/// Escape a value for a Markdown table case: a `|` would start a new column and a
 /// newline would break the row. Group values come from free-form metadata, so
 /// neutralize both before rendering (otherwise a stray `|` corrupts the table and
 /// any CI job summary built from it).
@@ -344,13 +344,13 @@ fn print_matrix(results: &[RunResult]) {
     for eval in &evals {
         print!("  {:label_w$}", eval, label_w = label_w);
         for target in &targets {
-            print!("  {:>col_w$}", cell(results, eval, target), col_w = col_w);
+            print!("  {:>col_w$}", case(results, eval, target), col_w = col_w);
         }
         println!();
     }
 }
 
-/// When any cell was repeated (trials > 1), print a per-cell aggregation: trials
+/// When any case was repeated (trials > 1), print a per-case aggregation: trials
 /// passed/scored, pass-rate, the pass@k spread, and the score's standard
 /// deviation (the reproducibility signal). Silent when nothing was repeated.
 fn print_trials(results: &[RunResult]) {
@@ -382,20 +382,20 @@ fn print_trials(results: &[RunResult]) {
     }
 }
 
-/// The `passed/scored` cell for one (eval, target), or `—` if absent. Skipped and
-/// all-N/A cells are excluded from the denominator (see [`is_na`]).
-fn cell(results: &[RunResult], eval: &str, target: &str) -> String {
-    let cells: Vec<_> = results
+/// The `passed/scored` case for one (eval, target), or `—` if absent. Skipped and
+/// all-N/A cases are excluded from the denominator (see [`is_na`]).
+fn case(results: &[RunResult], eval: &str, target: &str) -> String {
+    let cases: Vec<_> = results
         .iter()
         .filter(|r| r.eval == eval && r.target == target && !r.skipped && !is_na(r))
         .collect();
-    if cells.is_empty() {
+    if cases.is_empty() {
         "—".to_string()
     } else {
         format!(
             "{}/{}",
-            cells.iter().filter(|r| r.passed).count(),
-            cells.len()
+            cases.iter().filter(|r| r.passed).count(),
+            cases.len()
         )
     }
 }
@@ -403,7 +403,7 @@ fn cell(results: &[RunResult], eval: &str, target: &str) -> String {
 /// Canonical machine-readable JSON record over the collected results. Carries
 /// per-case usage/timing (each `RunResult.transcript`) plus rolled-up totals,
 /// so the HTML viewer and trend aggregation consume one stable shape. When any
-/// cell was repeated (trials > 1), a `trials` array of per-cell
+/// case was repeated (trials > 1), a `trials` array of per-case
 /// [`TrialAggregate`](crate::aggregate::TrialAggregate)s (pass@k / pass-rate /
 /// variance) is added.
 pub fn results_json(results: &[RunResult]) -> serde_json::Value {
@@ -438,19 +438,19 @@ pub fn results_json_with_group(
     record
 }
 
-/// True when a cell ran but every score was N/A — nothing could be evaluated
+/// True when a case ran but every score was N/A — nothing could be evaluated
 /// (an unreachable judge, or an infrastructure failure that short-circuited
-/// scoring). Such a cell is **neither passed nor failed**: it's excluded from
+/// scoring). Such a case is **neither passed nor failed**: it's excluded from
 /// the pass-rate, like a skip, so infra hiccups don't masquerade as real
-/// failures. The host retries infra-errored cells; one that stays N/A is
+/// failures. The host retries infra-errored cases; one that stays N/A is
 /// reported as such rather than counted against the target.
 pub fn is_na(r: &RunResult) -> bool {
     !r.scores.is_empty() && r.scores.iter().all(|s| s.na)
 }
 
-/// JUnit XML: one `<testcase>` per cell (`eval` ⇒ classname, `sample@target` ⇒
-/// name), a failed cell carries `<failure>` with the failing scorers, a skipped
-/// cell carries `<skipped>`. A cell that was not executed or whose scores are
+/// JUnit XML: one `<testcase>` per case (`eval` ⇒ classname, `sample@target` ⇒
+/// name), a failed case carries `<failure>` with the failing scorers, a skipped
+/// case carries `<skipped>`. A case that was not executed or whose scores are
 /// all N/A counts as skipped. Surfaces evals in any CI that understands JUnit.
 pub fn junit_xml(results: &[RunResult]) -> String {
     let is_skipped = |r: &RunResult| r.skipped || is_na(r);
@@ -526,7 +526,7 @@ pub fn markdown(results: &[RunResult]) -> String {
     for eval in &evals {
         out.push_str(&format!("| {eval} |"));
         for target in &targets {
-            out.push_str(&format!(" {} |", cell(results, eval, target)));
+            out.push_str(&format!(" {} |", case(results, eval, target)));
         }
         out.push('\n');
     }
@@ -628,7 +628,7 @@ pub fn html_with_group(results: &[RunResult], group: Option<Group<'_>>) -> Strin
             for target in &targets {
                 out.push_str(&format!(
                     "<td>{}</td>",
-                    html_escape(&cell(results, eval, target))
+                    html_escape(&case(results, eval, target))
                 ));
             }
             out.push_str("</tr>\n");
@@ -847,8 +847,8 @@ mod tests {
     }
 
     #[test]
-    fn all_na_cell_counts_as_na_not_failed() {
-        // pass, all-N/A (infra), skip → the N/A cell is excluded from pass/fail
+    fn all_na_case_counts_as_na_not_failed() {
+        // pass, all-N/A (infra), skip → the N/A case is excluded from pass/fail
         // and surfaced in its own bucket across every reporter.
         let mut na = result("greet", "hi", "opus", false, false);
         na.scores = vec![Score::na("infra", "provider 503")];
@@ -860,7 +860,7 @@ mod tests {
         let v = results_json(&results);
         assert_eq!(v["summary"]["scored"], 1); // only the sim pass is scored
         assert_eq!(v["summary"]["passed"], 1);
-        assert_eq!(v["summary"]["failed"], 0); // the N/A cell is not a failure
+        assert_eq!(v["summary"]["failed"], 0); // the N/A case is not a failure
         assert_eq!(v["summary"]["na"], 1);
         assert_eq!(v["summary"]["skipped"], 1);
 
@@ -883,8 +883,8 @@ mod tests {
     }
 
     #[test]
-    fn junit_all_na_cell_is_skipped_not_failed() {
-        // A cell that ran but whose only score is N/A must not emit an empty
+    fn junit_all_na_case_is_skipped_not_failed() {
+        // A case that ran but whose only score is N/A must not emit an empty
         // <failure>; it counts as skipped instead.
         let mut r = result("greet", "hi", "opus", false, false);
         r.scores = vec![Score::na("judge", "unreachable")];
@@ -933,7 +933,7 @@ mod tests {
 
     #[test]
     fn trials_aggregate_in_json_and_labels() {
-        // Three trials of one cell, 2/3 passing.
+        // Three trials of one case, 2/3 passing.
         let mut results = Vec::new();
         for t in 0..3 {
             let mut r = result("flaky", "a", "sim", t != 0, false);
@@ -963,7 +963,7 @@ mod tests {
     #[test]
     fn group_rates_bucket_and_exclude_skips() {
         // pass@easy, fail@easy, pass@hard, skip (unset). The skip is excluded
-        // from scored; the unset bucket only appears when it has scored cells.
+        // from scored; the unset bucket only appears when it has scored cases.
         let results = vec![
             result("e", "a", "sim", true, false),
             result("e", "b", "sim", false, false),
@@ -977,7 +977,7 @@ mod tests {
             None,
         ];
         let rates = group_rates(&results, &values);
-        assert_eq!(rates.len(), 2); // easy, hard — the skipped (None) cell drops out
+        assert_eq!(rates.len(), 2); // easy, hard — the skipped (None) case drops out
         assert_eq!(rates[0].value, "easy");
         assert_eq!((rates[0].passed, rates[0].scored), (1, 2));
         assert_eq!(rates[0].rate(), 0.5);

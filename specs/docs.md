@@ -80,7 +80,7 @@ layout.
 - **Lead with the model, then the API.** State what a thing *is* and why it is
   shaped that way before the method names.
 - **Define a term once.** The canonical vocabulary — *host*, *study*, *subject*,
-  *scorer*, *cell*, *matrix*, *axis*, *transcript*, *N/A*, *infrastructure
+  *scorer*, *case*, *matrix*, *axis*, *transcript*, *N/A*, *infrastructure
   error* — is defined in `how-it-works.md` and used consistently everywhere.
 - **Code examples are real.** Examples compile against the current API (prefer
   lifting from `examples/`); elide bodies with `/* … */`, never with stale

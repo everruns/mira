@@ -5,7 +5,7 @@ Author a Mira eval **study** in TypeScript and run it with the `mira` host CLI.
 This is **not** a binding to the Rust core — it's a native, zero-dependency
 Node library that speaks the [Mira eval protocol](../../docs/protocol.md)
 (newline-delimited JSON over stdio). The host owns selection, the target matrix,
-concurrency, checkpoints, and reporting; the study owns subjects and scoring. Any
+concurrency, saved runs, and reporting; the study owns subjects and scoring. Any
 language that speaks the protocol is a first-class study — this SDK just makes
 the TypeScript side ergonomic and fully typed.
 
@@ -89,10 +89,10 @@ A complete, runnable example lives in
   — `run(sample, cx) => Transcript | Promise<Transcript>` is the subject.
 - **`sample(id, { prompt? | input?, tags?, expected?, files?, metadata? })`** —
   one dataset row; `sample.text` is the prompt, or the input turns joined.
-- **`target(label, { provider?, available?, metadata? })`** — a matrix cell (the
+- **`target(label, { provider?, available?, metadata? })`** — a matrix case (the
   model or harness under evaluation). An unavailable target is reported as
   **N/A** (infra), not a failure.
-- **`RunCx`** — the per-cell context: `cx.target`, `cx.provider`, `cx.maxTurns`,
+- **`RunCx`** — the per-case context: `cx.target`, `cx.provider`, `cx.maxTurns`,
   `cx.param(name, default?)` (axis values).
 - **`transcript(finalResponse, { usage?, timing?, iterations?, toolCalls?, metrics?, metadata?, error?, errorKind?, … })`**
   plus the `usage({…})` and `timing({…})` builders.
@@ -104,7 +104,7 @@ A complete, runnable example lives in
   matrix); read it in a subject via `cx.param(name)`.
 
 Scoring semantics match the Rust `crate::runner` exactly: an N/A score is
-excluded from the cell verdict and the aggregate; an unavailable target / infra
+excluded from the case verdict and the aggregate; an unavailable target / infra
 error short-circuits to a single N/A (neither pass nor fail).
 
 ## How it stays in sync

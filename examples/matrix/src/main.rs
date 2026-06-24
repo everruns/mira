@@ -1,6 +1,6 @@
 //! A multi-axis matrix: the same eval run across several models **and** an extra
 //! `effort` axis. The runner takes the cross-product, so this expands to
-//! `samples × models × effort` independently-addressable cells, each with a
+//! `samples × models × effort` independently-addressable cases, each with a
 //! stable key like `reasoning/puzzle@sim[effort=high]`.
 //!
 //! ```bash
@@ -10,13 +10,13 @@
 //! mira --bin matrix run -j 4 --provider-concurrency anthropic=2     # bounded, per-provider
 //! ```
 //!
-//! The host runs cells concurrently (bounded by `-j`, per-provider caps, and
+//! The host runs cases concurrently (bounded by `-j`, per-provider caps, and
 //! adaptive backoff when a provider rate-limits), so a wide matrix finishes fast
 //! without hammering any one provider.
 //!
 //! The subject reads the chosen axis value with `cx.param("effort")` and varies
 //! its behaviour — here, "high" effort spends more tokens to get the answer
-//! right. Offline against `sim` (plus key-gated cloud cells that skip).
+//! right. Offline against `sim` (plus key-gated cloud cases that skip).
 
 use mira::scorer::{contains, succeeded, tokens_within};
 use mira::subject::subject_fn;
@@ -29,7 +29,7 @@ use support::fake_agent;
 fn reasoning() -> Eval {
     Eval::new("reasoning")
         .describe("Same task across models × reasoning effort")
-        .case("puzzle", "What is 17 * 23? Think it through.")
+        .sample("puzzle", "What is 17 * 23? Think it through.")
         .axis("effort", ["low", "high"])
         .targets([
             Target::sim(),
@@ -50,8 +50,8 @@ fn reasoning() -> Eval {
         .scorer(succeeded())
         .scorer(contains("391"))
         // A token budget both effort levels meet here — the matrix surfaces the
-        // per-cell token/cost numbers so you can compare the trade-off in the
-        // report even when every cell passes.
+        // per-case token/cost numbers so you can compare the trade-off in the
+        // report even when every case passes.
         .scorer(tokens_within(256))
         .build()
 }

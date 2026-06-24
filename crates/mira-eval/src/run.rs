@@ -2,22 +2,22 @@
 //!
 //! A *run* is one `mira run`/`mira score` invocation. Its [`RunMeta`] (a unique,
 //! sortable id, start/finish timestamps, and a result summary) is the record the
-//! host's `--save` writes next to the report, so past runs can later be listed
-//! and compared. This is the data foundation for the "historical trend
-//! aggregation across runs" seam in `specs/architecture.md` §12 — the query
-//! commands consume these records; they don't change this shape.
+//! host writes into the run folder (`<results_dir>/<run_id>/meta.json`) next to
+//! the report and per-case results, so past runs can later be listed and
+//! compared. This is the data foundation for the "historical trend aggregation
+//! across runs" seam in `specs/architecture.md` §12 — the query commands consume
+//! these records; they don't change this shape.
 //!
-//! Design note: a run id is per *invocation*, not per checkpoint. Resuming a
-//! `--checkpoint` continues the same [`Session`](crate::session::Session) but is
-//! a fresh run with its own id/timestamps — exactly what you want when comparing
-//! the same suite over time.
+//! Design note: a run id names a *run folder*. A fresh `mira run` mints a new id;
+//! `mira run --resume <run_id>` reopens that same folder, skips the cases already
+//! recorded under `cases/`, and runs only what's missing — so an interrupted run
+//! finishes in place rather than starting over.
 
 use std::collections::BTreeMap;
 
 use serde::{Deserialize, Serialize};
 
 use crate::protocol::RunResult;
-use crate::session::now_unix;
 
 /// On-disk format version for the run meta file. Bumped on a breaking layout
 /// change; readers treat an unrecognised version as unusable.
@@ -113,19 +113,19 @@ pub struct GitInfo {
 /// Rolled-up counts and totals over a run's results. The single source of truth
 /// for the report JSON `summary` block and the saved run `meta.json`.
 ///
-/// A cell is one of three states (see [`report::is_na`](crate::report::is_na)):
+/// A case is one of three states (see [`report::is_na`](crate::report::is_na)):
 /// *scored* (a real verdict — counts toward `passed`/`failed`), *N/A* (ran but
 /// nothing could be evaluated — an unreachable judge or infra failure; excluded
 /// from the verdict like a skip), or *skipped* (never executed).
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct RunSummary {
-    /// Cells with a real verdict (ran, not N/A): `passed + failed`.
+    /// Cases with a real verdict (ran, not N/A): `passed + failed`.
     pub scored: usize,
     pub passed: usize,
     pub failed: usize,
-    /// Cells that ran but were all-N/A — neither passed nor failed.
+    /// Cases that ran but were all-N/A — neither passed nor failed.
     pub na: usize,
-    /// Cells that never executed.
+    /// Cases that never executed.
     pub skipped: usize,
     pub total_tokens: u64,
     pub total_cost_usd: f64,
@@ -134,7 +134,7 @@ pub struct RunSummary {
 }
 
 impl RunSummary {
-    /// Aggregate a slice of results. Usage/timing totals cover every cell that
+    /// Aggregate a slice of results. Usage/timing totals cover every case that
     /// actually ran (including N/A ones, which may have burned tokens before
     /// failing); only never-run skips drop out.
     pub fn of(results: &[RunResult]) -> Self {
@@ -177,6 +177,14 @@ pub fn new_run_id_at(started_unix: u64) -> String {
 /// [`new_run_id_at`] for a run starting now.
 pub fn new_run_id() -> String {
     new_run_id_at(now_unix())
+}
+
+/// Unix seconds now (0 if the clock is before the epoch).
+pub fn now_unix() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0)
 }
 
 /// `YYYYMMDDThhmmssZ` for `secs` (Unix seconds, UTC). Dependency-free on
@@ -284,7 +292,7 @@ mod tests {
 
     #[test]
     fn summary_counts_and_totals() {
-        // A pass, a fail, an all-N/A cell (ran but unevaluated), and a skip.
+        // A pass, a fail, an all-N/A case (ran but unevaluated), and a skip.
         let na = {
             let mut r = run_result(false, false, 7);
             r.scores = vec![Score::na("judge", "unreachable")];
@@ -300,9 +308,9 @@ mod tests {
         assert_eq!(s.scored, 2);
         assert_eq!(s.passed, 1);
         assert_eq!(s.failed, 1);
-        assert_eq!(s.na, 1, "all-N/A cell is N/A, not failed");
+        assert_eq!(s.na, 1, "all-N/A case is N/A, not failed");
         assert_eq!(s.skipped, 1);
-        // Totals include the N/A cell (it ran), exclude only the skip.
+        // Totals include the N/A case (it ran), exclude only the skip.
         assert_eq!(s.total_tokens, 15);
         assert_eq!(s.total_tool_calls, 3);
         assert_eq!(s.total_duration_ms, 30);

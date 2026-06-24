@@ -71,50 +71,50 @@ Eval = Dataset(Sample…) + Subject + [Scorer…]  ×  target matrix
   `0..1`, `pass`, `reason`). Deterministic built-ins, the `scorer(name, closure)`
   escape hatch, and `model_graded(rubric, judge)`. One open vocabulary, not a
   closed enum.
-- **`Target`** — one matrix cell. **Provider-agnostic**: `(label, provider,
+- **`Target`** — one matrix case. **Provider-agnostic**: `(label, provider,
   model, available, metadata)`, no keys, no SDK types. Subjects interpret it.
 
 ### Matrix
 
 The **target** (the model or harness under evaluation; see §15) is the
 first-class axis. The runner expands `evals × targets × axes ×
-samples` into independently-addressable cells. Missing API keys mark a cell
+samples` into independently-addressable cases. Missing API keys mark a case
 `available: false`, so it is **skipped, not failed** — the default run is green
 offline.
 
-**Infrastructure errors vs. failures.** A cell can go wrong two ways, kept apart
+**Infrastructure errors vs. failures.** A case can go wrong two ways, kept apart
 so evals measure the model, not the weather. A **failure** is the model under
 test getting it wrong (a scorer doesn't pass). An **infrastructure error** is the
 scaffolding breaking (budget/quota, rate limit, provider 5xx/outage,
 network/timeout): a subject signals it with `Transcript::infra_error` (vs.
 `failed`), setting `error_kind = Infra`. Scoring then **short-circuits to a single
-N/A score** — the cell-level dual of a scorer's `Score::na` — so the cell is
+N/A score** — the case-level dual of a scorer's `Score::na` — so the case is
 excluded from the verdict and aggregate (neither pass nor fail, like a skip) and
 reported N/A across every renderer. The host's concurrent executor **retries**
-infra-errored cells (alongside rate-limited ones) up to `--max-retries`; one that
+infra-errored cases (alongside rate-limited ones) up to `--max-retries`; one that
 stays broken stays N/A, never counted against the model. `mira-everruns`
 classifies provider error strings into `Infra` conservatively.
 
 **Arbitrary axes** beyond the model ship in v0.1: `Eval::axis(name, values)`
 adds a discrete axis (e.g. reasoning `effort`, harness variant), and the runner
-crosses every axis with the target matrix. The chosen value per cell reaches the
-subject via `RunCx::param(name)`. Cell identity is `eval/sample@target` with a
+crosses every axis with the target matrix. The chosen value per case reaches the
+subject via `RunCx::param(name)`. Case identity is `eval/sample@target` with a
 sorted `[k=v,…]` suffix when axes vary (e.g.
 `reasoning/puzzle@sim[effort=high]`), computed identically by host and study
-(`mira::cell_key`).
+(`mira::case_key`).
 
 **Trials & reproducibility.** pass@k, variance, and reproducibility are core eval
 semantics, so N-sampling is first-class — not faked through an axis. `Eval::trials(n)`
 (+ optional `Eval::seed(base)`), overridable per-run by `--trials` / `--seed`,
-repeats each cell `n` times. Crucially, trials are **not an axis**: they're
-repetitions of the *same* logical cell, so they don't cross-multiply with the
+repeats each case `n` times. Crucially, trials are **not an axis**: they're
+repetitions of the *same* logical case, so they don't cross-multiply with the
 matrix and they're grouped back for aggregation. A trial carries `(index, count,
 seed)` (`mira::Trial`) on the wire (`trial`/`trials`/`seed`, all additive) and
 reaches the subject via `RunCx::seed()`; seeding is deterministic
-(`seed + index`) so a repetition set replays identically. A repeated cell's key
+(`seed + index`) so a repetition set replays identically. A repeated case's key
 gains a `#index` suffix (`flaky/answer@sim#2`) while all trials share one *logical*
 key (`RunResult::logical_key`); the host groups by that key. The **aggregation
-contract** lives in `mira::aggregate`: a per-cell `TrialAggregate` with pass-rate,
+contract** lives in `mira::aggregate`: a per-case `TrialAggregate` with pass-rate,
 the unbiased pass@k estimator (Chen et al.), and score mean/σ — surfaced in the
 terminal report and as a `trials` array in the JSON record. Whether a flaky run is
 "green" is still per-trial (a failing trial is a failure); a pass-rate *threshold*
@@ -137,18 +137,18 @@ decision. Full wire reference: [`docs/protocol.md`](../docs/protocol.md).
 
 - **study** — *your* eval program. Defines evals and calls
   `Study::new(…).serve()` / `Study::registered().serve()`. Owns subjects and
-  scoring; knows nothing about selection, matrices, aggregation, checkpoints, or
+  scoring; knows nothing about selection, matrices, aggregation, saved runs, or
   rendering. **Provider API keys live only here and never cross the wire.**
 - **host** — the `mira` CLI. Compiles + spawns the study, enumerates evals
   (`initialize` + `list`), plans the run (selection × matrix), drives execution
-  (`run`), then aggregates / saves / checkpoints / renders.
+  (`run`), then aggregates / saves the run / renders.
 
 Three core methods (`initialize`, `list`, `run`) plus fire-and-forget
 `event`/`log` notifications, and optional capability-gated extensions
 (`execute`/`score` for run-now-score-later; `list_samples` to page a large or
 lazily generated dataset whose samples don't fit one `list` line — the host
 follows `EvalInfo.next_cursor` until exhausted). Models are addressed by
-**label**; an unavailable cell is skipped. The boundary is the natural seam for
+**label**; an unavailable case is skipped. The boundary is the natural seam for
 **polyglot studies** — any program in any language that speaks the protocol is a
 valid study.
 
@@ -157,11 +157,11 @@ single pipe (responses correlate by `id`; progress `event` notifications correla
 by a `request_id` in their payload, since a notification can't carry the envelope
 `id`), and the study dispatches them on independent tasks. How many run at once is the host's call, smallest-wins across
 three knobs: a **global** cap (`-j/--max-concurrent`), a **per-provider** cap
-(`--provider-concurrency anthropic=2,…`), and **adaptive reduction** — a cell
+(`--provider-concurrency anthropic=2,…`), and **adaptive reduction** — a case
 whose result carries a rate-limit signal (HTTP 429, "overloaded", quota; see
 `mira::is_rate_limited`) halves that provider's in-flight limit (AIMD) and is
 re-queued after an exponential backoff, recovering one slot per success streak.
-Cells bucket by the `list` `provider`, so one provider's limits can't be flooded
+Cases bucket by the `list` `provider`, so one provider's limits can't be flooded
 while others run flat-out. The policy lives in `mira::exec` (host side); the
 study stays oblivious. `--no-adaptive` disables it; `sim` (offline) runs at the
 global cap.
@@ -199,16 +199,15 @@ or an explicit `Study::new().eval(…).serve()`. `#[eval]` ships in the proc-mac
 crate `mira-macros`, re-exported as `mira::eval` behind the default `macros`
 feature.
 
-**Running** — the `mira` CLI: `list`, `run [filter]`, `--tag`, `--targets`,
-`--axis`, `--preset`,
-`--format json|junit|md|html`, `--out`, `--checkpoint`/`--fresh`, and concurrency
-controls `-j/--max-concurrent`, `--provider-concurrency`, `--no-adaptive`,
-`--max-retries`. Non-zero exit on failure, so it drops into CI. In-process
-`Runner` for evals as `#[tokio::test]`s.
+**Running** — the `mira` CLI: `list`, `run [filter]`, `report <run_id>`, `--tag`,
+`--targets`, `--axis`, `--preset`, `--format json|junit|md|html`, `--out`,
+`--dry-run`/`--resume <run_id>`, and concurrency controls `-j/--max-concurrent`,
+`--provider-concurrency`, `--no-adaptive`, `--max-retries`. Non-zero exit on
+failure, so it drops into CI. In-process `Runner` for evals as `#[tokio::test]`s.
 
-## 7. Reporting, checkpoints & resume
+## 7. Reporting, run folders & resume
 
-The host owns all of this; the study only returns per-cell results.
+The host owns all of this; the study only returns per-case results.
 
 - **Terminal** — per-case list (with token/cost/latency/tool metrics) + a
   model×eval pass-rate matrix + totals.
@@ -222,18 +221,21 @@ The host owns all of this; the study only returns per-cell results.
 - **JUnit XML** (`--format junit`) — surfaces evals in any CI test UI.
 - **Markdown** (`--format md`) — for PR job summaries.
 - **Progress** — on an interactive terminal the host renders a live bar
-  (`done/total`, elapsed, ETA, current cell). The total is exact: the host plans
+  (`done/total`, elapsed, ETA, current case). The total is exact: the host plans
   the full grid up front, so it's a count, not an estimate. Hidden under
   CI/non-TTY so it never pollutes logs.
-- **Sessions & checkpoints** (`--checkpoint`) — the checkpoint is a first-class
-  *session* record (`mira::session::Session`): run metadata (study, planned
-  `total`, created/updated timestamps, per-eval definition fingerprints) plus the
-  per-cell results, rewritten after each cell. A re-run loads it, skips done
-  cells, and resumes the progress bar at the right `done/total` (`--fresh`
-  ignores it). The fingerprints let a resume **warn when an eval's definition
-  changed** (scorers/axes/models/samples/metadata/`max_turns`) so stale cached
-  cells aren't silently reused. Resumable long matrix runs fall out of the host
-  owning the plan.
+- **Run folders & resume** — every `run`/`score` is **saved by default** under
+  `<results_dir>/<run_id>/` (opt out with `--dry-run`). The run folder is the
+  durable unit: `meta.json` (run identity — a header written at start, finalized
+  at the end with the finish time and summary), `report.json`/`report.html`, and
+  one `cases/<key>/result.json` per finished case, written atomically (temp +
+  rename) as it lands. `mira run --resume <run_id>` reopens that folder, skips the
+  cases already recorded under `cases/`, and runs only what's missing — so an
+  interrupted long matrix run finishes in place. Resume is **explicit**: a fresh
+  run mints a new id and reuses nothing, so there's no silent reuse of stale
+  results. `mira report <run_id>` re-renders a saved run's reports from its stored
+  results with no study process and no re-execution. Resumable runs fall out of
+  the host owning both the plan and the run folder.
 
 ## 8. Migration paths
 
@@ -262,7 +264,7 @@ measure (`CliSubject` and
 `RuntimeSubject` time the run; the event walker totals usage from JSONL). Budget
 scorers (`tokens_within`, `cost_within`, `latency_within`, `ttft_within`,
 `metric_within`, `tools_used_exactly`, `tool_called_before`, …) turn these into
-pass/fail, and the JSON/HTML reports surface them per cell and in aggregate.
+pass/fail, and the JSON/HTML reports surface them per case and in aggregate.
 
 ## 10. Delivered since the initial cut
 
@@ -275,10 +277,10 @@ negotiation, and the operational metrics above.
 
 Running a subject and scoring its transcript are **separable phases**. The
 `Scorer` trait already depends only on `(Sample, Transcript)`, never on the
-subject — so the only coupling was operational: `run_cell` did both in one call,
-and the only persisted artifact (the checkpoint) carried a *summary* transcript
-with the raw `events`/`files` dropped, so a stored cell could be resumed but
-never re-scored.
+subject — so the only coupling was operational: `run_case` did both in one call,
+and a saved case result carries a *summary* transcript with the raw
+`events`/`files` dropped, so a stored case can be resumed but not re-scored from
+the run folder alone (full re-scoring uses execution artifacts; see below).
 
 This matters for two real workflows:
 
@@ -296,20 +298,20 @@ convenience path):
 
 - **`execute`** ([`RunParams`] → [`ExecuteResult`]) — runs the subject only and
   returns the **full** [`Transcript`] (events and files included). No scoring.
-- **`score`** ([`ScoreParams`] = cell identity + a full transcript →
+- **`score`** ([`ScoreParams`] = case identity + a full transcript →
   [`RunResult`]) — runs the eval's scorers over a supplied transcript and
   returns the scored result. Stateless w.r.t. execution: the transcript comes in
   over the wire, so the host can replay a stored one.
 
 Both are advertised via capability tokens (`execute`, `score`) and are additive —
-older studies that only implement `run` keep working. The shared in-process seam is `runner::execute_cell` +
-`runner::score_transcript`, with `run_cell` composing the two so in-process and
+older studies that only implement `run` keep working. The shared in-process seam is `runner::execute_case` +
+`runner::score_transcript`, with `run_case` composing the two so in-process and
 over-the-wire runs score identically (as before).
 
-**Artifacts.** The host owns persistence (as with checkpoints). `mira run
+**Artifacts.** The host owns persistence (as with saved runs). `mira run
 --execute-only --artifacts <dir>` writes one full-transcript `ExecuteResult`
-JSON per cell into `<dir>` (resumable: an existing artifact is skipped unless
-`--fresh`). `mira score --artifacts <dir>` loads those, replays each through
+JSON per case into `<dir>` (resumable: an existing artifact is skipped; delete the
+dir to force a fresh run). `mira score --artifacts <dir>` loads those, replays each through
 `score`, and produces the normal report — re-running it is a re-score. Execution
 artifacts (full transcripts) are thus stored **separately** from eval results
 (scores), and either can be regenerated from the other's inputs.
@@ -322,7 +324,7 @@ does not require a breaking change to land. The transcript-view seam is now
 half-built: `event` notifications carry a typed, schematized payload
 (`EventParams`) with a growing `kind` vocabulary (`started`/`turn`/`tool_call`/
 `output`/`finished`) and a `request_id` correlating each event to its run, so a
-host can render per-cell progress live.
+host can render per-case progress live.
 
 **Reverse request channel (study→host) — reserved seam.** Every request flows
 host→study today; the study is self-contained and keys live study-side by design.
@@ -332,7 +334,7 @@ new envelope direction, and so the one most likely to force a breaking 2.0 if
 retrofitted carelessly; we fix its design now even though we don't build it.
 Motivating cases: **host-brokered model access** (central credentials, caching,
 budgeting instead of per-study keys), **shared resources** the host owns (sandbox,
-fixtures), and **human-in-the-loop** (pause a cell to ask the operator). The
+fixtures), and **human-in-the-loop** (pause a case to ask the operator). The
 framing already admits it as a *minor*, additive change, guaranteed by three
 invariants: (1) **field-based message classification** — a line bearing `method`
 is a request/notification, never a response, so a reverse request on the study's
@@ -346,14 +348,16 @@ rather than letting its id corrupt response routing, so the seam is exercised, n
 theoretical; the concrete reverse methods would stage behind `protocol-unstable`.
 Full design: [`docs/protocol.md`](../docs/protocol.md#reverse-requests-studyhost).
 
-**Run archive (landed seam).** `mira run --save` / `mira score --save` archive
-each invocation into `<results_dir>/<run_id>/` (`report.json`, `report.html`, and
-`meta.json` = `mira::run::RunMeta`: a sortable `YYYYMMDDThhmmssZ-xxxx` run id,
-study, start/finish timestamps, and the rolled-up summary). The results dir
-resolves from `--save <dir>`, else `[results].dir` in the nearest `mira.toml`,
-else `./results`. A run id is per *invocation* (not per checkpoint), so resuming
-a `--checkpoint` is still a fresh run with its own id/timestamps. This is the
-data foundation for *historical trend aggregation*: the deferred `list`/`compare`
+**Run archive (landed seam).** `mira run` / `mira score` save every invocation
+into `<results_dir>/<run_id>/` by default (opt out with `--dry-run`):
+`report.json`, `report.html`, `meta.json` (= `mira::run::RunMeta`: a sortable
+`YYYYMMDDThhmmssZ-xxxx` run id, study, start/finish timestamps, environment, and
+the rolled-up summary — written as a header at start, finalized at the end), and
+`cases/<key>/result.json` per finished case. The results dir resolves from
+`[results].dir` in the nearest `mira.toml`, else `./results`. A run id names a run
+folder: `mira run --resume <run_id>` reopens it and runs only the missing cases,
+and `mira report <run_id>` re-renders it without a study. This is the data
+foundation for *historical trend aggregation*: the deferred `list`/`compare`
 commands read these `meta.json` records and don't change their shape.
 
 ## 13. Machine-readable protocol schema
@@ -423,7 +427,7 @@ stays the text projection throughout, so nothing text-only had to change.
 
 `Subject::run` still runs once per call, but an `Eval` may now carry a
 `Responder` — a simulated user, `Fn(&[Message]) -> Option<Vec<Part>>`. When
-present, `runner::execute_cell` drives a **turn exchange**: it invokes the
+present, `runner::execute_case` drives a **turn exchange**: it invokes the
 subject once per turn (handing it the running conversation via
 `RunCx::conversation`), records the subject's `Assistant` turn, asks the
 responder for the next `User` turn, and repeats until the responder returns
@@ -480,7 +484,7 @@ model axis is host-selectable, and it's misnamed.
 
 ### 15.2 B — rename the privileged axis to `Target`
 
-The cell of the privileged axis is the **configured thing under evaluation** —
+The case of the privileged axis is the **configured thing under evaluation** —
 for an LLM eval it's a model; for an agent eval it's a harness (optionally
 wrapping a model). Call it a **`Target`**. (`subject` is taken — that's the
 trait that *executes* a sample into a transcript; the target is the *config* it
@@ -545,7 +549,7 @@ Semantics:
   the valid axes/values — consistent with how `--group-by` already names an
   axis.
 - Host-side only: like `filter`/`--tag`/`--targets`, it *subsets* the grid the
-  study declared (the host subsets, never adds cells — see
+  study declared (the host subsets, never adds cases — see
   [`docs/extensibility.md`](../docs/extensibility.md)). The study still owns the
   matrix.
 
@@ -563,8 +567,8 @@ axes: Vec<String>,
 ```
 
 The two collapse into one selection pass: `--targets X` is folded into `axes` as
-`target=X`, then the planner keeps a cell iff, for every constrained axis, the
-cell's value is in the allowed set. `--group-by` and the case key are unaffected.
+`target=X`, then the planner keeps a case iff, for every constrained axis, the
+case's value is in the allowed set. `--group-by` and the case key are unaffected.
 
 ### 15.4 The `target` name clash — Sample's gold answer → `expected`
 

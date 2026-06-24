@@ -150,9 +150,9 @@ impl HostHandle {
         Ok(result.cancelled)
     }
 
-    /// Run one matrix cell. `params` carries the chosen value per extra axis
+    /// Run one matrix case. `params` carries the chosen value per extra axis
     /// (empty for a target-only matrix); `trial` carries the repetition index and
-    /// seed (use [`Trial::single`] for an unrepeated cell). Safe to call
+    /// seed (use [`Trial::single`] for an unrepeated case). Safe to call
     /// concurrently from clones.
     pub async fn run(
         &self,
@@ -169,7 +169,7 @@ impl HostHandle {
         serde_json::from_value(value).map_err(|e| RpcError::new(e.to_string()))
     }
 
-    /// Execute one cell's subject without scoring, returning the full transcript
+    /// Execute one case's subject without scoring, returning the full transcript
     /// (for run-now, score-later). Requires the study to advertise the `execute`
     /// capability. Safe to call concurrently from clones.
     pub async fn execute(
@@ -212,7 +212,7 @@ impl HostHandle {
     /// the reply back here.
     ///
     /// `cancelable` arms cancel-on-drop: if the caller drops this future before
-    /// the response arrives (a per-cell `timeout`, a fail-fast `select!`), the
+    /// the response arrives (a per-case `timeout`, a fail-fast `select!`), the
     /// guard best-effort tells the study to abort the run — so an abandoned run
     /// stops burning cost instead of running to completion unobserved.
     async fn request(
@@ -306,8 +306,8 @@ impl Drop for RequestGuard {
     }
 }
 
-/// Build the `run`/`execute` params for one cell + trial. Trial fields ride
-/// along so the study can echo the cell's trial identity back (its key must match
+/// Build the `run`/`execute` params for one case + trial. Trial fields ride
+/// along so the study can echo the case's trial identity back (its key must match
 /// the host's plan).
 fn run_params(eval: &str, sample: &str, target: &str, params: &Params, trial: Trial) -> RunParams {
     RunParams {
@@ -434,7 +434,7 @@ impl Host {
         self.handle.list_complete().await
     }
 
-    /// Run one matrix cell (sequential convenience; see [`Host::handle`] for the
+    /// Run one matrix case (sequential convenience; see [`Host::handle`] for the
     /// concurrent path).
     pub async fn run(
         &self,
@@ -447,7 +447,7 @@ impl Host {
         self.handle.run(eval, sample, target, params, trial).await
     }
 
-    /// Execute one cell's subject without scoring (sequential convenience; see
+    /// Execute one case's subject without scoring (sequential convenience; see
     /// [`HostHandle::execute`]).
     pub async fn execute(
         &self,

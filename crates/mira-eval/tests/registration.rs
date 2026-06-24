@@ -8,7 +8,7 @@ use mira::{Eval, Runner, Transcript, register_eval, registered_evals};
 
 fn alpha() -> Eval {
     Eval::new("alpha")
-        .case("a", "alpha prompt")
+        .sample("a", "alpha prompt")
         .subject(subject_fn(|_, _| async {
             Transcript::response("alpha ok")
         }))
@@ -20,7 +20,7 @@ register_eval!(alpha);
 
 fn beta() -> Eval {
     Eval::new("beta")
-        .case("b", "beta prompt")
+        .sample("b", "beta prompt")
         .subject(subject_fn(|_, _| async { Transcript::response("beta ok") }))
         .scorer(contains("ok"))
         .build()
@@ -33,7 +33,7 @@ register_eval!(beta);
 #[mira::eval]
 fn gamma() -> Eval {
     Eval::new("gamma")
-        .case("g", "gamma prompt")
+        .sample("g", "gamma prompt")
         .subject(subject_fn(|_, _| async {
             Transcript::response("gamma ok")
         }))

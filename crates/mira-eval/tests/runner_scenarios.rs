@@ -10,8 +10,8 @@ use mira::{Eval, Runner, Sample, Target, Timing, Transcript, Usage};
 /// scorers have something concrete to grade.
 fn echo_eval(name: &str) -> Eval {
     Eval::new(name)
-        .sample(Sample::new("hi", "say hi").tag("smoke"))
-        .sample(Sample::new("bye", "say bye").tag("regression"))
+        .add_sample(Sample::new("hi", "say hi").tag("smoke"))
+        .add_sample(Sample::new("bye", "say bye").tag("regression"))
         .subject(subject_fn(|s, _| async move {
             let mut t = Transcript::response(s.input.join(" "));
             t.usage = Usage {
@@ -37,7 +37,7 @@ fn echo_eval(name: &str) -> Eval {
 }
 
 #[tokio::test]
-async fn multi_eval_suite_runs_every_cell() {
+async fn multi_eval_suite_runs_every_case() {
     let report = Runner::new()
         .add(echo_eval("alpha"))
         .add(echo_eval("beta"))
@@ -51,7 +51,7 @@ async fn multi_eval_suite_runs_every_cell() {
 #[tokio::test]
 async fn matrix_crosses_models_and_axes() {
     let eval = Eval::new("grid")
-        .case("a", "x")
+        .sample("a", "x")
         .targets([Target::sim(), Target::sim().label("sim2")])
         .axis("effort", ["low", "high"])
         .subject(subject_fn(|_, cx| async move {
@@ -64,7 +64,7 @@ async fn matrix_crosses_models_and_axes() {
         .scorer(succeeded())
         .build();
 
-    // 1 sample × 2 targets × 2 effort values = 4 cells.
+    // 1 sample × 2 targets × 2 effort values = 4 cases.
     let report = Runner::new().add(eval).run().await;
     assert_eq!(report.total(), 4);
     let mut keys: Vec<String> = report.outcomes.iter().map(|o| o.key()).collect();
@@ -102,7 +102,7 @@ async fn selection_filter_tag_and_models() {
 
     // Model restriction selects a single matrix column.
     let eval = Eval::new("m")
-        .case("a", "x")
+        .sample("a", "x")
         .targets([Target::sim(), Target::sim().label("sim2")])
         .subject(subject_fn(|_, _| async { Transcript::response("x") }))
         .scorer(succeeded())
@@ -117,10 +117,10 @@ async fn selection_filter_tag_and_models() {
 }
 
 #[tokio::test]
-async fn unavailable_cells_skip_and_stay_green() {
+async fn unavailable_cases_skip_and_stay_green() {
     let eval = Eval::new("cloud")
-        .case("a", "x")
-        // An unavailable cloud cell (no key) alongside the always-on sim.
+        .sample("a", "x")
+        // An unavailable cloud case (no key) alongside the always-on sim.
         .targets([Target::sim(), Target::anthropic("claude-opus-4-8")])
         .subject(subject_fn(|_, _| async { Transcript::response("x") }))
         .scorer(contains("x"))
@@ -134,7 +134,7 @@ async fn unavailable_cells_skip_and_stay_green() {
 #[tokio::test]
 async fn failing_budget_is_reported() {
     let eval = Eval::new("overspend")
-        .case("a", "x")
+        .sample("a", "x")
         .subject(subject_fn(|_, _| async {
             let mut t = Transcript::response("x");
             t.usage = Usage {

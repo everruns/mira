@@ -95,7 +95,7 @@ def target(
 
 @dataclass
 class RunCx:
-    """Per-cell context handed to a subject: the matrix target, turn budget, and
+    """Per-case context handed to a subject: the matrix target, turn budget, and
     chosen axis values."""
 
     target: str
@@ -233,7 +233,7 @@ class Study:
 
     # --- method handlers ---
     def _execute(self, params: dict) -> tuple[Transcript, bool]:
-        """Run one cell's subject. Returns (transcript, skipped); an unavailable
+        """Run one case's subject. Returns (transcript, skipped); an unavailable
         target is skipped with an infra-error transcript (scored N/A, not failed)."""
         ev = self._evals[params["eval"]]
         sample = ev._sample(params["sample"])

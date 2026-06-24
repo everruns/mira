@@ -20,7 +20,7 @@ extend *data* by carrying it through the transcript and protocol.
 | Attach provenance / links / labels | `metadata` (open-ended JSON) | [authoring.md](authoring.md#metadata--observability) |
 | Carry a custom **metric** | `Transcript.metrics` (numeric) + `metric_within`/`metric_at_least` | [metrics.md](metrics.md#adding-a-custom-metric) |
 | Stream structured run detail | `Transcript.events` (raw JSON) | [below](#events-the-structured-channel) |
-| Vary a cell on a non-model dimension | extra matrix **axes** (`.axis(name, values)`) | [authoring.md](authoring.md#extra-matrix-axes) |
+| Vary a case on a non-model dimension | extra matrix **axes** (`.axis(name, values)`) | [authoring.md](authoring.md#extra-matrix-axes) |
 | Plug in a non-Rust study | implement the wire protocol in any language | [protocol.md](protocol.md#implementing-a-study-in-another-language) |
 | Advertise an optional behaviour to hosts | `capabilities` tokens | [protocol.md](protocol.md#initialize) |
 
@@ -36,7 +36,7 @@ The two core traits are open vocabularies, not fixed sets:
   scorers, `model_graded` for LLM-as-judge, and combinators (`all_of`, `any_of`,
   `not`) to compose. See [scorers.md](scorers.md).
 
-Every scorer on an eval runs against every cell, so cross-cutting checks are just
+Every scorer on an eval runs against every case, so cross-cutting checks are just
 scorers you add to each eval (a small helper that appends a shared set is the
 idiom — there is no host-injected scoring).
 
@@ -123,8 +123,8 @@ Honest boundaries, so you don't fight the grain:
   lives in the study. Shared scorers are an authoring-time helper, not a host
   feature.
 - **Host-defined matrix.** The study defines targets/axes; the host can *subset*
-  (`--targets`, `--axis`, `--preset`, `--tag`, filter) but not add cells.
-- **Run-to-run comparison.** Each run emits a stable JSON record (cells keyed by
+  (`--targets`, `--axis`, `--preset`, `--tag`, filter) but not add cases.
+- **Run-to-run comparison.** Each run emits a stable JSON record (cases keyed by
   `eval/sample@target[k=v,…]`), but diffing two runs is left to a consumer on top.
 
 If you need one of these, it's a feature add rather than a configuration knob —

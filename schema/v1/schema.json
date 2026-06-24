@@ -20,7 +20,7 @@
       "type": "object"
     },
     "CancelParams": {
-      "description": "`cancel` params: the `id` of the in-flight `run`/`execute`/`score` [`Request`]\nto abort. It is the request's own `id` (the one the host assigned and awaits a\nresponse on), not a cell key — so a host can cancel a specific outstanding call\neven when several runs of the same cell are in flight.",
+      "description": "`cancel` params: the `id` of the in-flight `run`/`execute`/`score` [`Request`]\nto abort. It is the request's own `id` (the one the host assigned and awaits a\nresponse on), not a case key — so a host can cancel a specific outstanding call\neven when several runs of the same case are in flight.",
       "properties": {
         "id": {
           "format": "uint64",
@@ -46,7 +46,7 @@
       "type": "object"
     },
     "ErrorKind": {
-      "description": "Why a run failed, when it did — set alongside [`Transcript::error`].\n\nA [`Subject`](ErrorKind::Subject) error is the model/agent *under test*\ngetting it wrong: it ran but crashed on the input, produced garbage, or blew\nits turn budget — a real failure the eval should catch. An\n[`Infra`](ErrorKind::Infra) error is the scaffolding *around* the run breaking\n(out of budget/quota, rate-limited, a provider 5xx/outage, a network/timeout\nfault): not the model's fault. Infra failures are surfaced as **N/A**\n([`Score::na`]) so they are excluded from the cell verdict and aggregate\n(neither pass nor fail, like [`Score::na`] for a single scorer), and the host\nretries them up to `--max-retries`. See [`Transcript::infra_error`].",
+      "description": "Why a run failed, when it did — set alongside [`Transcript::error`].\n\nA [`Subject`](ErrorKind::Subject) error is the model/agent *under test*\ngetting it wrong: it ran but crashed on the input, produced garbage, or blew\nits turn budget — a real failure the eval should catch. An\n[`Infra`](ErrorKind::Infra) error is the scaffolding *around* the run breaking\n(out of budget/quota, rate-limited, a provider 5xx/outage, a network/timeout\nfault): not the model's fault. Infra failures are surfaced as **N/A**\n([`Score::na`]) so they are excluded from the case verdict and aggregate\n(neither pass nor fail, like [`Score::na`] for a single scorer), and the host\nretries them up to `--max-retries`. See [`Transcript::infra_error`].",
       "oneOf": [
         {
           "const": "subject",
@@ -123,7 +123,7 @@
           "type": "array"
         },
         "trials": {
-          "description": "How many times each cell of this eval should be run (trials/repetitions),\nfor pass@k / variance over a stochastic subject. `0`/`1` mean a single\nrun (no trial dimension). The host may override with `--trials`. Defaulted\nso older/foreign studies that omit it still parse.",
+          "description": "How many times each case of this eval should be run (trials/repetitions),\nfor pass@k / variance over a stochastic subject. `0`/`1` mean a single\nrun (no trial dimension). The host may override with `--trials`. Defaulted\nso older/foreign studies that omit it still parse.",
           "format": "uint",
           "minimum": 0,
           "type": "integer"
@@ -138,7 +138,7 @@
       "type": "object"
     },
     "EventParams": {
-      "description": "Typed payload of an `event` progress [`Notification`] for one in-flight run.\n\nCorrelated to its originating `run`/`execute` request by `request_id` — the\nsame demultiplexing key responses use — so a host can bind progress to a\nspecific call even when many cells (including repeated trials of one cell)\nare multiplexed over the single pipe.",
+      "description": "Typed payload of an `event` progress [`Notification`] for one in-flight run.\n\nCorrelated to its originating `run`/`execute` request by `request_id` — the\nsame demultiplexing key responses use — so a host can bind progress to a\nspecific call even when many cases (including repeated trials of one case)\nare multiplexed over the single pipe.",
       "properties": {
         "eval": {
           "type": "string"
@@ -151,7 +151,7 @@
           "additionalProperties": {
             "type": "string"
           },
-          "description": "Extra matrix-axis values for the cell (empty for a target-only matrix).",
+          "description": "Extra matrix-axis values for the case (empty for a target-only matrix).",
           "type": "object"
         },
         "request_id": {
@@ -200,7 +200,7 @@
       "type": "object"
     },
     "ExecuteResult": {
-      "description": "`execute` result for one cell: the **full** [`Transcript`] (raw events and\ncaptured files included), so the host can persist it as an execution\nartifact and `score` it later. Distinct from [`RunResult`], which carries the\nlightweight [`TranscriptSummary`] plus scores.",
+      "description": "`execute` result for one case: the **full** [`Transcript`] (raw events and\ncaptured files included), so the host can persist it as an execution\nartifact and `score` it later. Distinct from [`RunResult`], which carries the\nlightweight [`TranscriptSummary`] plus scores.",
       "properties": {
         "eval": {
           "type": "string"
@@ -209,7 +209,7 @@
           "additionalProperties": {
             "type": "string"
           },
-          "description": "Extra matrix-axis values for this cell (empty for a target-only matrix).",
+          "description": "Extra matrix-axis values for this case (empty for a target-only matrix).",
           "type": "object"
         },
         "sample": {
@@ -226,7 +226,7 @@
         },
         "skipped": {
           "default": false,
-          "description": "True when the cell was not executed (e.g. target unavailable).",
+          "description": "True when the case was not executed (e.g. target unavailable).",
           "type": "boolean"
         },
         "target": {
@@ -237,13 +237,13 @@
           "description": "The complete transcript, unlike the summary carried in [`RunResult`]."
         },
         "trial": {
-          "description": "0-based trial index when this cell is repeated (see [`RunParams::trial`]).",
+          "description": "0-based trial index when this case is repeated (see [`RunParams::trial`]).",
           "format": "uint",
           "minimum": 0,
           "type": "integer"
         },
         "trials": {
-          "description": "Total trials for this cell (`0`/`1` = single run). Part of the cell key\nwhen `> 1`, so trial artifacts stay distinct.",
+          "description": "Total trials for this case (`0`/`1` = single run). Part of the case key\nwhen `> 1`, so trial artifacts stay distinct.",
           "format": "uint",
           "minimum": 0,
           "type": "integer"
@@ -562,7 +562,7 @@
       "type": "object"
     },
     "RunParams": {
-      "description": "`run` params: address one matrix cell by `(eval, sample, target label)` plus\nany extra axis `params` (axis name → chosen value).",
+      "description": "`run` params: address one matrix case by `(eval, sample, target label)` plus\nany extra axis `params` (axis name → chosen value).",
       "properties": {
         "eval": {
           "type": "string"
@@ -590,13 +590,13 @@
           "type": "string"
         },
         "trial": {
-          "description": "0-based trial index when this cell is being repeated; `0` for a single\nrun. Defaulted so older hosts/studies interoperate.",
+          "description": "0-based trial index when this case is being repeated; `0` for a single\nrun. Defaulted so older hosts/studies interoperate.",
           "format": "uint",
           "minimum": 0,
           "type": "integer"
         },
         "trials": {
-          "description": "Total trials planned for this cell (`0`/`1` = single run). Lets the study\necho the cell's trial identity back so its key matches the host's plan.",
+          "description": "Total trials planned for this case (`0`/`1` = single run). Lets the study\necho the case's trial identity back so its key matches the host's plan.",
           "format": "uint",
           "minimum": 0,
           "type": "integer"
@@ -610,7 +610,7 @@
       "type": "object"
     },
     "RunResult": {
-      "description": "`run` result for one cell. Also the unit persisted in checkpoints.",
+      "description": "`run` result for one case. Also the unit persisted in checkpoints.",
       "properties": {
         "aggregate": {
           "format": "double",
@@ -623,7 +623,7 @@
           "additionalProperties": {
             "type": "string"
           },
-          "description": "Extra matrix-axis values for this cell (empty for a target-only matrix).",
+          "description": "Extra matrix-axis values for this case (empty for a target-only matrix).",
           "type": "object"
         },
         "passed": {
@@ -649,7 +649,7 @@
         },
         "skipped": {
           "default": false,
-          "description": "True when the cell was not executed (e.g. target unavailable).",
+          "description": "True when the case was not executed (e.g. target unavailable).",
           "type": "boolean"
         },
         "target": {
@@ -659,13 +659,13 @@
           "$ref": "#/$defs/TranscriptSummary"
         },
         "trial": {
-          "description": "0-based trial index when this cell is repeated (see [`RunParams::trial`]).",
+          "description": "0-based trial index when this case is repeated (see [`RunParams::trial`]).",
           "format": "uint",
           "minimum": 0,
           "type": "integer"
         },
         "trials": {
-          "description": "Total trials for this cell (`0`/`1` = single run). Part of the cell key\nwhen `> 1`; the host groups results by their *logical* key (without the\ntrial suffix) to aggregate pass@k / variance (see [`crate::aggregate`]).",
+          "description": "Total trials for this case (`0`/`1` = single run). Part of the case key\nwhen `> 1`; the host groups results by their *logical* key (without the\ntrial suffix) to aggregate pass@k / variance (see [`crate::aggregate`]).",
           "format": "uint",
           "minimum": 0,
           "type": "integer"
@@ -705,10 +705,10 @@
       "type": "object"
     },
     "Score": {
-      "description": "Outcome of a single [`Scorer`] on a [`Transcript`].\n\n`value` is a continuous score in `0.0..=1.0`; `pass` is the boolean verdict\n(often `value >= threshold`). Keeping both lets a scorer report a graded\nsignal while still contributing a pass/fail to the matrix.\n\nA third state — **N/A** ([`na`](Score::na)) — lets a scorer say \"I couldn't\nevaluate this\" (an unreachable judge, a missing API key, any infra hiccup)\nrather than crashing the run or lying with a `fail`. An N/A score is excluded\nfrom the cell verdict and the aggregate: it neither passes nor fails.",
+      "description": "Outcome of a single [`Scorer`] on a [`Transcript`].\n\n`value` is a continuous score in `0.0..=1.0`; `pass` is the boolean verdict\n(often `value >= threshold`). Keeping both lets a scorer report a graded\nsignal while still contributing a pass/fail to the matrix.\n\nA third state — **N/A** ([`na`](Score::na)) — lets a scorer say \"I couldn't\nevaluate this\" (an unreachable judge, a missing API key, any infra hiccup)\nrather than crashing the run or lying with a `fail`. An N/A score is excluded\nfrom the case verdict and the aggregate: it neither passes nor fails.",
       "properties": {
         "na": {
-          "description": "True when the scorer did not apply / could not run (infra issue, missing\ncredentials, …). Excluded from the cell verdict and aggregate.",
+          "description": "True when the scorer did not apply / could not run (infra issue, missing\ncredentials, …). Excluded from the case verdict and aggregate.",
           "type": "boolean"
         },
         "pass": {
@@ -734,7 +734,7 @@
       "type": "object"
     },
     "ScoreParams": {
-      "description": "`score` params: a cell identity plus the full [`Transcript`] to score. The\ntranscript travels over the wire so the host can replay a stored one — the\nstudy scores it without re-running the subject.",
+      "description": "`score` params: a case identity plus the full [`Transcript`] to score. The\ntranscript travels over the wire so the host can replay a stored one — the\nstudy scores it without re-running the subject.",
       "properties": {
         "eval": {
           "type": "string"
@@ -764,13 +764,13 @@
           "$ref": "#/$defs/Transcript"
         },
         "trial": {
-          "description": "0-based trial index for the cell this transcript came from (echoed into\nthe resulting [`RunResult`] so it keeps its trial identity on re-score).",
+          "description": "0-based trial index for the case this transcript came from (echoed into\nthe resulting [`RunResult`] so it keeps its trial identity on re-score).",
           "format": "uint",
           "minimum": 0,
           "type": "integer"
         },
         "trials": {
-          "description": "Total trials for this cell (`0`/`1` = single run).",
+          "description": "Total trials for this case (`0`/`1` = single run).",
           "format": "uint",
           "minimum": 0,
           "type": "integer"
@@ -830,7 +830,7 @@
           "type": "object"
         },
         "provider": {
-          "description": "Provider id (e.g. `sim`, `anthropic`, `openai`). Lets the host bucket\nconcurrency per provider so one provider's rate limits can't be flooded.\nDefaulted (empty) so an older/foreign study that omits it still parses;\nsuch cells share the empty-provider bucket.",
+          "description": "Provider id (e.g. `sim`, `anthropic`, `openai`). Lets the host bucket\nconcurrency per provider so one provider's rate limits can't be flooded.\nDefaulted (empty) so an older/foreign study that omits it still parses;\nsuch cases share the empty-provider bucket.",
           "type": "string"
         }
       },
@@ -958,7 +958,7 @@
         },
         "error_kind": {
           "$ref": "#/$defs/ErrorKind",
-          "description": "Classifies `error` (subject vs. infrastructure). Lets the host retry\ninfra-errored cells. Defaulted/omitted for the common subject case."
+          "description": "Classifies `error` (subject vs. infrastructure). Lets the host retry\ninfra-errored cases. Defaulted/omitted for the common subject case."
         },
         "final_response": {
           "type": "string"

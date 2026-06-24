@@ -5,7 +5,7 @@ Author a Mira eval **study** in Python and run it with the `mira` host CLI.
 This is **not** a binding to the Rust core — it's a native, pure-stdlib library
 that speaks the [Mira eval protocol](../../docs/protocol.md) (newline-delimited
 JSON over stdio). The host owns selection, the model matrix, concurrency,
-checkpoints, and reporting; the study owns subjects and scoring. Any language
+saved runs, and reporting; the study owns subjects and scoring. Any language
 that speaks the protocol is a first-class study — this SDK just makes the Python
 side ergonomic.
 
@@ -65,7 +65,7 @@ A complete, runnable example lives in
   paginates large datasets across `list` + `list_samples` (`0` disables).
 - `Sample(id, prompt=…|input=[…], tags=…, expected=…, files=…, metadata=…)` —
   `sample.text` joins the input turns for the subject.
-- `target(label, provider="", available=True)` — a matrix cell (the model or
+- `target(label, provider="", available=True)` — a matrix case (the model or
   harness under evaluation). An unavailable target is reported as **N/A**
   (infra), not a failure.
 - `RunCx` — `cx.target`, `cx.provider`, `cx.max_turns`, `cx.param(name)`.

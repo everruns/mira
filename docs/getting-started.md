@@ -29,8 +29,8 @@ use mira::{eval, Eval, Target, Sample, Transcript};
 fn capital() -> Eval {
     Eval::new("capital")
         .describe("Knows world capitals")
-        .sample(Sample::new("france", "What is the capital of France?").expected("Paris"))
-        .sample(Sample::new("japan", "What is the capital of Japan?").expected("Tokyo"))
+        .add_sample(Sample::new("france", "What is the capital of France?").expected("Paris"))
+        .add_sample(Sample::new("japan", "What is the capital of Japan?").expected("Tokyo"))
         .subject(subject_fn(|sample, cx| async move {
             // Replace this with a real model call keyed on `cx.target`.
             let answer = match sample.id.as_str() {
@@ -65,7 +65,7 @@ capital — Knows world capitals  (max_turns=12)
   targets:  sim, anthropic/claude-opus-4-8 (unavailable)
 ```
 
-The cloud cell is **unavailable** because `ANTHROPIC_API_KEY` isn't set — it will
+The cloud case is **unavailable** because `ANTHROPIC_API_KEY` isn't set — it will
 be skipped, not failed. Run the matrix:
 
 ```bash
@@ -80,9 +80,9 @@ mira --example my_evals run
 2 passed / 2 scored (0 failed, 0 n/a, 2 skipped)
 ```
 
-A cell that *does* run but hits **infrastructure** trouble (out of budget,
+A case that *does* run but hits **infrastructure** trouble (out of budget,
 rate-limited, a provider outage) is scored **N/A** rather than failed — it's not
-the model's fault. N/A cells are excluded from the pass-rate and retried; see
+the model's fault. N/A cases are excluded from the pass-rate and retried; see
 [Infrastructure errors vs. failures](authoring.md#infrastructure-errors-vs-failures).
 
 Set `ANTHROPIC_API_KEY` and the cloud column lights up too.
@@ -95,8 +95,10 @@ mira --example my_evals run --tag smoke            # by sample tag
 mira --example my_evals run --targets sim           # restrict the matrix
 mira --example my_evals run --format junit --out results.xml   # CI artifact
 mira --example my_evals run --format html  --out report.html   # self-contained viewer
-mira --example my_evals run --checkpoint ck.json   # resumable; re-run skips done cells
-mira --example my_evals run --save                 # archive this run under ./results/<run_id>/
+mira --example my_evals run                        # saves a run folder by default
+mira --example my_evals run --dry-run              # ephemeral; don't save a run folder
+mira --example my_evals run --resume <run_id>      # reopen a run; run only the missing cases
+mira report <run_id>                               # re-render a saved run's reports
 ```
 
 Tired of retyping `--example my_evals`? Save it as a **named launcher** in
@@ -118,42 +120,41 @@ mira --launcher evals run
 Explicit launch flags still override the named launcher (handy for a one-off
 `--bin other`).
 
-The exit code is non-zero if any cell failed, so `mira ... run` drops straight
+The exit code is non-zero if any case failed, so `mira ... run` drops straight
 into CI. The HTML report is a single dependency-free file (summary, matrix, and
 per-case scores/usage/timing) you can open straight from a CI artifact.
 
 On an interactive terminal a live progress bar shows `done/total`, elapsed time,
-and an ETA as cells complete; it's hidden under CI/non-TTY so it never pollutes
+and an ETA as cases complete; it's hidden under CI/non-TTY so it never pollutes
 logs.
 
-`--checkpoint` writes a **session** record (run metadata + per-cell results),
-saved after every cell. Re-running with the same path resumes: completed cells
-are skipped and the progress bar starts at the right `done/total`. The session
-fingerprints each eval's definition, so if you change an eval's scorers, axes,
-targets, or metadata, a resume **warns that the cached cells are stale** — re-run
-with `--fresh` to recompute from scratch.
+Every `mira run` (and `mira score`) **saves a run folder by default** under the
+results dir, unless you pass `--dry-run`. Each run lands in
+`<results_dir>/<run_id>/`:
 
-`--save` **archives a run** into a timestamped folder so runs accumulate in a
-stable place and can be compared later. Each run lands in
-`<results_dir>/<run_id>/` (run id is `YYYYMMDDThhmmssZ-xxxx`, sortable by time)
-with three files:
-
+- `meta.json` — run identity: id, study, start/finish timestamps, summary, and
+  the **environment** the run came from (see below). Written as a header when
+  the run starts, then rewritten at the end with the finish time and summary.
 - `report.json` — the canonical machine-readable record (summary + per case),
 - `report.html` — the self-contained transcript viewer,
-- `meta.json` — run identity: id, study, start/finish timestamps, summary, and
-  the **environment** the run came from (see below).
+- `cases/<encoded-key>/result.json` — one finished case
+  (`eval/sample@target[…]#trial`), written atomically as that case completes.
 
-With no value, `--save` writes under `./results` (or `[results].dir` from the
-nearest `mira.toml`); pass `--save <dir>` to override. A `mira.toml` at the repo
-root sets the default for everyone:
+A fresh `mira run` mints a new id and reuses nothing — no silent reuse of stale
+results. To continue a run, name it explicitly: `--resume <run_id>` reopens that
+run folder, skips the cases already recorded under `cases/`, and runs only
+what's missing.
+
+The results dir is `[results].dir` from the nearest `mira.toml`, else
+`./results`. A `mira.toml` at the repo root sets the default for everyone:
 
 ```toml
 [results]
-dir = "./results"   # where `mira run --save` archives runs
+dir = "./results"   # where saved run folders go
 ```
 
-`mira score --save` archives a re-score the same way. (Listing and diffing past
-runs from these records is a planned follow-up.)
+`mira report <run_id>` re-renders a saved run's reports from its stored
+`cases/*/result.json` — no study process is spawned, nothing is re-executed.
 
 ### Environment metadata
 

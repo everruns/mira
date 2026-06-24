@@ -1,20 +1,20 @@
 //! Bounded, provider-aware, **adaptive** execution of a planned matrix.
 //!
-//! The host owns the run plan; this module decides *how many* cells run at once.
+//! The host owns the run plan; this module decides *how many* cases run at once.
 //! Three knobs, smallest-wins:
 //!
-//! 1. a **global** cap on total cells in flight;
+//! 1. a **global** cap on total cases in flight;
 //! 2. a **per-provider** cap, so a single provider (e.g. `anthropic`) can't be
 //!    flooded even when the global budget is large;
-//! 3. **adaptive reduction** — when a cell comes back rate-limited (HTTP 429,
+//! 3. **adaptive reduction** — when a case comes back rate-limited (HTTP 429,
 //!    "overloaded", quota; see [`crate::is_rate_limited`]), that provider's
 //!    in-flight limit is halved (AIMD multiplicative decrease) and a growing
 //!    backoff is applied before its next dispatch; sustained success grows the
-//!    limit back, one slot at a time, up to its ceiling. The rate-limited cell is
+//!    limit back, one slot at a time, up to its ceiling. The rate-limited case is
 //!    re-queued (up to `max_retries`) rather than failed, so backing off actually
 //!    rescues the run instead of dropping results.
 //!
-//! [`run_cells`] is generic over the per-cell run function so the scheduling
+//! [`run_cases`] is generic over the per-case run function so the scheduling
 //! policy is unit-testable without a live study; the `mira` CLI passes a closure
 //! that drives a [`HostHandle`](crate::HostHandle).
 
@@ -32,38 +32,38 @@ const GROW_THRESHOLD: usize = 3;
 /// Cap on the backoff exponent, so the delay can't grow without bound.
 const MAX_BACKOFF_STEPS: u32 = 6;
 
-/// One planned matrix cell to execute, with the provider it routes to (so the
-/// scheduler can bucket concurrency). Identity matches [`crate::cell_key`].
+/// One planned matrix case to execute, with the provider it routes to (so the
+/// scheduler can bucket concurrency). Identity matches [`crate::case_key`].
 #[derive(Clone, Debug)]
-pub struct CellSpec {
+pub struct CaseSpec {
     pub eval: String,
     pub sample: String,
     pub target: String,
     /// Provider id used for per-provider concurrency bucketing. Empty groups all
-    /// such cells together (e.g. a foreign study that omits provider in `list`).
+    /// such cases together (e.g. a foreign study that omits provider in `list`).
     pub provider: String,
     pub params: Params,
-    /// Which trial of this cell to run (index, count, seed). [`Trial::single`]
-    /// for an unrepeated cell — its key then has no `#index` suffix.
+    /// Which trial of this case to run (index, count, seed). [`Trial::single`]
+    /// for an unrepeated case — its key then has no `#index` suffix.
     pub trial: Trial,
 }
 
-impl CellSpec {
-    /// Trial-aware cell identity (a `#index` suffix when the cell is repeated).
+impl CaseSpec {
+    /// Trial-aware case identity (a `#index` suffix when the case is repeated).
     pub fn key(&self) -> String {
         format!("{}{}", self.logical_key(), self.trial.key_suffix())
     }
 
-    /// Cell identity shared by all trials of this cell (no `#index` suffix).
+    /// Case identity shared by all trials of this case (no `#index` suffix).
     pub fn logical_key(&self) -> String {
-        crate::cell_key(&self.eval, &self.sample, &self.target, &self.params)
+        crate::case_key(&self.eval, &self.sample, &self.target, &self.params)
     }
 }
 
 /// Concurrency policy for a matrix run.
 #[derive(Clone, Debug)]
 pub struct Concurrency {
-    /// Max total cells in flight across all providers.
+    /// Max total cases in flight across all providers.
     pub global: usize,
     /// Explicit per-provider ceilings (provider id → max in flight).
     pub per_provider: BTreeMap<String, usize>,
@@ -71,7 +71,7 @@ pub struct Concurrency {
     pub default_per_provider: usize,
     /// Whether to shrink/grow per-provider limits in response to rate limits.
     pub adaptive: bool,
-    /// Max times a rate-limited cell is re-queued before it is recorded failed.
+    /// Max times a rate-limited case is re-queued before it is recorded failed.
     pub max_retries: u32,
     /// Base backoff applied after a rate limit (doubled per consecutive hit).
     pub base_backoff: Duration,
@@ -117,7 +117,7 @@ struct ProviderState {
     ok_streak: usize,
     /// Exponent for the next backoff window.
     backoff_steps: u32,
-    /// No new cell for this provider starts before this instant.
+    /// No new case for this provider starts before this instant.
     backoff_until: Option<Instant>,
 }
 
@@ -168,7 +168,7 @@ impl Limiter {
             })
     }
 
-    /// Can a cell for `provider` start right now (global budget, provider limit,
+    /// Can a case for `provider` start right now (global budget, provider limit,
     /// and backoff window all permitting)?
     fn can_start(&mut self, provider: &str, now: Instant) -> bool {
         if self.global_in_flight >= self.global_max {
@@ -183,7 +183,7 @@ impl Limiter {
         self.state(provider).in_flight += 1;
     }
 
-    /// Record a finished cell and adapt the provider's limit.
+    /// Record a finished case and adapt the provider's limit.
     fn finish(&mut self, provider: &str, rate_limited: bool, now: Instant) {
         let adaptive = self.adaptive;
         let base = self.base_backoff;
@@ -214,8 +214,8 @@ impl Limiter {
     }
 
     /// Earliest instant any still-pending provider leaves its backoff window.
-    /// Used to sleep when every pending cell is blocked only by backoff.
-    fn earliest_ready(&self, pending: &VecDeque<(CellSpec, u32)>) -> Option<Instant> {
+    /// Used to sleep when every pending case is blocked only by backoff.
+    fn earliest_ready(&self, pending: &VecDeque<(CaseSpec, u32)>) -> Option<Instant> {
         pending
             .iter()
             .filter_map(|(c, _)| self.providers.get(&c.provider))
@@ -224,7 +224,7 @@ impl Limiter {
     }
 }
 
-/// Whether a cell's outcome looks rate-limited — either an [`RpcError`] whose
+/// Whether a case's outcome looks rate-limited — either an [`RpcError`] whose
 /// message carries a known rate-limit phrase, or a transcript error with one.
 fn outcome_rate_limited(res: &Result<RunResult, RpcError>) -> bool {
     match res {
@@ -237,7 +237,7 @@ fn outcome_rate_limited(res: &Result<RunResult, RpcError>) -> bool {
     }
 }
 
-/// Whether a cell's outcome should be retried. For a protocol-level [`RpcError`]:
+/// Whether a case's outcome should be retried. For a protocol-level [`RpcError`]:
 /// its structured `retryable` flag (set by the study/host for transient infra),
 /// or a rate-limit phrase in the message. For a completed run: an
 /// *infrastructure* transcript error (`error_kind = Infra` — budget, outage,
@@ -257,19 +257,19 @@ fn outcome_retryable(res: &Result<RunResult, RpcError>) -> bool {
     }
 }
 
-/// Synthesize a failed result for a cell whose run errored at the protocol level
-/// (so one cell's failure is recorded, not fatal to the whole matrix). A
+/// Synthesize a failed result for a case whose run errored at the protocol level
+/// (so one case's failure is recorded, not fatal to the whole matrix). A
 /// retryable or rate-limited RPC error is infrastructure, not the target's fault.
-fn failed_result(cell: &CellSpec, error: RpcError) -> RunResult {
+fn failed_result(case: &CaseSpec, error: RpcError) -> RunResult {
     let infra = error.retryable || crate::is_rate_limited(&error.message);
     RunResult {
-        eval: cell.eval.clone(),
-        sample: cell.sample.clone(),
-        target: cell.target.clone(),
-        params: cell.params.clone(),
-        trial: cell.trial.index,
-        trials: cell.trial.count,
-        seed: cell.trial.seed,
+        eval: case.eval.clone(),
+        sample: case.sample.clone(),
+        target: case.target.clone(),
+        params: case.params.clone(),
+        trial: case.trial.index,
+        trials: case.trial.count,
+        seed: case.trial.seed,
         passed: false,
         aggregate: 0.0,
         scores: Vec::new(),
@@ -286,43 +286,43 @@ fn failed_result(cell: &CellSpec, error: RpcError) -> RunResult {
     }
 }
 
-/// Execute `cells` under the concurrency policy `cfg`, invoking `run` per cell and
-/// reporting each finished cell to `on_done` (in completion order). `run` returns
-/// the cell's [`RunResult`] or a transport error string; rate-limited outcomes are
+/// Execute `cases` under the concurrency policy `cfg`, invoking `run` per case and
+/// reporting each finished case to `on_done` (in completion order). `run` returns
+/// the case's [`RunResult`] or a transport error string; rate-limited outcomes are
 /// re-queued up to `cfg.max_retries`.
 ///
 /// `run` must be cheap to call and produce a `Send + 'static` future (the `mira`
 /// CLI hands it a closure that clones a [`HostHandle`](crate::HostHandle)).
-pub async fn run_cells<F, Fut>(
-    cells: Vec<CellSpec>,
+pub async fn run_cases<F, Fut>(
+    cases: Vec<CaseSpec>,
     cfg: &Concurrency,
     run: F,
-    mut on_done: impl FnMut(&CellSpec, RunResult),
+    mut on_done: impl FnMut(&CaseSpec, RunResult),
 ) where
-    F: Fn(CellSpec) -> Fut,
+    F: Fn(CaseSpec) -> Fut,
     Fut: Future<Output = Result<RunResult, RpcError>> + Send + 'static,
 {
     let mut limiter = Limiter::new(cfg);
-    let mut pending: VecDeque<(CellSpec, u32)> = cells.into_iter().map(|c| (c, 0)).collect();
+    let mut pending: VecDeque<(CaseSpec, u32)> = cases.into_iter().map(|c| (c, 0)).collect();
     let mut tasks: JoinSet<Result<RunResult, RpcError>> = JoinSet::new();
     // Side table so a finished (or panicked) task can be attributed back to its
-    // cell: a JoinError carries only the task id, not the cell.
-    let mut inflight: HashMap<tokio::task::Id, (CellSpec, u32)> = HashMap::new();
+    // case: a JoinError carries only the task id, not the case.
+    let mut inflight: HashMap<tokio::task::Id, (CaseSpec, u32)> = HashMap::new();
 
     loop {
-        // Start as many cells as the global + per-provider budgets allow.
+        // Start as many cases as the global + per-provider budgets allow.
         loop {
             let now = Instant::now();
             let idx = pending
                 .iter()
                 .position(|(c, _)| limiter.can_start(&c.provider, now));
             let Some(idx) = idx else { break };
-            let (cell, attempts) = pending.remove(idx).expect("index in bounds");
-            limiter.start(&cell.provider);
-            let task_cell = cell.clone();
-            let fut = run(cell);
+            let (case, attempts) = pending.remove(idx).expect("index in bounds");
+            limiter.start(&case.provider);
+            let task_case = case.clone();
+            let fut = run(case);
             let id = tasks.spawn(fut).id();
-            inflight.insert(id, (task_cell, attempts));
+            inflight.insert(id, (task_case, attempts));
         }
 
         if tasks.is_empty() {
@@ -343,17 +343,17 @@ pub async fn run_cells<F, Fut>(
         let Some(joined) = tasks.join_next_with_id().await else {
             continue;
         };
-        // Map the task back to its cell either way, so the limiter's in-flight
-        // counts are always released — even when the cell's future panicked.
-        let (cell, attempts, res) = match joined {
+        // Map the task back to its case either way, so the limiter's in-flight
+        // counts are always released — even when the case's future panicked.
+        let (case, attempts, res) = match joined {
             Ok((id, res)) => {
-                let (cell, attempts) = inflight.remove(&id).expect("task id tracked");
-                (cell, attempts, res)
+                let (case, attempts) = inflight.remove(&id).expect("task id tracked");
+                (case, attempts, res)
             }
             Err(join_err) => {
-                let (cell, attempts) = inflight.remove(&join_err.id()).expect("task id tracked");
+                let (case, attempts) = inflight.remove(&join_err.id()).expect("task id tracked");
                 (
-                    cell,
+                    case,
                     attempts,
                     Err(RpcError::new(format!("task panicked: {join_err}"))),
                 )
@@ -361,22 +361,22 @@ pub async fn run_cells<F, Fut>(
         };
 
         let rate_limited = outcome_rate_limited(&res);
-        limiter.finish(&cell.provider, rate_limited, Instant::now());
+        limiter.finish(&case.provider, rate_limited, Instant::now());
 
-        // Re-queue rate-limited *and* other infrastructure-errored cells (outage,
+        // Re-queue rate-limited *and* other infrastructure-errored cases (outage,
         // budget, timeout — not the target's fault) up to max_retries. Only rate
         // limits drive the AIMD throttle/backoff above; other infra errors get a
         // plain bounded retry.
         if attempts < cfg.max_retries && outcome_retryable(&res) {
-            pending.push_back((cell, attempts + 1));
+            pending.push_back((case, attempts + 1));
             continue;
         }
 
         let result = match res {
             Ok(result) => result,
-            Err(error) => failed_result(&cell, error),
+            Err(error) => failed_result(&case, error),
         };
-        on_done(&cell, result);
+        on_done(&case, result);
     }
 }
 
@@ -387,8 +387,8 @@ mod tests {
     use std::sync::atomic::{AtomicUsize, Ordering};
     use tokio::sync::Mutex;
 
-    fn cell(provider: &str, id: &str) -> CellSpec {
-        CellSpec {
+    fn case(provider: &str, id: &str) -> CaseSpec {
+        CaseSpec {
             eval: "e".into(),
             sample: id.into(),
             target: format!("{provider}/m"),
@@ -398,15 +398,15 @@ mod tests {
         }
     }
 
-    fn ok_result(cell: &CellSpec) -> RunResult {
+    fn ok_result(case: &CaseSpec) -> RunResult {
         RunResult {
-            eval: cell.eval.clone(),
-            sample: cell.sample.clone(),
-            target: cell.target.clone(),
-            params: cell.params.clone(),
-            trial: cell.trial.index,
-            trials: cell.trial.count,
-            seed: cell.trial.seed,
+            eval: case.eval.clone(),
+            sample: case.sample.clone(),
+            target: case.target.clone(),
+            params: case.params.clone(),
+            trial: case.trial.index,
+            trials: case.trial.count,
+            seed: case.trial.seed,
             passed: true,
             aggregate: 1.0,
             scores: Vec::new(),
@@ -461,14 +461,14 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn runs_every_cell_once() {
-        let cells: Vec<CellSpec> = (0..20).map(|i| cell("sim", &i.to_string())).collect();
+    async fn runs_every_case_once() {
+        let cases: Vec<CaseSpec> = (0..20).map(|i| case("sim", &i.to_string())).collect();
         let cfg = Concurrency::new(4);
         let seen = Arc::new(AtomicUsize::new(0));
         let seen2 = seen.clone();
         let mut done = Vec::new();
-        run_cells(
-            cells,
+        run_cases(
+            cases,
             &cfg,
             move |c| {
                 let seen = seen2.clone();
@@ -488,14 +488,14 @@ mod tests {
     #[tokio::test]
     async fn respects_global_concurrency_cap() {
         // Track peak concurrency; it must never exceed the global cap.
-        let cells: Vec<CellSpec> = (0..30).map(|i| cell("sim", &i.to_string())).collect();
+        let cases: Vec<CaseSpec> = (0..30).map(|i| case("sim", &i.to_string())).collect();
         let cfg = Concurrency::new(3);
         let active = Arc::new(AtomicUsize::new(0));
         let peak = Arc::new(AtomicUsize::new(0));
         let (a, p) = (active.clone(), peak.clone());
         let mut done = 0usize;
-        run_cells(
-            cells,
+        run_cases(
+            cases,
             &cfg,
             move |c| {
                 let (a, p) = (a.clone(), p.clone());
@@ -515,7 +515,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn retries_rate_limited_cell_then_succeeds() {
+    async fn retries_rate_limited_case_then_succeeds() {
         // Fail with a 429 on the first attempt, succeed after.
         let cfg = Concurrency {
             base_backoff: Duration::from_millis(1),
@@ -524,8 +524,8 @@ mod tests {
         let attempts = Arc::new(Mutex::new(0usize));
         let a = attempts.clone();
         let mut results = Vec::new();
-        run_cells(
-            vec![cell("anthropic", "x")],
+        run_cases(
+            vec![case("anthropic", "x")],
             &cfg,
             move |c| {
                 let a = a.clone();
@@ -550,13 +550,13 @@ mod tests {
     /// An infra-errored result (`error_kind = Infra`) that is *not* a rate limit
     /// is still re-queued, then succeeds.
     #[tokio::test]
-    async fn retries_infra_errored_cell_then_succeeds() {
+    async fn retries_infra_errored_case_then_succeeds() {
         let cfg = Concurrency::new(2);
         let attempts = Arc::new(Mutex::new(0usize));
         let a = attempts.clone();
         let mut results = Vec::new();
-        run_cells(
-            vec![cell("sim", "x")],
+        run_cases(
+            vec![case("sim", "x")],
             &cfg,
             move |c| {
                 let a = a.clone();
@@ -592,8 +592,8 @@ mod tests {
         let attempts = Arc::new(Mutex::new(0usize));
         let a = attempts.clone();
         let mut results = Vec::new();
-        run_cells(
-            vec![cell("sim", "x")],
+        run_cases(
+            vec![case("sim", "x")],
             &cfg,
             move |c| {
                 let a = a.clone();
@@ -616,15 +616,15 @@ mod tests {
     }
 
     /// A non-retryable `RpcError` (e.g. bad params) is not re-queued; it fails the
-    /// cell once and is recorded as a subject error.
+    /// case once and is recorded as a subject error.
     #[tokio::test]
     async fn non_retryable_rpc_error_is_not_requeued() {
         let cfg = Concurrency::new(2);
         let count = Arc::new(AtomicUsize::new(0));
         let c2 = count.clone();
         let mut results = Vec::new();
-        run_cells(
-            vec![cell("sim", "x")],
+        run_cases(
+            vec![case("sim", "x")],
             &cfg,
             move |_| {
                 let c2 = c2.clone();
@@ -643,14 +643,14 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn panicking_cell_is_recorded_and_frees_its_slot() {
+    async fn panicking_case_is_recorded_and_frees_its_slot() {
         // Global cap of 1: if a panic leaked the in-flight count, the second
-        // cell could never start and this test would hang.
+        // case could never start and this test would hang.
         let cfg = Concurrency::new(1);
-        let cells = vec![cell("sim", "boom"), cell("sim", "ok")];
+        let cases = vec![case("sim", "boom"), case("sim", "ok")];
         let mut results = Vec::new();
-        run_cells(
-            cells,
+        run_cases(
+            cases,
             &cfg,
             move |c| async move {
                 if c.sample == "boom" {
@@ -686,8 +686,8 @@ mod tests {
         let count = Arc::new(AtomicUsize::new(0));
         let c2 = count.clone();
         let mut results = Vec::new();
-        run_cells(
-            vec![cell("anthropic", "x")],
+        run_cases(
+            vec![case("anthropic", "x")],
             &cfg,
             move |_| {
                 let c2 = c2.clone();

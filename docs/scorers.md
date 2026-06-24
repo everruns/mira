@@ -1,7 +1,7 @@
 # Scorers
 
 A `Scorer` grades a `Transcript` for one `Sample` into a `Score`. Every scorer on
-an eval runs against every cell; a cell **passes** iff all its scorers pass.
+an eval runs against every case; a case **passes** iff all its scorers pass.
 
 ```rust
 #[async_trait]
@@ -13,7 +13,7 @@ pub trait Scorer: Send + Sync {
 
 A `Score` carries both a continuous `value` (`0.0..=1.0`) and a boolean `pass`,
 so a scorer can report a graded signal while still contributing pass/fail to the
-matrix. `aggregate` on a cell is the mean of the values.
+matrix. `aggregate` on a case is the mean of the values.
 
 ## Three surfaces to score against
 
@@ -42,13 +42,13 @@ use mira::Score;
 Score::na("judge", "model unreachable — skipped");
 ```
 
-An N/A score is **excluded** from the cell verdict and the aggregate: it neither
-passes nor fails. A cell passes iff it has at least one applicable score and all
-applicable scores pass; if *every* score is N/A, the cell does not pass (nothing
+An N/A score is **excluded** from the case verdict and the aggregate: it neither
+passes nor fails. A case passes iff it has at least one applicable score and all
+applicable scores pass; if *every* score is N/A, the case does not pass (nothing
 was evaluated). Combinators (`all_of`/`any_of`/`not`) ignore N/A inner scores and
 become N/A themselves only when all of their inputs are N/A. Reports render N/A
 with a `–` glyph, and JUnit never counts it as a failure. This is how a run with
-no provider credentials stays green: every judge cell is simply N/A.
+no provider credentials stays green: every judge case is simply N/A.
 
 ## Built-in scorers
 

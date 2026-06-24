@@ -1,16 +1,16 @@
-//! Trials / repetitions + seed: run the *same* cell N times so the host can
+//! Trials / repetitions + seed: run the *same* case N times so the host can
 //! report pass@k, pass-rate, and score variance over a stochastic subject.
 //!
 //! ```bash
 //! mira --bin trials list                 # shows `trials=8, seed=…`
-//! mira --bin trials run                   # 8 trials per cell, aggregated
+//! mira --bin trials run                   # 8 trials per case, aggregated
 //! mira --bin trials run --trials 20       # override the count
 //! mira --bin trials run --seed 1          # different seed base, reproducible
 //! mira --bin trials run --format json --out report.json   # `trials` array in the record
 //! ```
 //!
-//! Unlike an `axis` (which forms *new* cells), trials are repetitions of one
-//! logical cell, grouped back by the host. Each trial gets a deterministic seed
+//! Unlike an `axis` (which forms *new* cases), trials are repetitions of one
+//! logical case, grouped back by the host. Each trial gets a deterministic seed
 //! (`base + trial`), so the whole repetition set replays identically — the heart
 //! of reproducibility. The subject reads it via `cx.seed()` to seed its sampling.
 //!
@@ -30,14 +30,14 @@ use mira::{Eval, Transcript, eval};
 fn flaky() -> Eval {
     Eval::new("flaky")
         .describe("A seed-driven flaky agent — measured over repeated trials")
-        // Repeat each cell 8 times, seeded so the runs are reproducible.
+        // Repeat each case 8 times, seeded so the runs are reproducible.
         .trials(8)
         .seed(42)
-        .case("answer", "What is the capital of France?")
+        .sample("answer", "What is the capital of France?")
         .subject(subject_fn(|_sample, cx| async move {
             // Seed the (pretend) sampling. Real subjects would feed this into a
             // provider's `seed`/temperature; here it drives a tiny PRNG so the
-            // outcome is reproducible per (cell, seed).
+            // outcome is reproducible per (case, seed).
             let seed = cx.seed().unwrap_or(0);
             // ~70% of seeds succeed — enough spread to make pass@k interesting.
             let succeeds = splitmix64(seed) % 100 < 70;

@@ -20,7 +20,7 @@ use mira::{Eval, Message, Part, Role, eval};
 fn interactive() -> Eval {
     Eval::new("interactive")
         .describe("Asks a clarifying question, then answers once the user replies")
-        .case("weather", "What's the weather?")
+        .sample("weather", "What's the weather?")
         .max_turns(4)
         .subject(subject_fn(|_sample, cx| async move {
             // The subject sees the conversation so far and replies to the latest

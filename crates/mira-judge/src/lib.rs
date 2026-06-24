@@ -18,7 +18,7 @@
 //! that have nothing to do with the subject (no API key, rate limit, 5xx,
 //! timeout). In those cases the scorer returns [`Score::na`] — neither pass nor
 //! fail — rather than crashing the run or scoring a spurious `fail`. A run with
-//! no credentials therefore stays green: every judge cell is simply N/A.
+//! no credentials therefore stays green: every judge case is simply N/A.
 //!
 //! # What the judge sees
 //!
@@ -32,7 +32,7 @@
 //! use mira_judge::{Include, LlmJudge};
 //!
 //! let eval = Eval::new("qa")
-//!     .case("capital", "What is the capital of France?")
+//!     .sample("capital", "What is the capital of France?")
 //!     // ... .subject(...) ...
 //!     .scorer(succeeded())
 //!     .scorer(
@@ -526,7 +526,7 @@ mod tests {
 
     // Integration tests hit real provider endpoints and cost money, so they are
     // `#[ignore]`d in the normal suite. CI runs them with `--ignored` after
-    // injecting keys from Doppler. Without a key they no-op (the cell is N/A),
+    // injecting keys from Doppler. Without a key they no-op (the case is N/A),
     // so running them locally is always safe.
     async fn integration_smoke(judge: LlmJudge) {
         if !judge.is_configured() {

@@ -1,4 +1,4 @@
-//! [`Target`] — one cell of the **target** matrix (the privileged comparison
+//! [`Target`] — one case of the **target** matrix (the privileged comparison
 //! axis): the configured thing under evaluation. For an LLM eval a target *is* a
 //! model; for an agent eval it is a harness (e.g. `yolop`, `codex`), optionally
 //! wrapping a model.
@@ -13,7 +13,7 @@
 //!
 //! Availability is decided in the *study* process (where keys live): a named
 //! provider is available only when its API-key env var is set. Unavailable
-//! cells are **skipped**, never failed, so a key-free run stays green offline.
+//! cases are **skipped**, never failed, so a key-free run stays green offline.
 
 use std::collections::BTreeMap;
 
@@ -25,7 +25,7 @@ pub const SIM_PROVIDER: &str = "sim";
 /// The conventional provider id for a [`Target::cli`] harness target.
 pub const CLI_PROVIDER: &str = "cli";
 
-/// One cell of the target matrix — the configured thing under evaluation (a
+/// One case of the target matrix — the configured thing under evaluation (a
 /// model, or a harness optionally wrapping one).
 #[derive(Clone, Debug, PartialEq)]
 pub struct Target {
@@ -38,14 +38,14 @@ pub struct Target {
     /// Underlying model id passed to the provider (e.g. `claude-opus-4-8`).
     /// Empty for a pure harness target whose model is irrelevant or implicit.
     pub model: String,
-    /// Whether this cell can run. `false` (e.g. missing API key) ⇒ skipped.
+    /// Whether this case can run. `false` (e.g. missing API key) ⇒ skipped.
     pub available: bool,
     /// Free-form metadata: cost tier, region, observability links, etc.
     pub metadata: Metadata,
 }
 
 impl Target {
-    /// A fully-explicit, always-available cell. Use the provider-specific
+    /// A fully-explicit, always-available case. Use the provider-specific
     /// constructors below for key-gated cloud models.
     pub fn new(
         label: impl Into<String>,
@@ -62,7 +62,7 @@ impl Target {
     }
 
     /// The offline simulator — runs end-to-end with no API key. The default
-    /// matrix cell, so a fresh `mira run` is green without credentials.
+    /// matrix case, so a fresh `mira run` is green without credentials.
     pub fn sim() -> Self {
         Self::new("sim", SIM_PROVIDER, "sim")
     }
@@ -97,7 +97,7 @@ impl Target {
         Self::cloud("gemini", model, "GEMINI_API_KEY")
     }
 
-    /// A cloud cell labelled `provider/model`, available iff `key_env` is set in
+    /// A cloud case labelled `provider/model`, available iff `key_env` is set in
     /// the study's environment.
     pub fn cloud(
         provider: impl Into<String>,
@@ -136,7 +136,7 @@ impl Target {
         self
     }
 
-    /// True if this is the offline simulator cell.
+    /// True if this is the offline simulator case.
     pub fn is_sim(&self) -> bool {
         self.provider == SIM_PROVIDER
     }

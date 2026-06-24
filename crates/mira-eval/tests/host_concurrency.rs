@@ -39,7 +39,7 @@ async fn host_handles_many_concurrent_runs() {
     let listing = host.list().await.expect("list");
     assert_eq!(listing.evals[0].targets[0].label, "sim");
 
-    // Fire many runs of the same cell concurrently over the one pipe; every one
+    // Fire many runs of the same case concurrently over the one pipe; every one
     // must come back correctly correlated and passing.
     let handle = host.handle();
     let mut tasks = Vec::new();
@@ -58,7 +58,7 @@ async fn host_handles_many_concurrent_runs() {
     }
     for task in tasks {
         let result = task.await.expect("join").expect("run ok");
-        assert!(result.passed, "cell should pass");
+        assert!(result.passed, "case should pass");
         assert_eq!(result.sample, "hi");
     }
 

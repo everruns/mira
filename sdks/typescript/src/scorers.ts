@@ -2,7 +2,7 @@
 //
 // A scorer maps `(sample, transcript) -> Score`. `value` is a continuous 0..1
 // signal; `pass` the boolean verdict; `na: true` means "couldn't evaluate"
-// (excluded from the cell verdict and aggregate), mirroring `mira::Score`.
+// (excluded from the case verdict and aggregate), mirroring `mira::Score`.
 import type { Score, Transcript } from "./wire.js";
 import type { Sample } from "./study.js";
 

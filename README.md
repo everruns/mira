@@ -18,8 +18,8 @@ Part of the [Everruns](https://everruns.com) ecosystem.
 
 Mira is an evals toolkit. You define evals in Rust (or any language that speaks
 the [protocol](docs/protocol.md)), and a generic host CLI runs them across a
-model matrix, scores the results, and reports — with selective runs, resumable
-checkpoints, operational-metric budgets, and CI-native output (including a
+model matrix, scores the results, and reports — with selective runs, saved and
+resumable runs, operational-metric budgets, and CI-native output (including a
 self-contained HTML report).
 
 > **Mira** — Ukrainian *міра*: measure, metric, standard. The thing an eval
@@ -34,7 +34,7 @@ Three pieces and how they relate:
 </div>
 
 - The **host** (`mira` CLI) owns the run: selection, the model matrix,
-  checkpoints, and reporting.
+  saved runs, and reporting.
 - A **study** is your eval program. It owns the **subjects** (the things under
   evaluation) and the **scorers**, and answers the host over the protocol.
 - A **subject** evaluates a model — in-process, an external binary, or a live
@@ -58,7 +58,7 @@ Eval = Dataset(Sample…) + Subject + [Scorer…]  ×  model matrix × axes
   Missing API keys **skip** rather than fail, so a fresh run is green offline.
 - **Two processes, one protocol** — your eval program (the *study*) owns
   subjects and scoring; the `mira` CLI (the *host*) owns selection, the matrix,
-  checkpoints, and reporting. Provider keys never cross the wire. The
+  saved runs, and reporting. Provider keys never cross the wire. The
   [protocol](docs/protocol.md) is versioned and forward-compatible.
 
 ## Install
@@ -94,7 +94,7 @@ use mira::{eval, Eval, Transcript};
 #[eval]
 fn greet() -> Eval {
     Eval::new("greet")
-        .case("hi", "Say hi and tell me the answer to life.")
+        .sample("hi", "Say hi and tell me the answer to life.")
         .subject(subject_fn(|_sample, _cx| async move {
             // A real subject calls a model; this one fakes a good answer.
             Transcript::response("Hi! The answer is 42.")
@@ -119,8 +119,13 @@ mira --example my_evals run                  # run the whole matrix
 mira --example my_evals run greet            # selective (substring), like cargo test
 mira --example my_evals run --tag smoke
 mira --example my_evals run --format html --out report.html   # self-contained viewer
-mira --example my_evals run --checkpoint ck.json              # resumable long runs
+mira --example my_evals run                                   # saves a run folder by default
+mira --example my_evals run --resume <run_id>                 # resume; run only the missing cases
+mira report <run_id>                                          # re-render a saved run's reports
 ```
+
+Every `run` saves a run folder under `./results/<run_id>/` (configure via
+`[results].dir` in `mira.toml`); pass `--dry-run` for an ephemeral run.
 
 See [`docs/getting-started.md`](docs/getting-started.md) for a full walkthrough,
 and [`examples/`](examples) for runnable servers (`greet`, `coding`,
@@ -139,7 +144,7 @@ somewhere else. Mira is the one framework they can converge on:
 
 - **Agent-trajectory-native** — score tool calls (`tool_called`,
   `tools_used_exactly`), multi-turn transcripts, and live runtime sessions;
-  checkpoints resume long-running payloads that take minutes to play out.
+  saved runs resume long-running payloads that take minutes to play out.
 - **Code-first authoring** with `cargo test`-style discovery (`#[eval]`) and
   selection.
 - **Polyglot by design** — the `CliSubject` evaluates any binary in any language
@@ -148,9 +153,9 @@ somewhere else. Mira is the one framework they can converge on:
   LLM-judge into one trait.
 - **Operational metrics first-class** — tokens (incl. cache/reasoning), cost,
   wall-clock latency, time-to-first-token, and exact tool usage are scorable
-  fields, surfaced per-cell in the JSON/HTML reports.
+  fields, surfaced per-case in the JSON/HTML reports.
 - **Built for CI** — JSON, JUnit, Markdown, and a self-contained HTML report;
-  checkpoints for resume; non-zero exit on failure.
+  saved runs for resume; non-zero exit on failure.
 
 ## Workspace layout
 

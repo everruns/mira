@@ -18,7 +18,7 @@
 //! # use everruns_runtime::InProcessRuntime;
 //! # use everruns_core::typed_id::SessionId;
 //!
-//! // The embedder builds a runtime for each matrix cell (provider/model from
+//! // The embedder builds a runtime for each matrix case (provider/model from
 //! // the Target) and returns it with the session id to drive.
 //! let subject = RuntimeSubject::new(|model| Box::pin(async move {
 //!     // ... construct an InProcessRuntime registering a driver for
@@ -28,7 +28,7 @@
 //! }));
 //!
 //! let _eval = Eval::new("greet")
-//!     .case("hi", "Say hi and tell me the answer.")
+//!     .sample("hi", "Say hi and tell me the answer.")
 //!     .subject(subject)
 //!     .scorer(contains("42"));
 //! ```
@@ -48,10 +48,10 @@ use everruns_runtime::InProcessRuntime;
 use mira::subject::summarize_events;
 use mira::{ErrorKind, RunCx, Sample, Subject, Target, Transcript};
 
-/// A built runtime plus the session to drive for one matrix cell.
+/// A built runtime plus the session to drive for one matrix case.
 pub type RuntimeHandle = (InProcessRuntime, SessionId);
 
-/// Builds a fresh runtime for a given matrix cell. The embedder owns
+/// Builds a fresh runtime for a given matrix case. The embedder owns
 /// platform/capability/tool/driver wiring here — Mira stays agnostic to it.
 pub type RuntimeFactory = Box<
     dyn Fn(Target) -> Pin<Box<dyn Future<Output = Result<RuntimeHandle, String>> + Send>>

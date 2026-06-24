@@ -1,13 +1,13 @@
-//! Trial aggregation — the contract for turning N repetitions of a cell into
+//! Trial aggregation — the contract for turning N repetitions of a case into
 //! pass@k, pass-rate, and score variance.
 //!
-//! When a cell is run multiple times (see [`Eval::trials`](crate::Eval) /
+//! When a case is run multiple times (see [`Eval::trials`](crate::Eval) /
 //! `--trials`), each repetition is a separate [`RunResult`] sharing one *logical*
 //! key (`eval/sample@target[…]`, without the `#index` trial suffix). This module
 //! groups them back by that logical key and rolls each group into a
 //! [`TrialAggregate`]: how many trials passed, the pass-rate, the unbiased
 //! [`pass@k`](TrialAggregate::pass_at_k) estimator, and the mean/standard
-//! deviation of the cell's score across trials.
+//! deviation of the case's score across trials.
 //!
 //! N/A and skipped trials are excluded from the denominators (as everywhere
 //! else): a trial only counts toward pass@k / pass-rate / variance if it produced
@@ -21,23 +21,23 @@ use crate::Params;
 use crate::protocol::RunResult;
 use crate::report::is_na;
 
-/// Rolled-up statistics over all trials of one logical cell.
+/// Rolled-up statistics over all trials of one logical case.
 ///
 /// `scored` is the number of trials with a real verdict (`passed + failed`);
 /// `passed` of those passed. `pass_rate`, `pass_at_k`, `mean`, and `std_dev` are
 /// all computed over the `scored` trials only (N/A and skipped trials are
-/// excluded), matching how single-cell verdicts are counted elsewhere.
+/// excluded), matching how single-case verdicts are counted elsewhere.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct TrialAggregate {
     pub eval: String,
     pub sample: String,
     pub target: String,
-    /// Extra matrix-axis values for this cell (empty for a target-only matrix).
+    /// Extra matrix-axis values for this case (empty for a target-only matrix).
     #[serde(default, skip_serializing_if = "Params::is_empty")]
     pub params: Params,
-    /// The logical cell key all these trials share (no `#index` suffix).
+    /// The logical case key all these trials share (no `#index` suffix).
     pub key: String,
-    /// Total trials seen for this cell, including N/A and skipped ones.
+    /// Total trials seen for this case, including N/A and skipped ones.
     pub total: usize,
     /// Trials with a real verdict (the denominator for pass-rate / pass@k).
     pub scored: usize,
@@ -54,19 +54,19 @@ pub struct TrialAggregate {
     /// Mean of the per-trial aggregate score over scored trials.
     pub mean: f64,
     /// Population standard deviation of the per-trial aggregate score over scored
-    /// trials — the reproducibility signal (0 when a stochastic cell is stable).
+    /// trials — the reproducibility signal (0 when a stochastic case is stable).
     pub std_dev: f64,
 }
 
 impl TrialAggregate {
-    /// True when this cell was actually repeated (more than one trial).
+    /// True when this case was actually repeated (more than one trial).
     pub fn repeated(&self) -> bool {
         self.total > 1
     }
 
     /// The unbiased **pass@k** estimator (Chen et al., "Evaluating Large Language
     /// Models Trained on Code"): the probability that at least one of `k` samples
-    /// drawn from this cell's `scored` trials passes, estimated from the observed
+    /// drawn from this case's `scored` trials passes, estimated from the observed
     /// `passed` count.
     ///
     /// `1 - C(n-c, k) / C(n, k)` for `k <= n` (with `n = scored`, `c = passed`),
@@ -100,10 +100,10 @@ pub fn pass_at_k(n: usize, c: usize, k: usize) -> f64 {
     1.0 - prod
 }
 
-/// Group `results` by their logical cell key (all trials of one cell), in
+/// Group `results` by their logical case key (all trials of one case), in
 /// first-seen order, and roll each group into a [`TrialAggregate`].
 ///
-/// Works for any result set: a single-trial cell yields a one-trial aggregate
+/// Works for any result set: a single-trial case yields a one-trial aggregate
 /// (use [`TrialAggregate::repeated`] to keep only the repeated ones). The grouping
 /// key is [`RunResult::logical_key`], so trials differing only by `#index` land
 /// together.
@@ -180,7 +180,7 @@ pub fn aggregate_trials(results: &[RunResult]) -> Vec<TrialAggregate> {
         .collect()
 }
 
-/// True when any cell in `results` was repeated (more than one trial) — i.e. the
+/// True when any case in `results` was repeated (more than one trial) — i.e. the
 /// trial dimension is active and a trials report is worth rendering.
 pub fn has_trials(results: &[RunResult]) -> bool {
     aggregate_trials(results).iter().any(|a| a.repeated())
@@ -233,7 +233,7 @@ mod tests {
 
     #[test]
     fn groups_trials_by_logical_key() {
-        // Two cells, 4 trials each (3/4 and 1/4 passing).
+        // Two cases, 4 trials each (3/4 and 1/4 passing).
         let mut results = Vec::new();
         for t in 0..4 {
             results.push(trial("sim", t, 4, t != 0)); // 3 pass
@@ -283,7 +283,7 @@ mod tests {
     }
 
     #[test]
-    fn has_trials_only_for_repeated_cells() {
+    fn has_trials_only_for_repeated_cases() {
         let single = vec![trial("sim", 0, 1, true)];
         assert!(!has_trials(&single));
         let repeated = vec![trial("sim", 0, 2, true), trial("sim", 1, 2, false)];

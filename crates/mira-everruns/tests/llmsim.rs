@@ -1,6 +1,6 @@
 //! Integration tests driving a real `everruns-runtime` `InProcessRuntime`
 //! against the offline `LlmSim` driver through Mira's [`RuntimeSubject`], and on
-//! through the full eval engine ([`run_cell`] / [`Runner`]). No network, no
+//! through the full eval engine ([`run_case`] / [`Runner`]). No network, no
 //! keys — exercises the everruns adapter end-to-end and deterministically.
 
 use everruns_core::driver_registry::DriverRegistry;
@@ -56,7 +56,7 @@ async fn runtime_subject_produces_a_transcript() {
 #[tokio::test]
 async fn full_eval_runs_green_against_llmsim() {
     let eval = Eval::new("llmsim")
-        .case("greet", "Say hi and tell me the answer to life.")
+        .sample("greet", "Say hi and tell me the answer to life.")
         .targets([Target::sim()])
         .subject(llmsim_subject("Hi! The answer to life is 42."))
         .scorer(succeeded())

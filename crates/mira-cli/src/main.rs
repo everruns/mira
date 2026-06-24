@@ -1,22 +1,27 @@
 //! `mira` — the host CLI. Compiles + spawns an eval **study** (a program that
 //! calls `mira::Study::registered().serve()`), enumerates its evals, plans the
-//! run (selection × matrix), executes each cell over the protocol, then
-//! aggregates, saves, and checkpoints.
+//! run (selection × matrix), executes each case over the protocol, then
+//! aggregates and saves the run.
+//!
+//! Every run is saved by default under the results dir as `<run_id>/` (per-case
+//! results + report + meta), so it can be resumed and re-reported. `--dry-run`
+//! opts out.
 //!
 //! ```bash
 //! mira --bin greet list
-//! mira --bin greet run                          # all cells (sim runs; keyed cells skip)
+//! mira --bin greet run                          # all cases (sim runs; keyed cases skip)
 //! mira --bin greet run greet                    # substring filter
 //! mira --bin greet run --tag smoke
 //! mira --bin greet run --targets sim --format junit --out results.xml
-//! mira --bin greet run --checkpoint ck.json     # resumable
-//! mira --bin greet run --save                   # archive run under ./results/<run_id>/
+//! mira --bin greet run --dry-run                # don't save a run folder
+//! mira --bin greet run --resume <run_id>        # finish an interrupted run
+//! mira --bin greet report <run_id>              # re-render a saved run
 //! mira --bin greet run --execute-only --artifacts art/  # capture transcripts
 //! mira --bin greet score --artifacts art/        # score (or re-score) them
 //! ```
 //!
 //! Execution and scoring can be split: `run --execute-only` captures one
-//! full-transcript artifact per cell (for long-running subjects), and `score`
+//! full-transcript artifact per case (for long-running subjects), and `score`
 //! (re-)scores those artifacts without re-executing the subject.
 //!
 //! Each Rust example is a crate exposing a like-named binary, so `--bin <name>`
@@ -29,7 +34,7 @@
 
 use std::collections::BTreeMap;
 use std::io::IsTerminal;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::str::FromStr;
 use std::sync::Arc;
 
@@ -42,13 +47,12 @@ mod env;
 
 use mira::Host;
 use mira::Trial;
-use mira::exec::{self, CellSpec, Concurrency};
+use mira::exec::{self, CaseSpec, Concurrency};
 use mira::protocol::{
     ExecuteResult, InitializeResult, ListResult, RunResult, TranscriptSummary, capabilities,
 };
 use mira::report::{self, Format};
-use mira::run::{RUN_META_FORMAT, RunMeta, RunSummary, new_run_id_at};
-use mira::session::{self, Session, now_unix};
+use mira::run::{RUN_META_FORMAT, RunMeta, RunSummary, new_run_id_at, now_unix};
 
 /// Repository, issue tracker, and docs — surfaced in `mira help --full` and the
 /// `--help` footer so an agent (or human) can always find their way home.
@@ -152,10 +156,12 @@ struct Launcher {
 enum Cmd {
     /// List the evals, samples, scorers, and targets the study advertises.
     List,
-    /// Run selected cells and report.
+    /// Run selected cases and report.
     Run(RunArgs),
     /// Score (or re-score) previously captured execution artifacts.
     Score(ScoreArgs),
+    /// Re-render a saved run's reports from its stored results (no study needed).
+    Report(ReportArgs),
     /// Show help. Add `--full` for an overview, every flag, examples, and links.
     Help(HelpArgs),
 }
@@ -189,9 +195,9 @@ struct RunArgs {
     /// the preset.
     #[arg(long)]
     preset: Option<String>,
-    /// Run each cell this many times (trials/repetitions) for pass@k / variance.
+    /// Run each case this many times (trials/repetitions) for pass@k / variance.
     /// Overrides the eval's declared trials. The host groups the repetitions and
-    /// reports pass-rate, pass@k, and score standard deviation per cell.
+    /// reports pass-rate, pass@k, and score standard deviation per case.
     #[arg(long)]
     trials: Option<usize>,
     /// Base seed for reproducible trials: trial `t` runs with seed `seed + t`.
@@ -199,29 +205,27 @@ struct RunArgs {
     #[arg(long)]
     seed: Option<u64>,
     /// Break resolve-rate down by a metadata key (e.g. `repo`, `difficulty`,
-    /// `agent`). The value is resolved per cell from, in order: axis params,
+    /// `agent`). The value is resolved per case from, in order: axis params,
     /// sample metadata, target metadata, then transcript metadata.
     #[arg(long)]
     group_by: Option<String>,
-    /// Write a report file (see --format).
+    /// Also write a standalone report file here (see --format). Independent of the
+    /// saved run folder, which is always written unless --dry-run.
     #[arg(long)]
     out: Option<String>,
-    /// Save a timestamped run folder (report.json/html + meta.json) under the
-    /// results dir, so runs accumulate and can be compared later. With no value
-    /// uses `[results].dir` from mira.toml, else `./results`; pass a dir to
-    /// override.
-    #[arg(long, num_args = 0..=1, default_missing_value = "", value_name = "DIR")]
-    save: Option<String>,
-    /// Report file format: json | junit | md | html.
+    /// Report file format for --out: json | junit | md | html.
     #[arg(long, default_value = "json")]
     format: String,
-    /// Persist/resume results here; completed cells are skipped on re-run.
+    /// Don't save a run folder (ephemeral run). By default every run is saved
+    /// under the results dir (`[results].dir` in mira.toml, else `./results`) as
+    /// `<run_id>/` with per-case results, so it can be resumed and re-reported.
     #[arg(long)]
-    checkpoint: Option<String>,
-    /// Ignore an existing checkpoint/artifact and run everything fresh.
-    #[arg(long)]
-    fresh: bool,
-    /// Max cells to run in parallel across all providers.
+    dry_run: bool,
+    /// Resume an interrupted run by its `<run_id>`: reopen that run folder, skip
+    /// the cases already recorded under `cases/`, and run only what's missing.
+    #[arg(long, value_name = "RUN_ID", conflicts_with = "dry_run")]
+    resume: Option<String>,
+    /// Max cases to run in parallel across all providers.
     #[arg(long, short = 'j', default_value_t = 8)]
     max_concurrent: usize,
     /// Per-provider concurrency ceilings, e.g. `anthropic=2,openai=4`. Caps a
@@ -232,15 +236,15 @@ struct RunArgs {
     /// retry when it returns rate-limit / overload errors).
     #[arg(long)]
     no_adaptive: bool,
-    /// Times a rate-limited cell is retried (after backoff) before it's failed.
+    /// Times a rate-limited case is retried (after backoff) before it's failed.
     #[arg(long, default_value_t = 4)]
     max_retries: u32,
     /// Execute subjects only (no scoring), writing full transcripts to
-    /// --artifacts for later `mira score`. For long-running subjects.
-    /// --checkpoint/--out don't apply in this mode (no scores are produced).
-    #[arg(long, requires = "artifacts", conflicts_with_all = ["checkpoint", "out", "save"])]
+    /// --artifacts for later `mira score`. For long-running subjects. No scores
+    /// are produced, so no run folder is saved (use `mira score` to save one).
+    #[arg(long, requires = "artifacts", conflicts_with_all = ["out", "resume"])]
     execute_only: bool,
-    /// Directory for full-transcript execution artifacts (one JSON per cell).
+    /// Directory for full-transcript execution artifacts (one JSON per case).
     /// Written when --execute-only; read by `mira score`.
     #[arg(long)]
     artifacts: Option<String>,
@@ -256,13 +260,35 @@ struct ScoreArgs {
     /// Break resolve-rate down by a metadata key (see `run --group-by`).
     #[arg(long)]
     group_by: Option<String>,
-    /// Write a report file (see --format).
+    /// Also write a standalone report file here (see --format). Independent of the
+    /// saved run folder, which is always written unless --dry-run.
     #[arg(long)]
     out: Option<String>,
-    /// Save a timestamped run folder under the results dir (see `run --save`).
-    #[arg(long, num_args = 0..=1, default_missing_value = "", value_name = "DIR")]
-    save: Option<String>,
-    /// Report file format: json | junit | md | html.
+    /// Don't save a run folder (ephemeral). By default the scored results are
+    /// saved as a run under the results dir, like `mira run`.
+    #[arg(long)]
+    dry_run: bool,
+    /// Report file format for --out: json | junit | md | html.
+    #[arg(long, default_value = "json")]
+    format: String,
+}
+
+/// `mira report <run_id>`: re-render a saved run's reports from its stored
+/// per-case results — no study process, no re-execution.
+#[derive(Args)]
+struct ReportArgs {
+    /// The `<run_id>` of a saved run under the results dir.
+    run_id: String,
+    /// Substring filter on the case key `eval/sample@target`.
+    filter: Option<String>,
+    /// Break resolve-rate down by a metadata key (see `run --group-by`). Resolved
+    /// from axis params and transcript metadata only (no study is consulted).
+    #[arg(long)]
+    group_by: Option<String>,
+    /// Also write a standalone report file here (see --format).
+    #[arg(long)]
+    out: Option<String>,
+    /// Report file format for --out: json | junit | md | html.
     #[arg(long, default_value = "json")]
     format: String,
 }
@@ -287,6 +313,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
             return Ok(());
         }
+        // `report` re-renders a saved run from disk — no study process needed, so
+        // handle it before spawning the host.
+        Some(Cmd::Report(args)) => return report(args),
         _ => {}
     }
 
@@ -298,7 +327,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let command =
         build_launch_command(&cli.launcher).map_err(Box::<dyn std::error::Error>::from)?;
     let host = Host::spawn(command).await?.on_event(move |n| {
-        // Per-cell `event` notifications correlate to their `run` by
+        // Per-case `event` notifications correlate to their `run` by
         // `request_id`; here only study `log`s are surfaced, so they no
         // longer spam stderr.
         if let Some(log) = n.as_log() {
@@ -324,8 +353,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
         Some(Cmd::Run(args)) => run(host, info, listing, args, progress).await,
         Some(Cmd::Score(args)) => score(host, info, listing, args).await,
-        // Help/no-args returned earlier, before the host was spawned.
-        None | Some(Cmd::Help(_)) => unreachable!("handled before host spawn"),
+        // Help/report/no-args returned earlier, before the host was spawned.
+        None | Some(Cmd::Help(_)) | Some(Cmd::Report(_)) => {
+            unreachable!("handled before host spawn")
+        }
     }
 }
 
@@ -343,9 +374,12 @@ OVERVIEW
   You write evals as code (in Rust, or any language that speaks the protocol);
   this binary is the HOST. It owns the run end to end: it launches your eval
   program (the `study`), enumerates what it advertises, plans the grid
-  (selection x target matrix x axes), executes each cell over the protocol,
-  scores the results, then aggregates, reports, and checkpoints. Execution and
-  scoring can be split for long runs (`run --execute-only` then `score`).
+  (selection x target matrix x axes), executes each case over the protocol,
+  scores the results, then aggregates, reports, and saves the run. Every run is
+  saved by default under the results dir as `<run_id>/` (per-case results +
+  report + meta), so it can be resumed (`run --resume <run_id>`) and re-rendered
+  (`report <run_id>`); `--dry-run` opts out. Execution and scoring can be split
+  for long runs (`run --execute-only` then `score`).
 
   Point it at any study: `--bin NAME`, `--example NAME`, an arbitrary
   `--cmd \"...\"`, a non-Rust study via `--uv` / `--python` / `--python3 SCRIPT`,
@@ -360,9 +394,10 @@ EXAMPLES
   mira --bin greet run greet            # selective (substring), like cargo test
   mira --bin greet run --tag smoke      # only samples carrying a tag
   mira --bin greet run --targets sim --format junit --out results.xml
-  mira --bin greet run --format html --out report.html   # self-contained viewer
-  mira --bin greet run --checkpoint ck.json              # resumable long runs
-  mira --bin greet run --save                            # archive run under ./results/<run_id>/
+  mira --bin greet run --format html --out report.html   # standalone viewer file
+  mira --bin greet run --dry-run                         # don't save a run folder
+  mira --bin greet run --resume <run_id>                 # finish an interrupted run
+  mira --bin greet report <run_id>                       # re-render a saved run
   mira --bin greet run --execute-only --artifacts art/   # capture transcripts
   mira --bin greet score --artifacts art/                # score (or re-score) them
   mira --python3 study.py run           # drive a non-Rust (polyglot) study
@@ -522,9 +557,7 @@ async fn run(
     let format = Format::from_str(&args.format)?;
     // Capture run identity at invocation start so the sortable run-id timestamp
     // matches `started_unix` (not the later finish time).
-    let started_unix = now_unix();
-    let run_id = new_run_id_at(started_unix);
-    let save_dir = config::resolve_save_dir(&args.save);
+    let started_now = now_unix();
 
     // Resolve selection (preset + flags), validate it against the advertised
     // axes/targets, then plan the full grid up front — so the host owns
@@ -533,59 +566,66 @@ async fn run(
     validate_selection(&selection, &listing).map_err(Box::<dyn std::error::Error>::from)?;
     let plan = plan_grid(&listing, &args, &selection);
     if plan.is_empty() {
-        eprintln!("no cells matched the selection");
+        eprintln!("no cases matched the selection");
     }
 
     // Execute-only: run subjects, persist full transcripts, defer scoring.
     if args.execute_only {
         require_capability(&info, capabilities::EXECUTE, "--execute-only")?;
         let dir = args.artifacts.as_ref().expect("clap requires artifacts");
-        return execute_only(host, &plan, dir, args.fresh).await;
+        return execute_only(host, &plan, dir).await;
     }
 
-    // Fingerprint the advertised definitions so a resume can detect stale caches.
-    let fingerprints = session::fingerprints(&listing);
-
-    // Resume from a session checkpoint unless --fresh. The session carries the
-    // planned `total` and per-eval fingerprints, so we can report accurate
-    // progress and warn when a cached cell's eval definition has changed.
-    let mut done: BTreeMap<String, RunResult> = BTreeMap::new();
-    let mut session = Session::new(
-        info.study.clone(),
-        info.study_version.clone(),
-        plan.len(),
-        fingerprints.clone(),
-    );
-    if let Some(path) = &args.checkpoint
-        && !args.fresh
-    {
-        match Session::load(path) {
-            Ok(Some(prev)) => {
-                let stale = prev.stale_keys(&fingerprints);
-                for r in prev.results {
-                    done.insert(r.key(), r);
-                }
-                session.created_unix = prev.created_unix;
-                let resumable = plan.iter().filter(|c| done.contains_key(&c.key())).count();
-                eprintln!(
-                    "resuming checkpoint: {resumable}/{} cells already done",
-                    plan.len()
-                );
-                if !stale.is_empty() {
-                    eprintln!(
-                        "warning: {} cached cell(s) are stale — their eval definition changed \
-                         since they were recorded. They'll be reused as-is; re-run with --fresh \
-                         to recompute. e.g. {}",
-                        stale.len(),
-                        stale.iter().take(3).cloned().collect::<Vec<_>>().join(", "),
-                    );
-                }
+    // The run folder: save-by-default unless --dry-run. `--resume <run_id>`
+    // reopens an existing folder, keeping its id and original start time; a fresh
+    // run mints a new id. `(run_id, dir, started_unix)`.
+    let run_store: Option<(String, PathBuf, u64)> = if args.dry_run {
+        None
+    } else {
+        let base = config::Config::load().results_dir();
+        match &args.resume {
+            Some(run_id) => {
+                let dir = config::run_dir(&base, run_id);
+                let started = config::load_meta(&dir)
+                    .map(|m| m.started_unix)
+                    .unwrap_or(started_now);
+                Some((run_id.clone(), dir, started))
             }
-            // No checkpoint yet — a normal first run.
-            Ok(None) => {}
-            // The file exists but can't be used; don't silently discard it.
-            Err(e) => eprintln!("warning: ignoring checkpoint {path}: {e}; starting fresh"),
+            None => {
+                let run_id = new_run_id_at(started_now);
+                let dir = config::run_dir(&base, &run_id);
+                Some((run_id, dir, started_now))
+            }
         }
+    };
+
+    // Seed `done` from any cases already recorded in the run folder (resume), then
+    // write the header meta + create `cases/` so the run is resumable from its
+    // first completed case. Capture environment once; reused at finalize.
+    let mut done: BTreeMap<String, RunResult> = BTreeMap::new();
+    let environment = collect_environment();
+    if let Some((run_id, dir, started)) = &run_store {
+        for r in config::load_case_results(dir) {
+            done.insert(r.key(), r);
+        }
+        if args.resume.is_some() {
+            let have = plan.iter().filter(|c| done.contains_key(&c.key())).count();
+            eprintln!(
+                "resuming run {run_id}: {have}/{} case(s) already done",
+                plan.len()
+            );
+        }
+        let header = RunMeta {
+            format: RUN_META_FORMAT,
+            run_id: run_id.clone(),
+            study: info.study.clone(),
+            study_version: info.study_version.clone(),
+            started_unix: *started,
+            finished_unix: 0,
+            environment: environment.clone(),
+            summary: RunSummary::default(),
+        };
+        config::init_run(dir, &header)?;
     }
 
     // Configure the progress bar now the plan is known. Drawn only when stderr is
@@ -606,54 +646,48 @@ async fn run(
     progress.set_length(plan.len() as u64);
     progress.set_position(resumable as u64);
 
-    // Only run cells not already checkpointed.
-    let todo: Vec<CellSpec> = plan
+    // Only run cases not already recorded in the run folder (resume).
+    let todo: Vec<CaseSpec> = plan
         .iter()
-        .filter(|cell| !done.contains_key(&cell.key()))
+        .filter(|case| !done.contains_key(&case.key()))
         .cloned()
         .collect();
 
     let cfg = concurrency(&args);
 
-    // Run cells concurrently under the bounded, provider-aware policy. Each
-    // finished cell advances the bar and is persisted to the session checkpoint
-    // as it lands, so a long run stays resumable.
+    // Run cases concurrently under the bounded, provider-aware policy. Each
+    // finished case advances the bar and is written to its own
+    // `cases/<key>/result.json` as it lands, so a long run stays resumable.
     {
         let handle = host.handle();
-        exec::run_cells(
+        let write_dir = run_store.as_ref().map(|(_, dir, _)| dir.clone());
+        exec::run_cases(
             todo,
             &cfg,
-            |cell| {
+            |case| {
                 let handle = handle.clone();
                 async move {
                     handle
                         .run(
-                            &cell.eval,
-                            &cell.sample,
-                            &cell.target,
-                            &cell.params,
-                            cell.trial,
+                            &case.eval,
+                            &case.sample,
+                            &case.target,
+                            &case.params,
+                            case.trial,
                         )
                         .await
                 }
             },
-            |cell, result| {
-                progress.set_message(cell.key());
-                done.insert(cell.key(), result);
-                progress.inc(1);
-                if let Some(path) = &args.checkpoint {
-                    // Persist only the planned cells, in plan order — so the file
-                    // stays deterministic and doesn't accumulate cells dropped by a
-                    // narrower selection on resume.
-                    let results = plan
-                        .iter()
-                        .filter_map(|c| done.get(&c.key()).cloned())
-                        .collect();
-                    session.update(plan.len(), fingerprints.clone(), results);
-                    if let Err(e) = session.save(path) {
-                        progress.suspend(|| eprintln!("warning: failed to write checkpoint: {e}"));
-                    }
+            |case, result| {
+                let key = case.key();
+                progress.set_message(key.clone());
+                if let Some(dir) = &write_dir
+                    && let Err(e) = config::write_case_result(dir, &key, &result)
+                {
+                    progress.suspend(|| eprintln!("warning: failed to write case result: {e}"));
                 }
+                done.insert(key, result);
+                progress.inc(1);
             },
         )
         .await;
@@ -661,10 +695,10 @@ async fn run(
     progress.finish_and_clear();
     host.shutdown().await?;
 
-    // Report only the planned cells, in plan order.
+    // Report only the planned cases, in plan order.
     let results: Vec<RunResult> = plan
         .iter()
-        .filter_map(|cell| done.get(&cell.key()).cloned())
+        .filter_map(|case| done.get(&case.key()).cloned())
         .collect();
 
     report::print_results(&results);
@@ -688,11 +722,24 @@ async fn run(
         eprintln!("\nwrote {path} ({:?})", format);
     }
 
-    if let Some(base) = &save_dir {
-        save_results(base, &run_id, &info, started_unix, &results, group)?;
+    // Finalize the saved run: render its reports and rewrite meta with the end
+    // time and summary.
+    if let Some((run_id, dir, started)) = &run_store {
+        let meta = RunMeta {
+            format: RUN_META_FORMAT,
+            run_id: run_id.clone(),
+            study: info.study.clone(),
+            study_version: info.study_version.clone(),
+            started_unix: *started,
+            finished_unix: now_unix(),
+            environment,
+            summary: RunSummary::of(&results),
+        };
+        config::finalize_run(dir, &meta, &results, group)?;
+        eprintln!("\nsaved run {run_id} to {}", dir.display());
     }
 
-    // A cell that's N/A (all scores N/A — e.g. an infra failure) is neither
+    // A case that's N/A (all scores N/A — e.g. an infra failure) is neither
     // passed nor failed, so it doesn't make CI red.
     let failed = results
         .iter()
@@ -700,36 +747,68 @@ async fn run(
     std::process::exit(if failed { 1 } else { 0 });
 }
 
-/// Write a timestamped run folder under `base` and report where it landed. The
-/// `run_id` is captured at invocation start so it sorts by start time.
-fn save_results(
-    base: &str,
-    run_id: &str,
-    info: &InitializeResult,
-    started_unix: u64,
-    results: &[RunResult],
-    group: Option<report::Group<'_>>,
-) -> Result<(), Box<dyn std::error::Error>> {
-    // Capture environment context (commit, box, host version, labels) unless
-    // disabled in mira.toml. Best-effort: never fails the save.
+/// Capture environment context (commit, box, host version, labels) for a saved
+/// run's `meta.json`, unless disabled in `mira.toml`. Best-effort: never fails the
+/// run.
+fn collect_environment() -> Option<mira::run::Environment> {
     let cfg = config::Config::load();
-    let environment = cfg
-        .environment
+    cfg.environment
         .enabled
         .then(|| env::collect(&cfg.environment.labels))
-        .flatten();
-    let meta = RunMeta {
-        format: RUN_META_FORMAT,
-        run_id: run_id.to_string(),
-        study: info.study.clone(),
-        study_version: info.study_version.clone(),
-        started_unix,
-        finished_unix: now_unix(),
-        environment,
-        summary: RunSummary::of(results),
+        .flatten()
+}
+
+/// `mira report <run_id>`: re-render a saved run's reports from its stored
+/// per-case results — no study process, no re-execution. Group-by resolves only
+/// from axis params and transcript metadata here (sample/target metadata would
+/// need the study). Refreshes the run's `report.json`/`report.html` in place when
+/// the full (unfiltered) set is rendered.
+fn report(args: &ReportArgs) -> Result<(), Box<dyn std::error::Error>> {
+    let format = Format::from_str(&args.format)?;
+    let base = config::Config::load().results_dir();
+    let dir = config::run_dir(&base, &args.run_id);
+    let mut results = config::load_case_results(&dir);
+    if let Some(f) = &args.filter {
+        results.retain(|r| r.key().contains(f.as_str()));
+    }
+    if results.is_empty() {
+        eprintln!(
+            "no case results for run {} (looked in {}/cases)",
+            args.run_id,
+            dir.display()
+        );
+    }
+
+    report::print_results(&results);
+
+    // No study process here, so group-by sees an empty listing.
+    let empty = ListResult { evals: Vec::new() };
+    let group_vals = args
+        .group_by
+        .as_deref()
+        .map(|key| group_values(&results, key, &empty));
+    let group = match (args.group_by.as_deref(), group_vals.as_deref()) {
+        (Some(key), Some(values)) => {
+            report::print_group_breakdown(&results, key, values);
+            Some(report::Group { key, values })
+        }
+        _ => None,
     };
-    let dir = config::save_run(base, &meta, results, group)?;
-    eprintln!("\nsaved run {} to {}", meta.run_id, dir.display());
+
+    if let Some(path) = &args.out {
+        std::fs::write(path, report::render_with_group(&results, format, group))?;
+        eprintln!("\nwrote {path} ({:?})", format);
+    }
+
+    // Refresh the saved run's reports in place when rendering the full set, so the
+    // on-disk viewer reflects the latest render (e.g. a new --group-by view).
+    if args.filter.is_none()
+        && let Some(mut meta) = config::load_meta(&dir)
+    {
+        meta.summary = RunSummary::of(&results);
+        config::finalize_run(&dir, &meta, &results, group)?;
+    }
+
     Ok(())
 }
 
@@ -774,36 +853,35 @@ fn require_capability(
     .into())
 }
 
-/// `run --execute-only`: run each cell's subject, persist the full transcript as
-/// an artifact, and skip scoring. Resumable — a cell whose artifact already
-/// exists is skipped unless `--fresh`.
+/// `run --execute-only`: run each case's subject, persist the full transcript as
+/// an artifact, and skip scoring. Resumable — a case whose artifact already
+/// exists is skipped (delete the artifacts dir to force a fresh run).
 async fn execute_only(
     host: Host,
-    plan: &[CellSpec],
+    plan: &[CaseSpec],
     dir: &str,
-    fresh: bool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     std::fs::create_dir_all(dir)?;
     let mut wrote = 0usize;
-    for cell in plan {
-        let path = artifact_path(dir, &cell.key());
-        if !fresh && path.exists() {
+    for case in plan {
+        let path = artifact_path(dir, &case.key());
+        if path.exists() {
             continue;
         }
         let result = host
             .execute(
-                &cell.eval,
-                &cell.sample,
-                &cell.target,
-                &cell.params,
-                cell.trial,
+                &case.eval,
+                &case.sample,
+                &case.target,
+                &case.params,
+                case.trial,
             )
             .await?;
         std::fs::write(&path, serde_json::to_string_pretty(&result)?)?;
         wrote += 1;
     }
     host.shutdown().await?;
-    eprintln!("executed {wrote} cell(s); artifacts in {dir}");
+    eprintln!("executed {wrote} case(s); artifacts in {dir}");
     eprintln!("score them with: mira score --artifacts {dir}");
     Ok(())
 }
@@ -820,8 +898,6 @@ async fn score(
     require_capability(&info, capabilities::SCORE, "mira score")?;
     let format = Format::from_str(&args.format)?;
     let started_unix = now_unix();
-    let run_id = new_run_id_at(started_unix);
-    let save_dir = config::resolve_save_dir(&args.save);
     let mut artifacts = load_artifacts(&args.artifacts);
     if let Some(f) = &args.filter {
         artifacts.retain(|a| a.key().contains(f.as_str()));
@@ -832,7 +908,7 @@ async fn score(
 
     let mut results = Vec::with_capacity(artifacts.len());
     for artifact in &artifacts {
-        // A skipped (unexecuted) cell has no transcript to score; pass it through.
+        // A skipped (unexecuted) case has no transcript to score; pass it through.
         if artifact.skipped {
             results.push(skipped_result(artifact));
         } else {
@@ -862,11 +938,30 @@ async fn score(
         eprintln!("\nwrote {path} ({:?})", format);
     }
 
-    if let Some(base) = &save_dir {
-        save_results(base, &run_id, &info, started_unix, &results, group)?;
+    // Save the scored results as a run folder (save-by-default; --dry-run opts
+    // out): write each case's result.json, then the rendered reports + meta.
+    if !args.dry_run {
+        let base = config::Config::load().results_dir();
+        let run_id = new_run_id_at(started_unix);
+        let dir = config::run_dir(&base, &run_id);
+        for r in &results {
+            config::write_case_result(&dir, &r.key(), r)?;
+        }
+        let meta = RunMeta {
+            format: RUN_META_FORMAT,
+            run_id: run_id.clone(),
+            study: info.study.clone(),
+            study_version: info.study_version.clone(),
+            started_unix,
+            finished_unix: now_unix(),
+            environment: collect_environment(),
+            summary: RunSummary::of(&results),
+        };
+        config::finalize_run(&dir, &meta, &results, group)?;
+        eprintln!("\nsaved run {run_id} to {}", dir.display());
     }
 
-    // A cell that's N/A (all scores N/A — e.g. an infra failure) is neither
+    // A case that's N/A (all scores N/A — e.g. an infra failure) is neither
     // passed nor failed, so it doesn't make CI red.
     let failed = results
         .iter()
@@ -892,24 +987,15 @@ fn skipped_result(a: &ExecuteResult) -> RunResult {
     }
 }
 
-/// Filesystem path for a cell's artifact under `dir`. The cell key is encoded
-/// reversibly — `[A-Za-z0-9]` kept verbatim, every other byte escaped as `_HH`
-/// (hex) — so distinct keys can never collide onto the same filename (which would
-/// overwrite an artifact or wrongly skip execution on resume).
+/// Filesystem path for a case's artifact under `dir`, using the shared reversible
+/// key encoding (see [`config::encode_key`]) so distinct keys can never collide
+/// onto the same filename (which would overwrite an artifact or wrongly skip
+/// execution on resume).
 fn artifact_path(dir: &str, key: &str) -> std::path::PathBuf {
-    let mut safe = String::with_capacity(key.len());
-    for b in key.bytes() {
-        if b.is_ascii_alphanumeric() {
-            safe.push(b as char);
-        } else {
-            safe.push('_');
-            safe.push_str(&format!("{b:02x}"));
-        }
-    }
-    Path::new(dir).join(format!("{safe}.json"))
+    Path::new(dir).join(format!("{}.json", config::encode_key(key)))
 }
 
-/// Load every execution artifact in `dir`, sorted by cell key for stable order.
+/// Load every execution artifact in `dir`, sorted by case key for stable order.
 /// Unreadable or invalid files are skipped with a warning, so a corrupted or
 /// partially-written artifact is visible rather than silently dropped.
 fn load_artifacts(dir: &str) -> Vec<ExecuteResult> {
@@ -1082,7 +1168,7 @@ fn validate_selection(sel: &Selection, listing: &ListResult) -> Result<(), Strin
     Ok(())
 }
 
-/// True when a cell's axis params satisfy the (non-target) axis constraints.
+/// True when a case's axis params satisfy the (non-target) axis constraints.
 fn axes_allowed(sel: &Selection, params: &mira::Params) -> bool {
     params.iter().all(|(name, value)| {
         sel.axes
@@ -1091,9 +1177,9 @@ fn axes_allowed(sel: &Selection, params: &mira::Params) -> bool {
     })
 }
 
-/// Expand the advertised listing into an ordered, selected list of cells. Each
-/// cell carries its target's provider so the executor can bucket concurrency.
-fn plan_grid(listing: &ListResult, args: &RunArgs, sel: &Selection) -> Vec<CellSpec> {
+/// Expand the advertised listing into an ordered, selected list of cases. Each
+/// case carries its target's provider so the executor can bucket concurrency.
+fn plan_grid(listing: &ListResult, args: &RunArgs, sel: &Selection) -> Vec<CaseSpec> {
     let mut plan = Vec::new();
     for eval in &listing.evals {
         if let Some(evals) = &sel.evals
@@ -1123,16 +1209,16 @@ fn plan_grid(listing: &ListResult, args: &RunArgs, sel: &Selection) -> Vec<CellS
                     if !axes_allowed(sel, params) {
                         continue;
                     }
-                    let key = mira::cell_key(&eval.name, &sample.id, &target.label, params);
+                    let key = mira::case_key(&eval.name, &sample.id, &target.label, params);
                     // Filter on the logical key, so `--filter` keeps or drops all
-                    // trials of a cell together (a stable group to aggregate).
+                    // trials of a case together (a stable group to aggregate).
                     if let Some(f) = &sel.filter
                         && !key.contains(f.as_str())
                     {
                         continue;
                     }
                     for index in 0..trials {
-                        plan.push(CellSpec {
+                        plan.push(CaseSpec {
                             eval: eval.name.clone(),
                             sample: sample.id.clone(),
                             target: target.label.clone(),
@@ -1176,8 +1262,8 @@ fn meta_indexes(listing: &ListResult) -> (MetaIndex, MetaIndex) {
     (sample_meta, model_meta)
 }
 
-/// Resolve a `--group-by` key for one cell, in priority order: axis params,
-/// sample metadata, target metadata, then transcript metadata. `None` ⇒ the cell
+/// Resolve a `--group-by` key for one case, in priority order: axis params,
+/// sample metadata, target metadata, then transcript metadata. `None` ⇒ the case
 /// carried no value for the key.
 fn group_value(
     r: &RunResult,

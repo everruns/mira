@@ -2,7 +2,7 @@
 //!
 //! ```bash
 //! mira --bin llm_judge run
-//! # With a key, the judge cell grades for real; without one it is N/A:
+//! # With a key, the judge case grades for real; without one it is N/A:
 //! OPENAI_API_KEY=sk-... mira --bin llm_judge run
 //! ```
 //!
@@ -21,7 +21,7 @@ use mira_judge::{Include, LlmJudge};
 fn llm_judge() -> Eval {
     Eval::new("llm_judge")
         .describe("Grade an answer with a real LLM judge (N/A without a key)")
-        .case("capital", "What is the capital of France?")
+        .sample("capital", "What is the capital of France?")
         .subject(subject_fn(|_sample, _cx| async move {
             // A real subject calls a model; this stand-in returns a good answer.
             Transcript::response("The capital of France is Paris.")

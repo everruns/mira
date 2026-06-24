@@ -21,8 +21,8 @@
 //! * [`Scorer`] — grades a [`Transcript`] into a [`Score`].
 //!   Deterministic built-ins, an arbitrary-closure escape hatch, and
 //!   LLM-as-judge ([`model_graded`](scorer::model_graded)) compose freely.
-//! * [`Target`] — one cell of the matrix. Provider-agnostic;
-//!   missing API keys mark a cell unavailable so it is *skipped*, not failed.
+//! * [`Target`] — one case of the matrix. Provider-agnostic;
+//!   missing API keys mark a case unavailable so it is *skipped*, not failed.
 //!
 //! # Two ways to run
 //!
@@ -31,7 +31,7 @@
 //! * **Over the protocol** — your program is a [`Study`]: it bundles evals and
 //!   calls [`serve`](Study::serve) to expose them. The `mira` host CLI ([`Host`])
 //!   compiles/spawns it, plans the run, and owns selection, the matrix,
-//!   checkpoints, and reporting. Provider keys never cross the wire — models are
+//!   run storage, and reporting. Provider keys never cross the wire — models are
 //!   addressed by *label*. See [`protocol`].
 //!
 //! See the crate `examples/` (`greet`, `coding`, `cli_subject`) for runnable
@@ -54,7 +54,6 @@ pub mod report;
 pub mod run;
 pub mod runner;
 pub mod scorer;
-pub mod session;
 pub mod study;
 pub mod subject;
 pub mod target;
@@ -79,7 +78,7 @@ pub use inventory;
 /// #[eval]
 /// fn greet() -> Eval {
 ///     Eval::new("greet")
-///         .case("hi", "say hi")
+///         .sample("hi", "say hi")
 ///         .subject(subject_fn(|_, _| async { Transcript::response("hi there") }))
 ///         .scorer(contains("hi"))
 ///         .build()
@@ -91,16 +90,15 @@ pub use mira_macros::eval;
 pub use aggregate::{TrialAggregate, aggregate_trials};
 pub use content::{Message, Part, Role, Source};
 pub use dataset::{Dataset, Sample};
-pub use eval::{Case, Eval};
-pub use exec::{Concurrency, run_cells};
+pub use eval::Eval;
+pub use exec::{Concurrency, run_cases};
 pub use host::{Host, HostHandle};
 pub use target::Target;
 // `register_eval!` is exported at the crate root via `#[macro_export]`.
 pub use registry::registered_evals;
-pub use run::{RunMeta, RunSummary, new_run_id, new_run_id_at};
+pub use run::{RunMeta, RunSummary, new_run_id, new_run_id_at, now_unix};
 pub use runner::{CaseOutcome, RunReport, Runner};
 pub use scorer::Scorer;
-pub use session::Session;
 pub use study::Study;
 pub use subject::{CliSubject, Subject, subject_fn};
 
@@ -116,31 +114,31 @@ pub use subject::{CliSubject, Subject, subject_fn};
 /// numerically.
 pub type Metadata = BTreeMap<String, serde_json::Value>;
 
-/// Matrix-axis values for one cell: axis name → chosen value.
+/// Matrix-axis values for one case: axis name → chosen value.
 ///
 /// Unlike [`Metadata`], these are always plain strings — they form part of the
-/// cell key ([`cell_key`]) and the selection grammar, so they stay scalar and
+/// case key ([`case_key`]) and the selection grammar, so they stay scalar and
 /// stable rather than open-ended.
 pub type Params = BTreeMap<String, String>;
 
-/// One trial's reproducibility context: which repetition this cell run is
+/// One trial's reproducibility context: which repetition this case run is
 /// (`index` of `count`) and the seed handed to the subject, if any.
 ///
-/// **Trials are repetitions of the *same* logical cell** — unlike an [axis], they
-/// don't form new cells, they're re-runs grouped back together so the host can
+/// **Trials are repetitions of the *same* logical case** — unlike an [axis], they
+/// don't form new cases, they're re-runs grouped back together so the host can
 /// compute pass@k, pass-rate, and score variance (see [`crate::aggregate`]).
 /// A `seed` makes a trial reproducible: a subject seeds its RNG / sampling
-/// temperature from it so the same `(cell, seed)` replays identically.
+/// temperature from it so the same `(case, seed)` replays identically.
 ///
 /// The single, unrepeated run is [`Trial::single`] (`count == 1`); it carries no
-/// trial dimension, so it adds no `#index` suffix to the cell key.
+/// trial dimension, so it adds no `#index` suffix to the case key.
 ///
 /// [axis]: crate::eval::Axis
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Trial {
-    /// 0-based repetition index within this cell's trials.
+    /// 0-based repetition index within this case's trials.
     pub index: usize,
-    /// Total repetitions planned for this cell. `1` means no trial dimension.
+    /// Total repetitions planned for this case. `1` means no trial dimension.
     pub count: usize,
     /// Per-trial seed for reproducibility, when the run set one.
     pub seed: Option<u64>,
@@ -162,20 +160,20 @@ impl Trial {
         }
     }
 
-    /// True when this cell runs more than once (the trial dimension is active).
+    /// True when this case runs more than once (the trial dimension is active).
     pub fn is_repeated(&self) -> bool {
         self.count > 1
     }
 
-    /// The `#index` suffix this trial contributes to a cell key, or empty when
-    /// the cell isn't repeated — so single-trial runs keep their plain keys.
+    /// The `#index` suffix this trial contributes to a case key, or empty when
+    /// the case isn't repeated — so single-trial runs keep their plain keys.
     pub fn key_suffix(&self) -> String {
         trial_suffix(self.index, self.count)
     }
 }
 
 /// The `#index` key suffix for a `(trial, trials)` pair: present only when the
-/// cell is repeated (`trials > 1`), so a single-trial cell keeps the plain
+/// case is repeated (`trials > 1`), so a single-trial case keeps the plain
 /// `eval/sample@target[…]` key. Host and study compute it identically.
 pub fn trial_suffix(trial: usize, trials: usize) -> String {
     if trials > 1 {
@@ -332,7 +330,7 @@ pub struct Transcript {
 /// [`Infra`](ErrorKind::Infra) error is the scaffolding *around* the run breaking
 /// (out of budget/quota, rate-limited, a provider 5xx/outage, a network/timeout
 /// fault): not the model's fault. Infra failures are surfaced as **N/A**
-/// ([`Score::na`]) so they are excluded from the cell verdict and aggregate
+/// ([`Score::na`]) so they are excluded from the case verdict and aggregate
 /// (neither pass nor fail, like [`Score::na`] for a single scorer), and the host
 /// retries them up to `--max-retries`. See [`Transcript::infra_error`].
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -378,7 +376,7 @@ impl Transcript {
 
     /// A transcript that failed for an *infrastructure* reason ([`ErrorKind::Infra`]):
     /// budget/quota, rate limit, provider outage, network/timeout — not the
-    /// model's fault. Scoring short-circuits to **N/A** so the cell is excluded
+    /// model's fault. Scoring short-circuits to **N/A** so the case is excluded
     /// from pass/fail, and the host retries it.
     pub fn infra_error(error: impl Into<String>) -> Self {
         Self {
@@ -468,7 +466,7 @@ impl Transcript {
 /// A third state — **N/A** ([`na`](Score::na)) — lets a scorer say "I couldn't
 /// evaluate this" (an unreachable judge, a missing API key, any infra hiccup)
 /// rather than crashing the run or lying with a `fail`. An N/A score is excluded
-/// from the cell verdict and the aggregate: it neither passes nor fails.
+/// from the case verdict and the aggregate: it neither passes nor fails.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub struct Score {
@@ -476,7 +474,7 @@ pub struct Score {
     pub value: f64,
     pub pass: bool,
     /// True when the scorer did not apply / could not run (infra issue, missing
-    /// credentials, …). Excluded from the cell verdict and aggregate.
+    /// credentials, …). Excluded from the case verdict and aggregate.
     #[serde(default, skip_serializing_if = "is_false")]
     pub na: bool,
     pub reason: String,
@@ -511,7 +509,7 @@ impl Score {
 
     /// A not-applicable score: the scorer could not be evaluated (e.g. the judge
     /// model was unreachable or unconfigured). Counts as neither pass nor fail —
-    /// the cell verdict and aggregate ignore it. This is the sanctioned way to
+    /// the case verdict and aggregate ignore it. This is the sanctioned way to
     /// handle infra failures: return N/A instead of crashing or failing.
     pub fn na(scorer: impl Into<String>, reason: impl Into<String>) -> Self {
         Self {
@@ -547,21 +545,21 @@ impl Score {
 }
 
 /// Per-run context handed to a [`Subject`]: which target to use
-/// for this matrix cell, and the run limits.
+/// for this matrix case, and the run limits.
 #[derive(Clone, Debug)]
 pub struct RunCx {
-    /// The matrix cell's target (the model or harness under evaluation).
+    /// The matrix case's target (the model or harness under evaluation).
     pub target: Target,
     /// Maximum reasoning iterations a subject should take.
     pub max_turns: usize,
-    /// Values for any extra matrix axes this cell varies (axis name → value),
+    /// Values for any extra matrix axes this case varies (axis name → value),
     /// e.g. `{"effort": "high"}`. Empty for a target-only matrix. A subject reads
-    /// these to vary its behaviour per cell.
+    /// these to vary its behaviour per case.
     pub params: Params,
-    /// This run's trial within its cell: which repetition (`index` of `count`)
+    /// This run's trial within its case: which repetition (`index` of `count`)
     /// and the optional seed. A stochastic subject seeds its RNG / sampling from
     /// [`Trial::seed`] so the run is reproducible. [`Trial::single`] for an
-    /// unrepeated cell.
+    /// unrepeated case.
     pub trial: Trial,
     /// The conversation so far, for an **interactive** (multi-turn) eval: the
     /// alternating `User`/`Assistant` [`Message`]s leading up to this call, with
@@ -587,7 +585,7 @@ impl RunCx {
         }
     }
 
-    /// The value of an extra matrix axis for this cell, if set.
+    /// The value of an extra matrix axis for this case, if set.
     pub fn param(&self, name: &str) -> Option<&str> {
         self.params.get(name).map(String::as_str)
     }
@@ -600,11 +598,11 @@ impl RunCx {
     }
 }
 
-/// The canonical, stable identity of one matrix cell: `eval/sample@target`,
+/// The canonical, stable identity of one matrix case: `eval/sample@target`,
 /// suffixed with `[k=v,…]` (axis params sorted by key) when extra axes vary.
 /// Used for selection, dedupe, checkpoint resume, and reporting — host and
 /// study compute it identically. `target` is the target label.
-pub fn cell_key(eval: &str, sample: &str, target: &str, params: &Params) -> String {
+pub fn case_key(eval: &str, sample: &str, target: &str, params: &Params) -> String {
     let base = format!("{eval}/{sample}@{target}");
     if params.is_empty() {
         return base;
@@ -622,7 +620,7 @@ pub fn cell_key(eval: &str, sample: &str, target: &str, params: &Params) -> Stri
 /// overload signal? The core is provider-agnostic, so detection is a substring
 /// match over the common phrasings (HTTP 429, "rate limit", "overloaded",
 /// "quota", …). The host's adaptive scheduler uses this to back off and retry a
-/// cell instead of failing it (see [`exec`]).
+/// case instead of failing it (see [`exec`]).
 pub fn is_rate_limited(message: &str) -> bool {
     let m = message.to_ascii_lowercase();
     m.contains("429")

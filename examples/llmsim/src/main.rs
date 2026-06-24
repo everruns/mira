@@ -46,7 +46,7 @@ fn llmsim() -> Eval {
 
     Eval::new("llmsim")
         .describe("Drives an everruns InProcessRuntime against the LlmSim driver")
-        .case("greet", "Say hi and tell me the answer to life.")
+        .sample("greet", "Say hi and tell me the answer to life.")
         // `Target::sim()` routes to the LlmSim driver via `target_to_resolved`.
         .targets([Target::sim()])
         .subject(subject)
