@@ -55,7 +55,38 @@ export type {
   TargetOptions,
 } from "./study.js";
 
-export { contains, equals, makeScore, regex, scorer, succeeded } from "./scorers.js";
+export {
+  allOf,
+  anyOf,
+  contains,
+  costWithin,
+  equals,
+  fileContains,
+  fileExists,
+  jsonFieldEquals,
+  jsonValid,
+  latencyWithin,
+  makeScore,
+  matchesExpected,
+  metricAtLeast,
+  metricWithin,
+  nonEmpty,
+  not,
+  notContains,
+  outputTokensWithin,
+  producedModality,
+  regex,
+  scorer,
+  succeeded,
+  tokensWithin,
+  toolCalled,
+  toolCalledBefore,
+  toolCallsWithin,
+  toolNotCalled,
+  toolsUsedExactly,
+  ttftWithin,
+  turnsWithin,
+} from "./scorers.js";
 export type { Scorer } from "./scorers.js";
 
 export { toWire } from "./codec.js";
