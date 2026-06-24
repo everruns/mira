@@ -36,3 +36,14 @@ in [`specs/`](../specs). Conventions for this directory are in
 
 Conceptual diagrams are committed SVGs under [`assets/`](assets). See the
 [docs spec](../specs/docs.md#3-diagrams) for the convention.
+
+- [`mira-overview.svg`](assets/mira-overview.svg) — host ▸ study ▸ subject, at a
+  glance (embedded in the repo `README.md`).
+- [`mira-entities.svg`](assets/mira-entities.svg) — the entity hierarchy: study,
+  eval, and the cases/trials/scores the matrix expands into.
+- [`mira-run-lifecycle.svg`](assets/mira-run-lifecycle.svg) — the host ⇄ study
+  protocol sequence for one run.
+- [`mira-workflow.svg`](assets/mira-workflow.svg) — the end-to-end pipeline from
+  authoring an eval to a CI-ready report.
+
+The last three are embedded in [`how-it-works.md`](how-it-works.md).

@@ -5,6 +5,14 @@ why the framework is shaped the way it is. For a hands-on intro, start with
 [getting started](getting-started.md); for the exact wire format, see the
 [protocol reference](protocol.md).
 
+In real life the whole framework reduces to one loop: you author an eval once,
+then `mira` plans the matrix, runs every case against each target, scores the
+results, and renders a CI-ready report you can resume.
+
+<p align="center">
+<img src="assets/mira-workflow.svg" alt="End-to-end pipeline: you author an eval; the mira host then plans the case grid, executes each case against its target, scores the transcripts, and renders a resumable report" width="760" />
+</p>
+
 ## The core model
 
 ```text
@@ -31,6 +39,13 @@ Eval = Dataset(Sample…) + Subject + [Scorer…]  ×  model matrix × axes
   provider, model, available, metadata)` tuple with no API keys and no SDK
   types. Subjects interpret it.
 
+These entities nest: a study holds evals, an eval composes the pieces above, and
+the host expands the matrix into the cases (and trials) that actually run.
+
+<p align="center">
+<img src="assets/mira-entities.svg" alt="Entity hierarchy: a study holds evals; an eval composes a dataset of samples, a subject, scorers, targets and axes; the host expands that matrix into cases, repeated as trials, each scored from a transcript" width="720" />
+</p>
+
 ## Two processes, one protocol
 
 The single most important design decision: eval *definitions* and the *runner*
@@ -55,6 +70,14 @@ The protocol is versioned: `initialize` advertises a `MAJOR.MINOR`
 `protocol_version` and a `capabilities` list. A major bump is breaking; a minor
 bump is additive. Every payload tolerates unknown fields, so a newer study and
 an older host interoperate.
+
+A single run reads as a conversation over one pipe — the host handshakes,
+enumerates, plans the grid, then drives a `run` (or `execute`) per case while the
+study streams `event`/`log` notifications back:
+
+<p align="center">
+<img src="assets/mira-run-lifecycle.svg" alt="Sequence between host and study: initialize and list to enumerate, the host plans the grid, then per case the host calls run while the study streams event and log notifications and returns a scored result; the host aggregates and renders" width="600" />
+</p>
 
 ## The matrix
 
