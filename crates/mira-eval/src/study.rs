@@ -392,7 +392,7 @@ impl Study {
 
         // Don't burn time on an unrunnable case; report it as skipped.
         if !target.available {
-            return Ok(skipped_result(params));
+            return Ok(skipped_result(params, sample));
         }
 
         let outcome = run_case(eval, sample, target, &params.params, params.trial()).await;
@@ -404,6 +404,8 @@ impl Study {
             trial: params.trial,
             trials: params.trials,
             seed: params.seed,
+            input: sample.input.clone(),
+            expected: sample.expected.clone(),
             passed: outcome.passed,
             aggregate: outcome.aggregate,
             scores: outcome.scores,
@@ -468,6 +470,8 @@ impl Study {
             trial: params.trial,
             trials: params.trials,
             seed: params.seed,
+            input: sample.input.clone(),
+            expected: sample.expected.clone(),
             passed: verdict(&scores),
             aggregate: aggregate_value(&scores),
             scores,
@@ -504,7 +508,7 @@ impl Study {
 }
 
 /// A skipped (unexecuted) case result, e.g. when the target is unavailable.
-fn skipped_result(params: &RunParams) -> RunResult {
+fn skipped_result(params: &RunParams, sample: &crate::Sample) -> RunResult {
     RunResult {
         eval: params.eval.clone(),
         sample: params.sample.clone(),
@@ -513,6 +517,8 @@ fn skipped_result(params: &RunParams) -> RunResult {
         trial: params.trial,
         trials: params.trials,
         seed: params.seed,
+        input: sample.input.clone(),
+        expected: sample.expected.clone(),
         passed: false,
         aggregate: 0.0,
         scores: Vec::new(),

@@ -313,6 +313,8 @@ variance.
   "sample": "hi",
   "target": "sim",
   "params": { "effort": "high" },
+  "input": ["What is the answer?"],
+  "expected": "42",
   "passed": true,
   "aggregate": 1.0,
   "scores": [
@@ -336,6 +338,8 @@ variance.
 |-------|------|-------|
 | `params` | object | Echoes the case's axis values (optional, default empty). |
 | `trial` / `trials` / `seed` | int / int / int | Echo the case's trial identity (optional; omitted for a single, unseeded run). |
+| `input` | array | The sample's input turns, copied through so a persisted result is self-describing (optional; omitted when unavailable). |
+| `expected` | any | The sample's expected/reference value, when the dataset provides one (optional). |
 | `passed` | bool | True iff every scorer passed (and at least one ran). |
 | `aggregate` | number | Mean of score `value`s, `0.0..=1.0`. |
 | `scores` | array | One [`Score`](#score) per scorer. |

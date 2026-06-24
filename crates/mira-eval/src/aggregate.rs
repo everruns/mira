@@ -201,6 +201,8 @@ mod tests {
             trial,
             trials,
             seed: Some(trial as u64),
+            input: Vec::new(),
+            expected: None,
             passed,
             aggregate: if passed { 1.0 } else { 0.0 },
             scores: vec![if passed {

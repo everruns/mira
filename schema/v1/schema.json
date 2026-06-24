@@ -619,6 +619,16 @@
         "eval": {
           "type": "string"
         },
+        "expected": {
+          "description": "The sample's expected/reference value, when the dataset provides one."
+        },
+        "input": {
+          "description": "The sample's input turns (the prompt sent), copied through so a persisted\nresult is self-describing without the dataset. Empty when unavailable\n(e.g. a synthetic error result).",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
         "params": {
           "additionalProperties": {
             "type": "string"

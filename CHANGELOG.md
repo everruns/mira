@@ -9,6 +9,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Self-describing results.** A `RunResult` (and the persisted
+  `cases/<key>/result.json`) now carries the sample's `input` (the prompt turns
+  sent) and `expected` (the reference value, when the dataset provides one), so a
+  saved result can be read back without the original dataset. Both are optional
+  on the wire — `input` omitted when empty, `expected` when absent.
 - **Docs diagrams.** Five new committed SVGs visualise the model, each in its
   topical guide: the **end-to-end workflow** (`mira-workflow.svg` — author →
   plan → execute → score → report) in [`getting-started.md`](docs/getting-started.md),
