@@ -87,13 +87,24 @@ run-examples: build-ts-sdk
 # === Release ===
 
 # Verify every publishable crate can be packaged (files, version drift).
+# Leaf crates (no internal deps) get a full verify — that's where packaging
+# bugs (missing files, metadata drift) actually bite. The dependents are
+# packaged with --no-verify: their verification build would resolve mira-eval
+# from crates.io (path is stripped on publish), compiling against the stale
+# published version instead of the workspace, so it fails whenever they use
+# unpublished mira-eval APIs. The real, order-aware publish (mira-eval first,
+# then dependents) lives in .github/workflows/publish.yml; here we only check
+# that the dependents package cleanly.
 publish-dry-run:
     cargo publish --dry-run -p mira-macros
     cargo publish --dry-run -p mira-eval
-    cargo publish --dry-run -p mira-cli
-    cargo publish --dry-run -p mira-everruns
-    cargo publish --dry-run -p mira-judge
+    cargo publish --dry-run -p mira-cli --no-verify
+    cargo publish --dry-run -p mira-everruns --no-verify
+    cargo publish --dry-run -p mira-judge --no-verify
 
-# All pre-PR checks plus the publish dry-run.
-pre-pr: check publish-dry-run
+# Pre-PR gate: fmt, clippy, tests. The publish dry-run is a release-time
+# concern (it guards packaging, which only matters when cutting a release), so
+# it's kept out of the per-PR path — run `just publish-dry-run` before a
+# release instead.
+pre-pr: check
     @echo "Pre-PR checks passed"

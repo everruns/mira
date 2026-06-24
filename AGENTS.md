@@ -72,7 +72,7 @@ just build      # cargo build
 just install    # build and install the local mira CLI
 just test       # cargo test (workspace)
 just check      # fmt --check + clippy -D warnings + test
-just pre-pr     # check + publish dry-run
+just pre-pr     # check (publish-dry-run is a separate, release-time recipe)
 just run-examples   # drive the bundled example servers via the CLI
 ```
 
