@@ -122,12 +122,16 @@ is a future knob alongside the deferred cost caps (§12).
 
 ### Selective evaluation
 
-Mirrors `cargo test`: a substring `filter` on the case key, a `--tag` narrow, a
-`--targets` restriction (sugar for `--axis target=…`), a general `--axis
-NAME=v1,v2` subset on any declared axis, and `--preset NAME` (a saved selection
-bundle from `mira.toml`). The **host** owns selection (it plans the grid from
-`list` before running anything), and only ever *subsets* the declared grid —
-independent of how evals are authored. See §15.3.
+Mirrors `cargo test`: a positional substring `filter` on the case key (the quick
+grep), plus per-dimension **glob** selectors — `--targets`, `--samples`,
+`--evals` — matching the target label / sample id / eval name (`*`, `?`, `[set]`,
+`{a,b}`; a literal is exact). `--targets` is sugar for `--axis target=…`; `--axis
+NAME=v1,v2` subsets any declared axis (values are globs too); `--tag` narrows by
+sample tag; `--preset NAME` applies a saved selection bundle from `mira.toml`.
+The glob matcher is a small dep-free module in the core (`mira::glob_match`),
+shared by the host and the in-process `Runner`. The **host** owns selection (it
+plans the grid from `list` before running anything), and only ever *subsets* the
+declared grid — independent of how evals are authored. See §15.3.
 
 ## 4. Execution model: two processes, one protocol
 
@@ -200,7 +204,7 @@ crate `mira-macros`, re-exported as `mira::eval` behind the default `macros`
 feature.
 
 **Running** — the `mira` CLI: `list`, `run [filter]`, `report <run_id>`, `--tag`,
-`--targets`, `--axis`, `--preset`, `--format json|junit|md|html`, `--out`,
+`--targets`, `--samples`, `--evals`, `--axis`, `--preset`, `--format json|junit|md|html`, `--out`,
 `--dry-run`/`--resume <run_id>`, and concurrency controls `-j/--max-concurrent`,
 `--provider-concurrency`, `--no-adaptive`, `--max-retries`. Non-zero exit on
 failure, so it drops into CI. In-process `Runner` for evals as `#[tokio::test]`s.

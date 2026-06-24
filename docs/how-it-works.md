@@ -76,15 +76,19 @@ be either a set of **targets** or its own **axis** — they compose.)
 Selection mirrors `cargo test`, and the **host** owns it — it plans the full grid
 from `list` before running anything, independent of how the evals were authored:
 
-- `filter` — a substring on the case key (`eval/sample@target`).
+- `filter` (positional) — a substring on the case key (`eval/sample@target`), the
+  `cargo test PAT` quick grep.
+- `--targets a,b` / `--samples a,b` / `--evals a,b` — per-dimension selectors that
+  match the target label / sample id / eval name by **glob** (`*`, `?`, `[set]`,
+  `{a,b}`); a literal (no wildcard) is exact. Comma-separated on the CLI, e.g.
+  `--targets 'anthropic/*'`. `--targets` is sugar for `--axis target=…`.
 - `--tag` — only samples carrying the tag.
-- `--targets a,b` — restrict the primary (target) axis; sugar for `--axis
-  target=a,b`.
 - `--axis NAME=v1,v2` (repeatable) — restrict **any** declared axis (`target` or
-  a secondary axis). Values OR within a flag; multiple `--axis` flags AND. An
-  unknown axis/value is a hard error.
+  a secondary axis); values are globs too. Values OR within a flag; multiple
+  `--axis` flags AND. An unknown axis, or a glob matching no declared value, is a
+  hard error.
 - `--preset NAME` — apply a named selection bundle from `mira.toml`
-  (`[presets.NAME]` = saved targets / axes / tag / filter / evals). Explicit
+  (`[presets.NAME]` = saved targets / samples / evals / axes / tag). Explicit
   flags override the preset.
 
 Selection only ever **subsets** the grid the study declared — the host never adds
