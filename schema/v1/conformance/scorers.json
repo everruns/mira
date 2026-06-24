@@ -1,0 +1,124 @@
+{
+  "$comment": "Cross-language scorer parity vectors. The Rust scorers in crates/mira-eval/src/scorer.rs are the source of truth; these vectors encode their behaviour so every SDK can prove it mirrors them. Hand-authored (no generator); the Rust oracle test (crates/mira-eval/tests/scorer_parity.rs) asserts the expectations match Rust, and each SDK runs the same vectors. Only the verdict-affecting fields (pass, value, na) are checked — `reason` text is human-facing and allowed to differ per language. LLM-judge (model_graded) and the scorer(name, fn) escape hatch are excluded: they are not deterministic, language-portable specs. value tolerance: 1e-9.",
+  "version": "1.0",
+  "transcripts": {
+    "base": {
+      "final_response": "The answer is 42.",
+      "iterations": 2,
+      "tool_calls_count": 2,
+      "tool_calls": ["read", "calc"],
+      "usage": { "input_tokens": 5, "output_tokens": 3, "cost_usd": 0.01 },
+      "timing": { "duration_ms": 120, "time_to_first_token_ms": 40 },
+      "files": { "out.txt": "hello world" },
+      "metrics": { "recall@5": 0.8, "p95_ms": 250.0 }
+    },
+    "json": {
+      "final_response": "{\"answer\": \"42\", \"ok\": true}",
+      "iterations": 1,
+      "tool_calls_count": 0,
+      "usage": { "input_tokens": 1, "output_tokens": 1, "cost_usd": 0.0 }
+    },
+    "empty": {
+      "final_response": "   ",
+      "iterations": 0,
+      "tool_calls_count": 0,
+      "usage": { "input_tokens": 0, "output_tokens": 0, "cost_usd": 0.0 }
+    },
+    "errored": {
+      "final_response": "",
+      "iterations": 0,
+      "tool_calls_count": 0,
+      "usage": { "input_tokens": 0, "output_tokens": 0, "cost_usd": 0.0 },
+      "error": "boom",
+      "error_kind": "subject"
+    },
+    "no_ttft": {
+      "final_response": "ok",
+      "iterations": 1,
+      "tool_calls_count": 0,
+      "usage": { "input_tokens": 1, "output_tokens": 1, "cost_usd": 0.0 },
+      "timing": { "duration_ms": 50 }
+    },
+    "image_out": {
+      "final_response": "here you go",
+      "iterations": 1,
+      "tool_calls_count": 0,
+      "usage": { "input_tokens": 1, "output_tokens": 1, "cost_usd": 0.0 },
+      "output": [
+        { "kind": "text", "text": "here you go" },
+        { "kind": "image", "media_type": "image/png", "source": { "uri": "u" } }
+      ]
+    }
+  },
+  "cases": [
+    { "name": "contains found", "scorer": { "kind": "contains", "needle": "42" }, "transcript": "base", "expect": { "pass": true, "value": 1.0, "na": false } },
+    { "name": "contains missing", "scorer": { "kind": "contains", "needle": "99" }, "transcript": "base", "expect": { "pass": false, "value": 0.0, "na": false } },
+    { "name": "not_contains absent", "scorer": { "kind": "not_contains", "needle": "99" }, "transcript": "base", "expect": { "pass": true, "value": 1.0, "na": false } },
+    { "name": "not_contains present", "scorer": { "kind": "not_contains", "needle": "42" }, "transcript": "base", "expect": { "pass": false, "value": 0.0, "na": false } },
+    { "name": "equals case-insensitive + trim", "scorer": { "kind": "equals", "expected": "the answer is 42." }, "transcript": "base", "expect": { "pass": true, "value": 1.0, "na": false } },
+    { "name": "equals mismatch", "scorer": { "kind": "equals", "expected": "wrong" }, "transcript": "base", "expect": { "pass": false, "value": 0.0, "na": false } },
+    { "name": "regex match", "scorer": { "kind": "regex", "pattern": "answer is \\d+" }, "transcript": "base", "expect": { "pass": true, "value": 1.0, "na": false } },
+    { "name": "regex no match", "scorer": { "kind": "regex", "pattern": "^\\d+$" }, "transcript": "base", "expect": { "pass": false, "value": 0.0, "na": false } },
+    { "name": "matches_expected hit", "scorer": { "kind": "matches_expected" }, "transcript": "base", "sample": { "expected": "The answer is 42." }, "expect": { "pass": true, "value": 1.0, "na": false } },
+    { "name": "matches_expected no expected", "scorer": { "kind": "matches_expected" }, "transcript": "base", "expect": { "pass": false, "value": 0.0, "na": false } },
+    { "name": "non_empty pass", "scorer": { "kind": "non_empty" }, "transcript": "base", "expect": { "pass": true, "value": 1.0, "na": false } },
+    { "name": "non_empty fail on whitespace", "scorer": { "kind": "non_empty" }, "transcript": "empty", "expect": { "pass": false, "value": 0.0, "na": false } },
+
+    { "name": "succeeded pass", "scorer": { "kind": "succeeded" }, "transcript": "base", "expect": { "pass": true, "value": 1.0, "na": false } },
+    { "name": "succeeded fail", "scorer": { "kind": "succeeded" }, "transcript": "errored", "expect": { "pass": false, "value": 0.0, "na": false } },
+
+    { "name": "file_exists hit", "scorer": { "kind": "file_exists", "path": "out.txt" }, "transcript": "base", "expect": { "pass": true, "value": 1.0, "na": false } },
+    { "name": "file_exists miss", "scorer": { "kind": "file_exists", "path": "nope.txt" }, "transcript": "base", "expect": { "pass": false, "value": 0.0, "na": false } },
+    { "name": "file_contains hit", "scorer": { "kind": "file_contains", "path": "out.txt", "needle": "hello" }, "transcript": "base", "expect": { "pass": true, "value": 1.0, "na": false } },
+    { "name": "file_contains miss", "scorer": { "kind": "file_contains", "path": "out.txt", "needle": "bye" }, "transcript": "base", "expect": { "pass": false, "value": 0.0, "na": false } },
+
+    { "name": "tool_called hit", "scorer": { "kind": "tool_called", "tool": "calc" }, "transcript": "base", "expect": { "pass": true, "value": 1.0, "na": false } },
+    { "name": "tool_called miss", "scorer": { "kind": "tool_called", "tool": "grep" }, "transcript": "base", "expect": { "pass": false, "value": 0.0, "na": false } },
+    { "name": "tool_not_called pass", "scorer": { "kind": "tool_not_called", "tool": "grep" }, "transcript": "base", "expect": { "pass": true, "value": 1.0, "na": false } },
+    { "name": "tool_not_called fail", "scorer": { "kind": "tool_not_called", "tool": "calc" }, "transcript": "base", "expect": { "pass": false, "value": 0.0, "na": false } },
+    { "name": "tool_calls_within ok", "scorer": { "kind": "tool_calls_within", "max": 2 }, "transcript": "base", "expect": { "pass": true, "value": 1.0, "na": false } },
+    { "name": "tool_calls_within over", "scorer": { "kind": "tool_calls_within", "max": 1 }, "transcript": "base", "expect": { "pass": false, "value": 0.0, "na": false } },
+    { "name": "turns_within ok", "scorer": { "kind": "turns_within", "max": 2 }, "transcript": "base", "expect": { "pass": true, "value": 1.0, "na": false } },
+    { "name": "turns_within over", "scorer": { "kind": "turns_within", "max": 1 }, "transcript": "base", "expect": { "pass": false, "value": 0.0, "na": false } },
+    { "name": "tools_used_exactly match", "scorer": { "kind": "tools_used_exactly", "tools": ["calc", "read"] }, "transcript": "base", "expect": { "pass": true, "value": 1.0, "na": false } },
+    { "name": "tools_used_exactly mismatch", "scorer": { "kind": "tools_used_exactly", "tools": ["calc"] }, "transcript": "base", "expect": { "pass": false, "value": 0.0, "na": false } },
+    { "name": "tool_called_before ordered", "scorer": { "kind": "tool_called_before", "first": "read", "second": "calc" }, "transcript": "base", "expect": { "pass": true, "value": 1.0, "na": false } },
+    { "name": "tool_called_before reversed", "scorer": { "kind": "tool_called_before", "first": "calc", "second": "read" }, "transcript": "base", "expect": { "pass": false, "value": 0.0, "na": false } },
+    { "name": "tool_called_before missing", "scorer": { "kind": "tool_called_before", "first": "read", "second": "grep" }, "transcript": "base", "expect": { "pass": false, "value": 0.0, "na": false } },
+
+    { "name": "cost_within ok", "scorer": { "kind": "cost_within", "max_usd": 0.05 }, "transcript": "base", "expect": { "pass": true, "value": 1.0, "na": false } },
+    { "name": "cost_within over", "scorer": { "kind": "cost_within", "max_usd": 0.001 }, "transcript": "base", "expect": { "pass": false, "value": 0.0, "na": false } },
+    { "name": "tokens_within ok", "scorer": { "kind": "tokens_within", "max": 8 }, "transcript": "base", "expect": { "pass": true, "value": 1.0, "na": false } },
+    { "name": "tokens_within over", "scorer": { "kind": "tokens_within", "max": 7 }, "transcript": "base", "expect": { "pass": false, "value": 0.0, "na": false } },
+    { "name": "output_tokens_within ok", "scorer": { "kind": "output_tokens_within", "max": 3 }, "transcript": "base", "expect": { "pass": true, "value": 1.0, "na": false } },
+    { "name": "output_tokens_within over", "scorer": { "kind": "output_tokens_within", "max": 2 }, "transcript": "base", "expect": { "pass": false, "value": 0.0, "na": false } },
+    { "name": "latency_within ok", "scorer": { "kind": "latency_within", "max_ms": 200 }, "transcript": "base", "expect": { "pass": true, "value": 1.0, "na": false } },
+    { "name": "latency_within over", "scorer": { "kind": "latency_within", "max_ms": 100 }, "transcript": "base", "expect": { "pass": false, "value": 0.0, "na": false } },
+    { "name": "ttft_within ok", "scorer": { "kind": "ttft_within", "max_ms": 50 }, "transcript": "base", "expect": { "pass": true, "value": 1.0, "na": false } },
+    { "name": "ttft_within over", "scorer": { "kind": "ttft_within", "max_ms": 30 }, "transcript": "base", "expect": { "pass": false, "value": 0.0, "na": false } },
+    { "name": "ttft_within unreported", "scorer": { "kind": "ttft_within", "max_ms": 50 }, "transcript": "no_ttft", "expect": { "pass": false, "value": 0.0, "na": false } },
+
+    { "name": "metric_at_least pass", "scorer": { "kind": "metric_at_least", "name": "recall@5", "min": 0.75 }, "transcript": "base", "expect": { "pass": true, "value": 1.0, "na": false } },
+    { "name": "metric_at_least fail", "scorer": { "kind": "metric_at_least", "name": "recall@5", "min": 0.9 }, "transcript": "base", "expect": { "pass": false, "value": 0.0, "na": false } },
+    { "name": "metric_within pass", "scorer": { "kind": "metric_within", "name": "p95_ms", "max": 300.0 }, "transcript": "base", "expect": { "pass": true, "value": 1.0, "na": false } },
+    { "name": "metric_within fail", "scorer": { "kind": "metric_within", "name": "p95_ms", "max": 200.0 }, "transcript": "base", "expect": { "pass": false, "value": 0.0, "na": false } },
+    { "name": "metric_within unreported", "scorer": { "kind": "metric_within", "name": "absent", "max": 1.0 }, "transcript": "base", "expect": { "pass": false, "value": 0.0, "na": false } },
+    { "name": "metric_at_least unreported", "scorer": { "kind": "metric_at_least", "name": "absent", "min": 0.0 }, "transcript": "base", "expect": { "pass": false, "value": 0.0, "na": false } },
+
+    { "name": "json_valid ok", "scorer": { "kind": "json_valid" }, "transcript": "json", "expect": { "pass": true, "value": 1.0, "na": false } },
+    { "name": "json_valid not json", "scorer": { "kind": "json_valid" }, "transcript": "base", "expect": { "pass": false, "value": 0.0, "na": false } },
+    { "name": "json_field_equals match", "scorer": { "kind": "json_field_equals", "key": "answer", "value": "42" }, "transcript": "json", "expect": { "pass": true, "value": 1.0, "na": false } },
+    { "name": "json_field_equals mismatch", "scorer": { "kind": "json_field_equals", "key": "answer", "value": "43" }, "transcript": "json", "expect": { "pass": false, "value": 0.0, "na": false } },
+    { "name": "json_field_equals missing key", "scorer": { "kind": "json_field_equals", "key": "missing", "value": "x" }, "transcript": "json", "expect": { "pass": false, "value": 0.0, "na": false } },
+
+    { "name": "produced_modality image", "scorer": { "kind": "produced_modality", "modality": "image" }, "transcript": "image_out", "expect": { "pass": true, "value": 1.0, "na": false } },
+    { "name": "produced_modality text", "scorer": { "kind": "produced_modality", "modality": "text" }, "transcript": "image_out", "expect": { "pass": true, "value": 1.0, "na": false } },
+    { "name": "produced_modality audio absent", "scorer": { "kind": "produced_modality", "modality": "audio" }, "transcript": "image_out", "expect": { "pass": false, "value": 0.0, "na": false } },
+
+    { "name": "all_of all pass", "scorer": { "kind": "all_of", "name": "both", "of": [ { "kind": "contains", "needle": "42" }, { "kind": "succeeded" } ] }, "transcript": "base", "expect": { "pass": true, "value": 1.0, "na": false } },
+    { "name": "all_of one fail", "scorer": { "kind": "all_of", "name": "both", "of": [ { "kind": "contains", "needle": "42" }, { "kind": "contains", "needle": "zzz" } ] }, "transcript": "base", "expect": { "pass": false, "value": 0.5, "na": false } },
+    { "name": "any_of one pass", "scorer": { "kind": "any_of", "name": "either", "of": [ { "kind": "contains", "needle": "zzz" }, { "kind": "contains", "needle": "42" } ] }, "transcript": "base", "expect": { "pass": true, "value": 1.0, "na": false } },
+    { "name": "not of fail passes", "scorer": { "kind": "not", "of": { "kind": "contains", "needle": "zzz" } }, "transcript": "base", "expect": { "pass": true, "value": 1.0, "na": false } },
+    { "name": "not of pass fails", "scorer": { "kind": "not", "of": { "kind": "contains", "needle": "42" } }, "transcript": "base", "expect": { "pass": false, "value": 0.0, "na": false } }
+  ]
+}

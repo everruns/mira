@@ -3,6 +3,21 @@
 //! is one open, code-first vocabulary — deterministic built-ins, an
 //! arbitrary-closure escape hatch, and LLM-as-judge — rather than a closed enum.
 //!
+//! # Source of truth for cross-SDK parity
+//!
+//! These deterministic built-ins are **canonical**. Each non-Rust SDK
+//! (`sdks/python/mira/scorers.py`, `sdks/typescript/src/scorers.ts`) carries a
+//! hand-written mirror — scoring runs study-side, so the logic can't be shared,
+//! only kept in lock-step. Behaviour is pinned by the shared vectors in
+//! `schema/v1/conformance/scorers.json` (this crate's `tests/scorer_parity.rs`
+//! is the oracle that proves the vectors match Rust; each SDK runs the same
+//! vectors against its mirror). Changing or adding a deterministic scorer here
+//! means: update the vectors, mirror it in every SDK, and extend the `KINDS`
+//! list in `tests/scorer_parity.rs` (which fails until a vector exists). See
+//! `specs/sdks.md` for the full maintenance rule. The closure [`scorer`] and
+//! the LLM-judge [`model_graded`] are intentionally *not* mirrored — neither is
+//! a deterministic, language-portable spec.
+//!
 //! [`Eval`]: crate::eval::Eval
 
 use std::future::Future;

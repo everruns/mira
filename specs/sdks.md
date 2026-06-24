@@ -112,14 +112,45 @@ sdks/<lang>/        one native SDK per language
 
 Each SDK exposes, in idiomatic form: a `Study` registry with an `eval`
 decorator/builder; `Sample`, `model(...)`, and a `RunCx` (model/provider/
-max_turns/axis params); a `Transcript` builder with `Usage`/`Timing`; built-in
-scorers (`succeeded`, `contains`, `equals`, `regex`) plus a `scorer(name, fn)`
-escape hatch returning a bool or a full `Score` (incl. `na`); `axis(name,
-values)` for extra matrix axes; and `serve()` handling
+max_turns/axis params); a `Transcript` builder with `Usage`/`Timing`; the full
+deterministic scorer set (see §5.1) plus a `scorer(name, fn)` escape hatch
+returning a bool or a full `Score` (incl. `na`); `axis(name, values)` for extra
+matrix axes; and `serve()` handling
 `initialize`/`list`/`list_samples`/`run`/`execute`/`score` (with
 `Study(page_size=…)` paging large datasets). Scoring semantics match
 `crate::runner` exactly: an N/A score is excluded from the case verdict and
 aggregate; an unavailable model / infra error short-circuits to a single N/A.
+
+## 5.1 Scorer parity (Rust is the source of truth)
+
+Scoring runs **study-side** (the SDK process answers `score`), so scorer logic
+can't be shared across languages — only kept in lock-step. The rule:
+
+- **`crates/mira-eval/src/scorer.rs` is canonical.** Every deterministic
+  built-in there has a hand-written mirror in each SDK
+  (`sdks/python/mira/scorers.py`, `sdks/typescript/src/scorers.ts`), same name,
+  same verdict. The `scorer(name, fn)` escape hatch and the LLM-judge
+  (`model_graded`) are deliberately **not** mirrored — neither is a
+  deterministic, language-portable spec.
+- **Behaviour is pinned by shared golden vectors** at
+  `schema/v1/conformance/scorers.json` (hand-authored, no generator). Each case
+  is `(scorer descriptor, transcript, expected {pass, value, na})`. Only the
+  verdict-affecting fields are checked — `reason` text is human-facing and may
+  differ per language. The vectors deliberately exclude N/A combinator
+  propagation (it needs a synthetic N/A source); each language covers that in
+  its own unit tests, mirroring `crate::runner`.
+- **Three runners, one vector file.** `crates/mira-eval/tests/scorer_parity.rs`
+  is the oracle: it proves the vectors match Rust *and* (via its `KINDS` list)
+  that every deterministic scorer has a vector. Each SDK runs the same vectors
+  against its mirror (`tests/test_scorer_parity.py`,
+  `tests/scorer-parity.test.mjs`) and asserts coverage (every vector kind is
+  implemented, else it's an explicit `UNSUPPORTED` gap). The Rust oracle runs
+  under `just check` (`cargo test --workspace`); the SDK runners run in their CI
+  jobs (`pytest` / `npm test`).
+- **Workflow for a scorer change/addition:** edit Rust → update the vectors →
+  extend `KINDS` (the Rust oracle fails until a vector exists) → mirror the
+  scorer in every SDK (each SDK's runner fails until it does). This makes a
+  missing or divergent mirror a red CI, not a silent gap.
 
 ## 6. Status & deferred
 
