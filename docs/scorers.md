@@ -15,6 +15,10 @@ A `Score` carries both a continuous `value` (`0.0..=1.0`) and a boolean `pass`,
 so a scorer can report a graded signal while still contributing pass/fail to the
 matrix. `aggregate` on a case is the mean of the values.
 
+<p align="center">
+<img src="assets/mira-scoring.svg" alt="Scoring flow: each scorer reads the sample and one surface of the transcript (result, transcript, or metrics); built-ins, budgets, closures, LLM-judge and combinators each return a Score (a 0..1 value plus pass, or N/A); a case passes iff every applicable score passes" width="760" />
+</p>
+
 ## Three surfaces to score against
 
 Every scorer is handed the `Sample` and the full `Transcript`, so it can grade:

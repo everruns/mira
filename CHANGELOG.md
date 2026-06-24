@@ -9,14 +9,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- **Docs diagrams.** Three new committed SVGs visualise the model, each in its
+- **Docs diagrams.** Five new committed SVGs visualise the model, each in its
   topical guide: the **end-to-end workflow** (`mira-workflow.svg` — author →
   plan → execute → score → report) in [`getting-started.md`](docs/getting-started.md),
   the **entity hierarchy** (`mira-entities.svg` — study ▸ eval ▸
   dataset/subject/scorers/targets/axes, expanded into cases · trials ·
-  transcripts · scores) in [`authoring.md`](docs/authoring.md), and the **host ⇄
+  transcripts · scores) in [`authoring.md`](docs/authoring.md), the **host ⇄
   study run lifecycle** (`mira-run-lifecycle.svg` — the protocol sequence for one
-  run) in [`how-it-works.md`](docs/how-it-works.md). Indexed in
+  run) in [`how-it-works.md`](docs/how-it-works.md), the **subject fan-in**
+  (`mira-subjects.svg` — the three subject shapes normalising into one
+  `Transcript`) in [`subjects.md`](docs/subjects.md), and the **scoring flow**
+  (`mira-scoring.svg` — transcript surfaces → scorers → case verdict) in
+  [`scorers.md`](docs/scorers.md). Indexed in
   [`docs/README.md`](docs/README.md#diagrams).
 - Per-case **wall-clock timeout**: give up on a case after a budget of seconds,
   cancelling the in-flight run (best-effort `cancel` over the protocol) and

@@ -46,3 +46,7 @@ Conceptual diagrams are committed SVGs under [`assets/`](assets). See the
   [`authoring.md`](authoring.md#the-entity-hierarchy)).
 - [`mira-run-lifecycle.svg`](assets/mira-run-lifecycle.svg) — the host ⇄ study
   protocol sequence for one run (in [`how-it-works.md`](how-it-works.md#two-processes-one-protocol)).
+- [`mira-subjects.svg`](assets/mira-subjects.svg) — the three subject shapes all
+  normalising into one `Transcript` (in [`subjects.md`](subjects.md)).
+- [`mira-scoring.svg`](assets/mira-scoring.svg) — how scorers read a transcript's
+  surfaces and combine into a case verdict (in [`scorers.md`](scorers.md)).
