@@ -24,7 +24,7 @@ members = [
 ]
 
 [workspace.package]
-version = "0.1.0"
+version = "0.2.0"
 edition = "2024"
 rust-version = "1.85"
 license = "MIT"
@@ -38,13 +38,13 @@ categories = ["development-tools::testing", "command-line-utilities"]
 [workspace.dependencies]
 # Core library, shared by the CLI and integration crates via path during
 # development and by version once published.
-mira-eval = { version = "0.1.0", path = "crates/mira-eval" }
+mira-eval = { version = "0.2.0", path = "crates/mira-eval" }
 # Proc-macro crate providing the `#[eval]` attribute (re-exported by mira-eval).
-mira-macros = { version = "0.1.0", path = "crates/mira-macros" }
+mira-macros = { version = "0.2.0", path = "crates/mira-macros" }
 # everruns runtime adapter (used by the examples crate for the llmsim example).
-mira-everruns = { version = "0.1.0", path = "crates/mira-everruns" }
+mira-everruns = { version = "0.2.0", path = "crates/mira-everruns" }
 # LLM-as-judge scorers backed by real providers (OpenAI, Anthropic).
-mira-judge = { version = "0.1.0", path = "crates/mira-judge" }
+mira-judge = { version = "0.2.0", path = "crates/mira-judge" }
 
 # Async runtime. The core stays runtime-light (io + process); servers pull what
 # they need.

@@ -51,7 +51,10 @@ Mira eval library" for their language.
 The TypeScript SDK publishes to npm as `mira-eval` via **OIDC trusted publishing**
 (no `NODE_AUTH_TOKEN`), mirroring the Python flow. The trusted publisher must be
 registered once on npmjs.com: package `mira-eval`, owner `everruns`, repository
-`mira`, workflow `publish.yml`, environment `release`. The `publish-typescript`
+`mira`, workflow `publish.yml`, environment `release`. **First publish of a new
+package name:** trusted publishing only writes to a name it can claim — register
+the trusted publisher against the (reserved) `mira-eval` name *before* the tag, or
+do one manual `npm publish` to create it, then let CI take over. The `publish-typescript`
 job in `publish.yml` verifies `sdks/typescript/package.json`'s version matches the
 workspace, builds `dist/` (`npm ci` + the package's `build`), and runs
 `npm publish --provenance` on the release tag. It upgrades to a trusted-publishing-
@@ -82,7 +85,8 @@ action.
 1. Ask the agent to create a release ("Create release v0.2.0").
 2. Review the PR — including the agent's publish-readiness report.
 3. Merge to `main` — CI creates the GitHub Release + tag and publishes.
-4. Ask the agent to monitor publishing until crates.io shows the new version.
+4. Ask the agent to monitor publishing until crates.io, PyPI, and npm all show the
+   new version.
 
 ## Agent steps (automated)
 
@@ -94,11 +98,15 @@ action.
 3. **Bump the version** in workspace `Cargo.toml` (`workspace.package.version`)
    and refresh `Cargo.lock` (`cargo update -p mira-macros -p mira-eval -p
    mira-cli -p mira-everruns -p mira-judge`). Path-dep pins reference the same
-   version. Bump `sdks/python/pyproject.toml` to match (CI fails the SDK publish
-   if it drifts).
+   version. Bump `sdks/python/pyproject.toml` **and**
+   `sdks/typescript/package.json` (+ its `package-lock.json`, via
+   `npm version <X.Y.Z> --no-git-tag-version`) to match — CI fails each SDK
+   publish if its version drifts from the workspace.
 4. **Local verification** — `just check` (`cargo fmt --check`, `cargo clippy
-   --all-targets -- -D warnings`, `cargo test`) and `just test-py` (SDK codegen
-   drift + pytest).
+   --all-targets -- -D warnings`, `cargo test`, schema `--check`) plus **both** SDK
+   suites, which `check` does not run: `just test-py` (Python codegen drift +
+   pytest) and `just test-ts` (TypeScript codegen drift + `tsc` build +
+   `node --test`).
 5. **Verify publish-readiness** — `just publish-dry-run` (`cargo publish
    --dry-run` for `mira-macros`, `mira-eval`, `mira-cli`, `mira-everruns`,
    `mira-judge`). This catches packaging problems local builds don't (missing
@@ -108,15 +116,21 @@ action.
    unpublished crate (everything depending on `mira-eval`) can't fully dry-run
    until the base is on crates.io — verify their file lists with `cargo package
    --list -p <crate>` instead; CI publishes in dependency order with index waits.
-   Also confirm the Python SDK builds (`python -m build sdks/python`).
+   Also confirm both SDKs package cleanly: the Python sdist + wheel
+   (`python -m build sdks/python`) and the npm tarball
+   (`cd sdks/typescript && npm run build && npm pack --dry-run` — it must ship only
+   `dist/` + `README.md`).
 6. **Commit and push** — `chore(release): prepare vX.Y.Z` on a feature branch.
 7. **Create PR** — same title, changelog excerpt + publish-readiness report.
 8. **Monitor post-merge** — watch `release.yml` create the Release + tag, then
-   `publish.yml` publish each crate (each step verifies the published version) and
-   the Python SDK. Declare "shipped" only when crates.io reports the new version
-   for all five crates and PyPI shows the SDK. `publish.yml` is **idempotent**
+   `publish.yml` publish each crate (each step verifies the published version) and,
+   in parallel, both SDKs (`publish-python` → PyPI, `publish-typescript` → npm).
+   Declare "shipped" only when crates.io reports the new version for all five
+   crates, PyPI shows the Python SDK, and npm shows the TypeScript SDK
+   (`npm view mira-eval version`). `publish.yml` is **idempotent**
    (each crate step skips a version already on crates.io via
-   `scripts/cargo_publish_if_needed.sh`; the PyPI step uses `skip-existing`), so a
+   `scripts/cargo_publish_if_needed.sh`; the PyPI step uses `skip-existing`; the npm
+   step guards on `npm view mira-eval@<v>`), so a
    partial release caused by a transient crates.io blip is recovered by
    re-dispatching it — `workflow_dispatch` from `main` fills only the missing
    artifacts.
@@ -128,9 +142,10 @@ action.
   and dispatches `publish.yml`.
 - On the release tag, `publish.yml` publishes `mira-macros` then `mira-eval`,
   then `mira-cli`, `mira-everruns`, and `mira-judge`, waiting for the crates.io
-  index between dependent publishes, and verifies the published versions. A
-  parallel `publish-python` job builds and publishes the Python SDK to PyPI via
-  OIDC Trusted Publishing.
+  index between dependent publishes, and verifies the published versions. Two
+  parallel SDK jobs publish via OIDC trusted publishing, independent of the crates
+  and each other: `publish-python` (PyPI) and `publish-typescript` (npm,
+  `--provenance`).
 - `release.yml` also dispatches `cli-binaries.yml`, which builds the prebuilt
   `mira` binaries, attaches them to the Release, and mirrors the generated
   `Formula/mira.rb` to the Homebrew tap.
@@ -138,7 +153,8 @@ action.
 ## Pre-release checklist
 
 CI green on `main`; `CHANGELOG.md` has entries since the last release; the version
-is consistent across the workspace, `Cargo.lock`, and the Python SDK
-`pyproject.toml`; all five `cargo publish --dry-run`s succeed (or, on a first
-release, dependents' `cargo package --list` is clean); the Python SDK builds; the
-new version > latest on crates.io / PyPI.
+is consistent across the workspace, `Cargo.lock`, the Python SDK
+`pyproject.toml`, and the TypeScript SDK `package.json`; all five `cargo publish
+--dry-run`s succeed (or, on a first release, dependents' `cargo package --list` is
+clean); both SDKs build (Python wheel + npm `npm pack`); the new version > latest
+on crates.io / PyPI / npm.
