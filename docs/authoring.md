@@ -7,6 +7,17 @@ is the primary surface; datasets can also be loaded from files.
 Eval = Dataset(Sample…) + Subject + [Scorer…]  ×  model matrix
 ```
 
+## The entity hierarchy
+
+These entities nest: a study holds evals; each eval composes a dataset of
+samples, a subject, scorers, and the matrix axes (targets × extra axes). The
+host expands that matrix into cases — repeated as trials — and each run yields a
+transcript the scorers grade into scores.
+
+<p align="center">
+<img src="assets/mira-entities.svg" alt="Entity hierarchy: a study holds evals; an eval composes a dataset of samples, a subject, scorers, targets and axes; the host expands that matrix into cases, repeated as trials, each scored from a transcript" width="720" />
+</p>
+
 ## The builder
 
 ```rust

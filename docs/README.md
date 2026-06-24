@@ -39,11 +39,10 @@ Conceptual diagrams are committed SVGs under [`assets/`](assets). See the
 
 - [`mira-overview.svg`](assets/mira-overview.svg) — host ▸ study ▸ subject, at a
   glance (embedded in the repo `README.md`).
-- [`mira-entities.svg`](assets/mira-entities.svg) — the entity hierarchy: study,
-  eval, and the cases/trials/scores the matrix expands into.
-- [`mira-run-lifecycle.svg`](assets/mira-run-lifecycle.svg) — the host ⇄ study
-  protocol sequence for one run.
 - [`mira-workflow.svg`](assets/mira-workflow.svg) — the end-to-end pipeline from
-  authoring an eval to a CI-ready report.
-
-The last three are embedded in [`how-it-works.md`](how-it-works.md).
+  authoring an eval to a CI-ready report (in [`getting-started.md`](getting-started.md)).
+- [`mira-entities.svg`](assets/mira-entities.svg) — the entity hierarchy: study,
+  eval, and the cases/trials/scores the matrix expands into (in
+  [`authoring.md`](authoring.md#the-entity-hierarchy)).
+- [`mira-run-lifecycle.svg`](assets/mira-run-lifecycle.svg) — the host ⇄ study
+  protocol sequence for one run (in [`how-it-works.md`](how-it-works.md#two-processes-one-protocol)).

@@ -1,6 +1,12 @@
 # Getting started
 
-This walks you from zero to a passing eval run.
+This walks you from zero to a passing eval run. The whole flow is one loop: you
+author an eval once, then `mira` plans the matrix, runs every case against each
+target, scores the transcripts, and renders a CI-ready report you can resume.
+
+<p align="center">
+<img src="assets/mira-workflow.svg" alt="End-to-end pipeline: you author an eval; the mira host then plans the case grid, executes each case against its target, scores the transcripts, and renders a resumable report" width="760" />
+</p>
 
 ## 1. Install
 

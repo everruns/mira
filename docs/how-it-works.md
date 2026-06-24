@@ -5,14 +5,6 @@ why the framework is shaped the way it is. For a hands-on intro, start with
 [getting started](getting-started.md); for the exact wire format, see the
 [protocol reference](protocol.md).
 
-In real life the whole framework reduces to one loop: you author an eval once,
-then `mira` plans the matrix, runs every case against each target, scores the
-results, and renders a CI-ready report you can resume.
-
-<p align="center">
-<img src="assets/mira-workflow.svg" alt="End-to-end pipeline: you author an eval; the mira host then plans the case grid, executes each case against its target, scores the transcripts, and renders a resumable report" width="760" />
-</p>
-
 ## The core model
 
 ```text
@@ -39,12 +31,10 @@ Eval = Dataset(Sample…) + Subject + [Scorer…]  ×  model matrix × axes
   provider, model, available, metadata)` tuple with no API keys and no SDK
   types. Subjects interpret it.
 
-These entities nest: a study holds evals, an eval composes the pieces above, and
-the host expands the matrix into the cases (and trials) that actually run.
-
-<p align="center">
-<img src="assets/mira-entities.svg" alt="Entity hierarchy: a study holds evals; an eval composes a dataset of samples, a subject, scorers, targets and axes; the host expands that matrix into cases, repeated as trials, each scored from a transcript" width="720" />
-</p>
+These entities nest — a study holds evals, an eval composes the pieces above, and
+the host expands the matrix into the cases (and trials) that actually run. The
+[entity-hierarchy diagram](authoring.md#the-entity-hierarchy) in the authoring
+guide draws the full picture.
 
 ## Two processes, one protocol
 
