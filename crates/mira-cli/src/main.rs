@@ -37,6 +37,7 @@ use std::io::IsTerminal;
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
 use std::sync::Arc;
+use std::time::Duration;
 
 use clap::{Args, CommandFactory, Parser, Subcommand};
 use indicatif::{ProgressBar, ProgressDrawTarget, ProgressStyle};
@@ -239,6 +240,12 @@ struct RunArgs {
     /// Times a rate-limited case is retried (after backoff) before it's failed.
     #[arg(long, default_value_t = 4)]
     max_retries: u32,
+    /// Give up on a case after this many wall-clock seconds: cancel the in-flight
+    /// run and record the case failed (a timeout). Applies to every target this
+    /// run; set a per-target default in `mira.toml` (`[targets.LABEL].timeout`) or
+    /// a preset (`[presets.NAME].timeout`). Unset ⇒ no time limit.
+    #[arg(long, value_name = "SECONDS")]
+    timeout: Option<u64>,
     /// Execute subjects only (no scoring), writing full transcripts to
     /// --artifacts for later `mira score`. For long-running subjects. No scores
     /// are produced, so no run folder is saved (use `mira score` to save one).
@@ -564,7 +571,8 @@ async fn run(
     // selection/matrix without the study re-running anything.
     let selection = resolve_selection(&args).map_err(Box::<dyn std::error::Error>::from)?;
     validate_selection(&selection, &listing).map_err(Box::<dyn std::error::Error>::from)?;
-    let plan = plan_grid(&listing, &args, &selection);
+    let timeouts = resolve_timeouts(&args, &selection, &listing);
+    let plan = plan_grid(&listing, &args, &selection, &timeouts);
     if plan.is_empty() {
         eprintln!("no cases matched the selection");
     }
@@ -810,6 +818,36 @@ fn report(args: &ReportArgs) -> Result<(), Box<dyn std::error::Error>> {
     }
 
     Ok(())
+}
+
+/// Resolve per-target wall-clock timeouts from the CLI flag, `mira.toml`
+/// `[targets.LABEL].timeout`, and the preset default (see [`Timeouts`]). Warns
+/// (doesn't fail) on a `[targets.LABEL]` whose label no study target matches, so
+/// a typo'd label is visible rather than silently inert — without breaking a
+/// `mira.toml` shared across studies with different targets.
+fn resolve_timeouts(args: &RunArgs, sel: &Selection, listing: &ListResult) -> Timeouts {
+    use std::collections::BTreeSet;
+    let cfg = config::Config::load();
+    let known: BTreeSet<&str> = listing
+        .evals
+        .iter()
+        .flat_map(|e| e.targets.iter().map(|t| t.label.as_str()))
+        .collect();
+    let mut per_target = BTreeMap::new();
+    for (label, tcfg) in &cfg.targets {
+        let Some(secs) = tcfg.timeout else { continue };
+        if !known.contains(label.as_str()) {
+            eprintln!(
+                "warning: mira.toml [targets.{label:?}] timeout set, but no target {label:?} is declared"
+            );
+        }
+        per_target.insert(label.clone(), secs);
+    }
+    Timeouts {
+        cli: args.timeout,
+        preset: sel.timeout,
+        per_target,
+    }
 }
 
 /// Build the concurrency policy from the run flags.
@@ -1061,6 +1099,31 @@ struct Selection {
     /// Axis name → allowed values. `target` is the primary axis. An axis absent
     /// here is unconstrained.
     axes: BTreeMap<String, Vec<String>>,
+    /// Default per-case wall-clock timeout (seconds) from the preset, if any.
+    /// Lowest-priority source — see [`Timeouts`].
+    timeout: Option<u64>,
+}
+
+/// Resolves a per-case wall-clock timeout for each target. Precedence, first set
+/// wins: `--timeout` (CLI, all targets) > `mira.toml` `[targets.LABEL].timeout`
+/// (per-target) > preset `timeout`. `None` ⇒ no time limit for that target.
+///
+/// The CLI flag wins over saved config (mirroring how explicit flags override a
+/// preset elsewhere); among saved config the more specific per-target setting
+/// beats the preset default.
+struct Timeouts {
+    cli: Option<u64>,
+    preset: Option<u64>,
+    per_target: BTreeMap<String, u64>,
+}
+
+impl Timeouts {
+    fn for_target(&self, label: &str) -> Option<Duration> {
+        self.cli
+            .or_else(|| self.per_target.get(label).copied())
+            .or(self.preset)
+            .map(Duration::from_secs)
+    }
 }
 
 /// Split a comma-separated value list, trimming and dropping empties.
@@ -1113,6 +1176,7 @@ fn resolve_selection(args: &RunArgs) -> Result<Selection, String> {
         tag,
         evals,
         axes,
+        timeout: preset.timeout,
     })
 }
 
@@ -1179,7 +1243,12 @@ fn axes_allowed(sel: &Selection, params: &mira::Params) -> bool {
 
 /// Expand the advertised listing into an ordered, selected list of cases. Each
 /// case carries its target's provider so the executor can bucket concurrency.
-fn plan_grid(listing: &ListResult, args: &RunArgs, sel: &Selection) -> Vec<CaseSpec> {
+fn plan_grid(
+    listing: &ListResult,
+    args: &RunArgs,
+    sel: &Selection,
+    timeouts: &Timeouts,
+) -> Vec<CaseSpec> {
     let mut plan = Vec::new();
     for eval in &listing.evals {
         if let Some(evals) = &sel.evals
@@ -1217,6 +1286,7 @@ fn plan_grid(listing: &ListResult, args: &RunArgs, sel: &Selection) -> Vec<CaseS
                     {
                         continue;
                     }
+                    let timeout = timeouts.for_target(&target.label);
                     for index in 0..trials {
                         plan.push(CaseSpec {
                             eval: eval.name.clone(),
@@ -1224,6 +1294,7 @@ fn plan_grid(listing: &ListResult, args: &RunArgs, sel: &Selection) -> Vec<CaseS
                             target: target.label.clone(),
                             provider: target.provider.clone(),
                             params: params.clone(),
+                            timeout,
                             trial: Trial {
                                 index,
                                 count: trials,
@@ -1417,6 +1488,43 @@ mod tests {
                 "GUIDES entry `{name}` has no matching link in docs/README.md"
             );
         }
+    }
+
+    #[test]
+    fn timeout_precedence_cli_then_per_target_then_preset() {
+        let per_target = BTreeMap::from([("anthropic/opus".to_string(), 300u64)]);
+        // CLI wins over everything, for every target.
+        let t = Timeouts {
+            cli: Some(10),
+            preset: Some(120),
+            per_target: per_target.clone(),
+        };
+        assert_eq!(
+            t.for_target("anthropic/opus"),
+            Some(Duration::from_secs(10))
+        );
+        assert_eq!(t.for_target("sim"), Some(Duration::from_secs(10)));
+
+        // No CLI: per-target beats the preset; a target without its own setting
+        // falls back to the preset default.
+        let t = Timeouts {
+            cli: None,
+            preset: Some(120),
+            per_target,
+        };
+        assert_eq!(
+            t.for_target("anthropic/opus"),
+            Some(Duration::from_secs(300))
+        );
+        assert_eq!(t.for_target("sim"), Some(Duration::from_secs(120)));
+
+        // Nothing set anywhere ⇒ no timeout.
+        let t = Timeouts {
+            cli: None,
+            preset: None,
+            per_target: BTreeMap::new(),
+        };
+        assert_eq!(t.for_target("sim"), None);
     }
 
     #[test]

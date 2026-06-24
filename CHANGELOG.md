@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Per-case **wall-clock timeout**: give up on a case after a budget of seconds,
+  cancelling the in-flight run (best-effort `cancel` over the protocol) and
+  recording it as a failed case. Set it on the CLI (`mira run --timeout SECONDS`,
+  all targets), per target in `mira.toml` (`[targets.LABEL].timeout`), or as a
+  preset default (`[presets.NAME].timeout`). Precedence, first set wins:
+  `--timeout` > per-target > preset; unset ⇒ no limit. A timeout is non-retryable
+  (retrying would burn the same budget) and counts as a target failure.
+
 ## [0.2.0] - 2026-06-24
 
 ### Added

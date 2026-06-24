@@ -53,6 +53,10 @@ pub struct Config {
     /// Must name a key in `[launchers]`.
     #[serde(default)]
     pub default_launcher: Option<String>,
+    /// Per-target host settings (`[targets.LABEL]`), keyed by target label — e.g.
+    /// a wall-clock `timeout`. Host-side only (not advertised by the study).
+    #[serde(default)]
+    pub targets: BTreeMap<String, TargetConfig>,
     /// Directory containing the `mira.toml` this was loaded from, used to
     /// resolve relative paths. `None` for a default/parsed-in-memory config, in
     /// which case relative paths are returned verbatim (cwd-relative).
@@ -91,6 +95,27 @@ pub struct Preset {
     /// Restrict secondary axes: axis name → allowed values.
     #[serde(default)]
     pub axes: BTreeMap<String, Vec<String>>,
+    /// Default per-case wall-clock timeout (seconds) for this preset. Overridden
+    /// by `--timeout` (CLI) and by a per-target `[targets.LABEL].timeout`.
+    #[serde(default)]
+    pub timeout: Option<u64>,
+}
+
+/// Per-target host configuration (`[targets.LABEL]` in `mira.toml`), keyed by the
+/// target's label. Host-side only: these settings shape how the host *drives* a
+/// target, so they live in host config rather than being advertised by the study.
+///
+/// ```toml
+/// [targets."anthropic/claude-opus-4-8"]
+/// timeout = 300   # give up on a case for this target after 5 minutes
+/// ```
+#[derive(Debug, Default, Clone, Deserialize)]
+pub struct TargetConfig {
+    /// Wall-clock seconds for one case against this target before the host gives
+    /// up: it cancels the in-flight run and records the case failed. `None` ⇒ no
+    /// limit. Takes precedence over a preset's `timeout`; `--timeout` overrides it.
+    #[serde(default)]
+    pub timeout: Option<u64>,
 }
 
 /// A named **launcher** (`[launchers.NAME]` in `mira.toml`): a saved way to start
@@ -468,6 +493,29 @@ mod tests {
         // A typo names the known launchers so it fails loudly.
         let err = cfg.launcher("nope").unwrap_err();
         assert!(err.contains("greet") && err.contains("py"), "{err}");
+    }
+
+    #[test]
+    fn per_target_and_preset_timeouts_parse() {
+        let cfg = Config::parse(
+            "[targets.\"anthropic/opus\"]\ntimeout = 300\n\n\
+             [presets.slow]\ntimeout = 120\ntargets = [\"sim\"]\n",
+        )
+        .unwrap();
+        assert_eq!(
+            cfg.targets.get("anthropic/opus").and_then(|t| t.timeout),
+            Some(300)
+        );
+        assert_eq!(cfg.preset("slow").unwrap().timeout, Some(120));
+        // A target with no [targets.LABEL] section has no configured timeout.
+        assert!(!cfg.targets.contains_key("sim"));
+    }
+
+    #[test]
+    fn no_timeouts_by_default() {
+        let cfg = Config::parse("[presets.smoke]\ntargets = [\"sim\"]\n").unwrap();
+        assert!(cfg.targets.is_empty());
+        assert!(cfg.preset("smoke").unwrap().timeout.is_none());
     }
 
     #[test]
