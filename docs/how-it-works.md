@@ -193,6 +193,11 @@ The host owns all reporting; the study only returns per-case results.
   viewer you can open straight from a CI artifact.
 - **JUnit XML** (`--format junit`) and **Markdown** (`--format md`) — for CI
   test UIs and PR job summaries. Non-zero exit on failure drops it into CI.
+- **JSONL** (`--format jsonl`) and **CSV** (`--format csv`) — un-aggregated
+  exports for downstream analysis. JSONL is one `RunResult` per line (lossless,
+  the dual of `json`); CSV is long-format, one row per (case × score), with
+  `metrics`/`metadata` flattened into `metric.*`/`meta.*` columns. Group / pivot
+  them yourself (no `--group-by` roll-up is applied).
 - **Saved runs** (default) — every `run`/`score` writes a run folder
   `<results_dir>/<run_id>/` (`--dry-run` opts out): `meta.json` (run identity),
   `report.json`, `report.html`, and one `cases/<key>/result.json` per case,

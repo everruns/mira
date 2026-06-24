@@ -14,6 +14,12 @@ pub enum Format {
     Markdown,
     /// Self-contained, dependency-free HTML report (the transcript viewer).
     Html,
+    /// One JSON object per line, one line per case ([`RunResult`]). Lossless and
+    /// un-aggregated — the analysis-friendly dual of the single-object `Json`.
+    Jsonl,
+    /// Flat, long-format CSV: one row per (case × score), case columns repeated.
+    /// For spreadsheets / SQL / dataframes. Also un-aggregated.
+    Csv,
 }
 
 impl std::str::FromStr for Format {
@@ -24,7 +30,11 @@ impl std::str::FromStr for Format {
             "junit" | "xml" => Ok(Format::Junit),
             "md" | "markdown" => Ok(Format::Markdown),
             "html" => Ok(Format::Html),
-            other => Err(format!("unknown format: {other} (json|junit|md|html)")),
+            "jsonl" | "ndjson" => Ok(Format::Jsonl),
+            "csv" => Ok(Format::Csv),
+            other => Err(format!(
+                "unknown format: {other} (json|jsonl|csv|junit|md|html)"
+            )),
         }
     }
 }
@@ -37,6 +47,8 @@ impl Format {
             Format::Junit => "xml",
             Format::Markdown => "md",
             Format::Html => "html",
+            Format::Jsonl => "jsonl",
+            Format::Csv => "csv",
         }
     }
 }
@@ -78,6 +90,10 @@ pub fn render_with_group(
             out
         }
         Format::Html => html_with_group(results, group),
+        // Un-aggregated raw-data exports: a `--group-by` view is a roll-up, so it
+        // has no place here — the consumer groups the rows itself.
+        Format::Jsonl => jsonl(results),
+        Format::Csv => csv(results),
     }
 }
 
@@ -533,6 +549,176 @@ pub fn markdown(results: &[RunResult]) -> String {
     out
 }
 
+/// JSONL: one compact JSON object per line, one line per case. Each line is a
+/// full [`RunResult`] (same shape as a `cases[]` entry in the `Json` record), so
+/// nothing is flattened or dropped — the lossless export for `jq` / DuckDB /
+/// `pandas.read_json(lines=True)`. No summary/trials roll-up: that's `Json`.
+pub fn jsonl(results: &[RunResult]) -> String {
+    let mut out = String::new();
+    for r in results {
+        // A RunResult is plain owned data; serialization can't fail.
+        out.push_str(&serde_json::to_string(r).expect("RunResult serializes"));
+        out.push('\n');
+    }
+    out
+}
+
+/// Quote a CSV field per RFC 4180 when it contains a comma, quote, or newline;
+/// embedded quotes are doubled. Plain values pass through unquoted.
+fn csv_cell(s: &str) -> String {
+    if s.contains([',', '"', '\n', '\r']) {
+        format!("\"{}\"", s.replace('"', "\"\""))
+    } else {
+        s.to_string()
+    }
+}
+
+/// Flat, long-format CSV: **one row per (case × score)**, with the case-level
+/// columns repeated on each score row. A case with no scores (e.g. skipped, or an
+/// all-infra failure) still emits one row, with the score columns blank — so no
+/// case silently disappears from the export.
+///
+/// Open-vocabulary `metrics`/`metadata` are flattened into `metric.<k>` /
+/// `meta.<k>` columns, unioned across all cases so the header is stable. This is
+/// the un-aggregated, analysis-ready table: roll up / pivot it downstream.
+pub fn csv(results: &[RunResult]) -> String {
+    use std::collections::BTreeSet;
+    // Union the open-vocab keys so every row shares one header.
+    let mut metric_keys: BTreeSet<&str> = BTreeSet::new();
+    let mut meta_keys: BTreeSet<&str> = BTreeSet::new();
+    for r in results {
+        metric_keys.extend(r.transcript.metrics.keys().map(String::as_str));
+        meta_keys.extend(r.transcript.metadata.keys().map(String::as_str));
+    }
+
+    let mut header: Vec<String> = [
+        "eval",
+        "sample",
+        "target",
+        "params",
+        "trial",
+        "trials",
+        "seed",
+        "skipped",
+        "passed",
+        "aggregate",
+        "scorer",
+        "score_value",
+        "score_pass",
+        "score_na",
+        "score_reason",
+        "iterations",
+        "tool_calls",
+        "input_tokens",
+        "output_tokens",
+        "cache_read_tokens",
+        "reasoning_tokens",
+        "total_tokens",
+        "cost_usd",
+        "duration_ms",
+        "time_to_first_token_ms",
+        "error",
+        "error_kind",
+        "final_response",
+    ]
+    .map(String::from)
+    .to_vec();
+    header.extend(metric_keys.iter().map(|k| format!("metric.{k}")));
+    header.extend(meta_keys.iter().map(|k| format!("meta.{k}")));
+
+    let mut out = String::new();
+    out.push_str(&header.join(","));
+    out.push('\n');
+
+    for r in results {
+        let t = &r.transcript;
+        // Case-level columns, identical across this case's score rows.
+        let params = r
+            .params
+            .iter()
+            .map(|(k, v)| format!("{k}={v}"))
+            .collect::<Vec<_>>()
+            .join(";");
+        let seed = r.seed.map(|s| s.to_string()).unwrap_or_default();
+        let ttft = t
+            .timing
+            .time_to_first_token_ms
+            .map(|v| v.to_string())
+            .unwrap_or_default();
+        let error = r.transcript.error.clone().unwrap_or_default();
+        let error_kind = format!("{:?}", t.error_kind).to_ascii_lowercase();
+        let case_cols: Vec<String> = vec![
+            r.eval.clone(),
+            r.sample.clone(),
+            r.target.clone(),
+            params,
+            r.trial.to_string(),
+            r.trials.to_string(),
+            seed,
+            r.skipped.to_string(),
+            r.passed.to_string(),
+            r.aggregate.to_string(),
+        ];
+        // Metrics/timing/tokens/error columns, also repeated per score row.
+        let mut tail_cols: Vec<String> = vec![
+            t.iterations.to_string(),
+            t.tool_calls_count.to_string(),
+            t.usage.input_tokens.to_string(),
+            t.usage.output_tokens.to_string(),
+            t.usage.cache_read_tokens.to_string(),
+            t.usage.reasoning_tokens.to_string(),
+            t.usage.total_tokens().to_string(),
+            t.usage.cost_usd.to_string(),
+            t.timing.duration_ms.to_string(),
+            ttft,
+            error,
+            error_kind,
+            t.final_response.clone(),
+        ];
+        for k in &metric_keys {
+            tail_cols.push(t.metrics.get(*k).map(|v| v.to_string()).unwrap_or_default());
+        }
+        for k in &meta_keys {
+            tail_cols.push(
+                t.metadata
+                    .get(*k)
+                    .map(crate::metadata_display)
+                    .unwrap_or_default(),
+            );
+        }
+
+        // One row per score; a score-less case still gets a single blank-score row.
+        let write_row = |out: &mut String, score_cols: [String; 5]| {
+            let row = case_cols
+                .iter()
+                .chain(score_cols.iter())
+                .chain(tail_cols.iter())
+                .map(|c| csv_cell(c))
+                .collect::<Vec<_>>()
+                .join(",");
+            out.push_str(&row);
+            out.push('\n');
+        };
+        if r.scores.is_empty() {
+            write_row(&mut out, [(); 5].map(|_| String::new()));
+        } else {
+            for s in &r.scores {
+                write_row(
+                    &mut out,
+                    [
+                        s.scorer.clone(),
+                        s.value.to_string(),
+                        s.pass.to_string(),
+                        s.na.to_string(),
+                        s.reason.clone(),
+                    ],
+                );
+            }
+        }
+    }
+    out
+}
+
 fn xml_escape(s: &str) -> String {
     s.replace('&', "&amp;")
         .replace('<', "&lt;")
@@ -914,8 +1100,84 @@ mod tests {
         assert_eq!(Format::from_str("JUnit").unwrap(), Format::Junit);
         assert_eq!(Format::from_str("md").unwrap(), Format::Markdown);
         assert_eq!(Format::from_str("html").unwrap(), Format::Html);
+        assert_eq!(Format::from_str("jsonl").unwrap(), Format::Jsonl);
+        assert_eq!(Format::from_str("ndjson").unwrap(), Format::Jsonl);
+        assert_eq!(Format::from_str("csv").unwrap(), Format::Csv);
         assert_eq!(Format::Html.extension(), "html");
+        assert_eq!(Format::Jsonl.extension(), "jsonl");
+        assert_eq!(Format::Csv.extension(), "csv");
         assert!(Format::from_str("yaml").is_err());
+    }
+
+    #[test]
+    fn jsonl_one_object_per_case() {
+        let results = sample_results();
+        let text = jsonl(&results);
+        let lines: Vec<&str> = text.lines().collect();
+        assert_eq!(lines.len(), results.len());
+        // Each line is a standalone, parseable RunResult.
+        for (line, r) in lines.iter().zip(&results) {
+            let v: serde_json::Value = serde_json::from_str(line).expect("line is JSON");
+            assert_eq!(v["eval"], r.eval.as_str());
+            assert_eq!(v["target"], r.target.as_str());
+        }
+        // No summary/trials roll-up — that's the single-object `json`.
+        assert!(!text.contains("\"summary\""));
+    }
+
+    #[test]
+    fn csv_is_long_format_one_row_per_score() {
+        // One case, two scores → header + two rows, case columns repeated.
+        let mut r = result("greet", "hi", "sim", true, false);
+        r.scores = vec![Score::pass("a", "ok"), Score::fail("b", "nope")];
+        let text = csv(std::slice::from_ref(&r));
+        let lines: Vec<&str> = text.lines().collect();
+        assert_eq!(lines.len(), 3); // header + 2 score rows
+        assert!(lines[0].starts_with("eval,sample,target,params,trial,trials,seed"));
+        assert!(lines[1].starts_with("greet,hi,sim,,0,0,,false,true,1,a,1,true,false,ok"));
+        assert!(lines[2].starts_with("greet,hi,sim,,0,0,,false,true,1,b,0,false,false,nope"));
+    }
+
+    #[test]
+    fn csv_scoreless_case_still_emits_a_row() {
+        // A skipped case has no scores; it must not vanish from the export.
+        let mut r = result("greet", "hi", "sim", false, true);
+        r.scores = vec![];
+        let text = csv(std::slice::from_ref(&r));
+        assert_eq!(text.lines().count(), 2); // header + one blank-score row
+        assert!(
+            text.lines()
+                .nth(1)
+                .unwrap()
+                .starts_with("greet,hi,sim,,0,0,,true,false,0,,")
+        );
+    }
+
+    #[test]
+    fn csv_quotes_commas_quotes_and_newlines() {
+        let mut r = result("greet", "hi", "sim", false, false);
+        r.scores = vec![Score::fail(
+            "judge",
+            "has, comma and \"quote\"\nand newline",
+        )];
+        let text = csv(std::slice::from_ref(&r));
+        // The reason field is quoted, inner quotes doubled, newline preserved.
+        assert!(text.contains("\"has, comma and \"\"quote\"\"\nand newline\""));
+    }
+
+    #[test]
+    fn csv_flattens_metrics_and_metadata_columns() {
+        let mut r = result("greet", "hi", "sim", true, false);
+        r.transcript.metrics.insert("retries".into(), 2.0);
+        r.transcript
+            .metadata
+            .insert("repo".into(), serde_json::json!("acme/app"));
+        let text = csv(std::slice::from_ref(&r));
+        let header = text.lines().next().unwrap();
+        assert!(header.contains(",metric.retries"));
+        assert!(header.contains(",meta.repo"));
+        let row = text.lines().nth(1).unwrap();
+        assert!(row.ends_with(",2,acme/app"));
     }
 
     #[test]

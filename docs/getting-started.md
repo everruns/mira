@@ -102,6 +102,8 @@ mira --example my_evals run --tag smoke            # by sample tag
 mira --example my_evals run --targets 'anthropic/*' # glob on target labels
 mira --example my_evals run --format junit --out results.xml   # CI artifact
 mira --example my_evals run --format html  --out report.html   # self-contained viewer
+mira --example my_evals run --format csv   --out runs.csv      # long-format, for analysis
+mira --example my_evals run --format jsonl --out runs.jsonl    # one RunResult per line
 mira --example my_evals run                        # saves a run folder by default
 mira --example my_evals run --dry-run              # ephemeral; don't save a run folder
 mira --example my_evals run --resume <run_id>      # reopen a run; run only the missing cases
