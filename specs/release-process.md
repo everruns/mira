@@ -107,15 +107,18 @@ action.
    suites, which `check` does not run: `just test-py` (Python codegen drift +
    pytest) and `just test-ts` (TypeScript codegen drift + `tsc` build +
    `node --test`).
-5. **Verify publish-readiness** — `just publish-dry-run` (`cargo publish
-   --dry-run` for `mira-macros`, `mira-eval`, `mira-cli`, `mira-everruns`,
-   `mira-judge`). This catches packaging problems local builds don't (missing
+5. **Verify publish-readiness** — `just publish-dry-run`. Leaf crates
+   (`mira-macros`, `mira-eval`) get a full `cargo publish --dry-run`; the
+   dependents (`mira-cli`, `mira-everruns`, `mira-judge`) are packaged with
+   `--no-verify`. This catches packaging problems local builds don't (missing
    `readme`, files outside the crate dir, version drift). Confirm the new version
    is greater than the latest on crates.io for each crate. Fix root cause and
-   re-run before opening the PR. **First-release caveat:** dependents of an
-   unpublished crate (everything depending on `mira-eval`) can't fully dry-run
-   until the base is on crates.io — verify their file lists with `cargo package
-   --list -p <crate>` instead; CI publishes in dependency order with index waits.
+   re-run before opening the PR. **Why `--no-verify` on dependents:** their
+   verification build resolves `mira-eval` from crates.io (the `path` is stripped
+   on publish), so it compiles against the stale published version and fails
+   whenever they use unpublished `mira-eval` APIs. CI publishes for real in
+   dependency order (`mira-eval` first, with index waits), which is the only
+   place that compile can succeed.
    Also confirm both SDKs package cleanly: the Python sdist + wheel
    (`python -m build sdks/python`) and the npm tarball
    (`cd sdks/typescript && npm run build && npm pack --dry-run` — it must ship only
