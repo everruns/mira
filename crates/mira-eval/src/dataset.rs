@@ -2,7 +2,7 @@
 //!
 //! Datasets are language-agnostic JSON so the same files can drive Rust, CLI, or
 //! polyglot subjects. Small evals skip the file entirely and inline samples in
-//! Rust via [`Eval::case`](crate::eval::EvalBuilder::case).
+//! Rust via [`Eval::sample`](crate::eval::EvalBuilder::sample).
 
 use std::collections::BTreeMap;
 use std::path::Path;
