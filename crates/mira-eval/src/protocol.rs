@@ -748,6 +748,14 @@ pub struct RunResult {
     /// Per-trial seed this result was produced with, when set.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub seed: Option<u64>,
+    /// The sample's input turns (the prompt sent), copied through so a persisted
+    /// result is self-describing without the dataset. Empty when unavailable
+    /// (e.g. a synthetic error result).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub input: Vec<String>,
+    /// The sample's expected/reference value, when the dataset provides one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub expected: Option<serde_json::Value>,
     pub passed: bool,
     pub aggregate: f64,
     pub scores: Vec<Score>,
@@ -1062,6 +1070,8 @@ mod tests {
             trial: 0,
             trials: 0,
             seed: None,
+            input: Vec::new(),
+            expected: None,
             passed: true,
             aggregate: 1.0,
             scores: vec![],
@@ -1091,6 +1101,8 @@ mod tests {
             trial: 2,
             trials: 5,
             seed: Some(42),
+            input: Vec::new(),
+            expected: None,
             passed: true,
             aggregate: 1.0,
             scores: vec![],

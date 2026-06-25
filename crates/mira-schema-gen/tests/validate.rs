@@ -164,6 +164,8 @@ fn payloads_validate_against_their_defs() {
         trial: 1,
         trials: 3,
         seed: Some(8),
+        input: vec!["hi".into()],
+        expected: Some(serde_json::json!("hello")),
         passed: true,
         aggregate: 1.0,
         scores: vec![Score::pass("succeeded", "ok")],

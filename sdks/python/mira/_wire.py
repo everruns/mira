@@ -146,6 +146,8 @@ class RunParams:
 class RunResult:
     aggregate: float = 0.0
     eval: str = ""
+    expected: Any = None
+    input: List[str] = field(default_factory=list)
     params: Dict[str, str] = field(default_factory=dict)
     passed: bool = False
     sample: str = ""

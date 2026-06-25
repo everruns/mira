@@ -124,6 +124,8 @@ export interface RunParams {
 export interface RunResult {
   aggregate: number;
   eval: string;
+  expected?: unknown;
+  input?: string[];
   params?: Record<string, string>;
   passed: boolean;
   sample: string;
@@ -323,6 +325,8 @@ export const WIRE_FIELDS: Record<string, Record<string, FieldMeta>> = {
   RunResult: {
     "aggregate": { required: true },
     "eval": { required: true },
+    "expected": { required: false },
+    "input": { required: false },
     "params": { required: false },
     "passed": { required: true },
     "sample": { required: true },

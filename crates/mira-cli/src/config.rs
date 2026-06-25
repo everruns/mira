@@ -583,6 +583,8 @@ mod tests {
             trial: 0,
             trials: 0,
             seed: None,
+            input: Vec::new(),
+            expected: None,
             passed,
             aggregate: if passed { 1.0 } else { 0.0 },
             scores: vec![],

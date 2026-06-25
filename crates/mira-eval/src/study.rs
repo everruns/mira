@@ -392,7 +392,7 @@ impl Study {
 
         // Don't burn time on an unrunnable case; report it as skipped.
         if !target.available {
-            return Ok(skipped_result(params));
+            return Ok(skipped_result(params, sample));
         }
 
         let outcome = run_case(eval, sample, target, &params.params, params.trial()).await;
@@ -404,6 +404,8 @@ impl Study {
             trial: params.trial,
             trials: params.trials,
             seed: params.seed,
+            input: sample.input.clone(),
+            expected: sample.expected.clone(),
             passed: outcome.passed,
             aggregate: outcome.aggregate,
             scores: outcome.scores,
@@ -468,6 +470,8 @@ impl Study {
             trial: params.trial,
             trials: params.trials,
             seed: params.seed,
+            input: sample.input.clone(),
+            expected: sample.expected.clone(),
             passed: verdict(&scores),
             aggregate: aggregate_value(&scores),
             scores,
@@ -504,7 +508,7 @@ impl Study {
 }
 
 /// A skipped (unexecuted) case result, e.g. when the target is unavailable.
-fn skipped_result(params: &RunParams) -> RunResult {
+fn skipped_result(params: &RunParams, sample: &crate::Sample) -> RunResult {
     RunResult {
         eval: params.eval.clone(),
         sample: params.sample.clone(),
@@ -513,6 +517,8 @@ fn skipped_result(params: &RunParams) -> RunResult {
         trial: params.trial,
         trials: params.trials,
         seed: params.seed,
+        input: sample.input.clone(),
+        expected: sample.expected.clone(),
         passed: false,
         aggregate: 0.0,
         scores: Vec::new(),
@@ -792,6 +798,60 @@ mod tests {
         assert_eq!(result.seed, Some(77));
         assert_eq!(result.key(), "rng/a@sim#2");
         assert!(result.transcript.final_response.contains("77"));
+    }
+
+    #[tokio::test]
+    async fn run_and_score_carry_sample_input_and_expected() {
+        // A persisted result is self-describing: the sample's input turns and
+        // expected value ride along on the RunResult, whether the case was run,
+        // scored, or skipped for an unavailable target.
+        let s = Study::new().eval(
+            Eval::new("qa")
+                .add_sample(Sample::new("a", "what is 6*7?").expected("42"))
+                .subject(subject_fn(|_, _| async { Transcript::response("42") }))
+                .scorer(contains("42"))
+                .targets([
+                    Target::sim(),
+                    Target::new("down", "anthropic", "claude").available(false),
+                ])
+                .build(),
+        );
+        let case = |target: &str| RunParams {
+            eval: "qa".into(),
+            sample: "a".into(),
+            target: target.into(),
+            params: Default::default(),
+            trial: 0,
+            trials: 0,
+            seed: None,
+        };
+
+        let ran = s.run(&case("sim")).await.unwrap();
+        assert_eq!(ran.input, vec!["what is 6*7?".to_string()]);
+        assert_eq!(ran.expected, Some(json!("42")));
+
+        // An unavailable target yields a skipped result — still self-describing.
+        let skipped = s.run(&case("down")).await.unwrap();
+        assert!(skipped.skipped);
+        assert_eq!(skipped.input, vec!["what is 6*7?".to_string()]);
+        assert_eq!(skipped.expected, Some(json!("42")));
+
+        // The score (re-scoring) path populates them too.
+        let scored = s
+            .score(&ScoreParams {
+                eval: "qa".into(),
+                sample: "a".into(),
+                target: "sim".into(),
+                params: Default::default(),
+                trial: 0,
+                trials: 0,
+                seed: None,
+                transcript: Transcript::response("42"),
+            })
+            .await
+            .unwrap();
+        assert_eq!(scored.input, vec!["what is 6*7?".to_string()]);
+        assert_eq!(scored.expected, Some(json!("42")));
     }
 
     #[tokio::test]

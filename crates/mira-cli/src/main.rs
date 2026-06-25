@@ -1029,6 +1029,8 @@ fn skipped_result(a: &ExecuteResult) -> RunResult {
         trial: a.trial,
         trials: a.trials,
         seed: a.seed,
+        input: Vec::new(),
+        expected: None,
         passed: false,
         aggregate: 0.0,
         scores: Vec::new(),
