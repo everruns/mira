@@ -27,6 +27,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   (`mira-scoring.svg` — transcript surfaces → scorers → case verdict) in
   [`scorers.md`](docs/scorers.md). Indexed in
   [`docs/README.md`](docs/README.md#diagrams).
+- **JSONL and CSV report formats** (`--format jsonl` / `--format csv`) for
+  un-aggregated, analysis-ready exports. `jsonl` writes one `RunResult` per line
+  (lossless — the line-delimited dual of `json`); `csv` is long-format, one row
+  per (case × score) with the case columns repeated and open-vocabulary
+  `metrics`/`metadata` flattened into stable `metric.*`/`meta.*` columns. Both
+  work anywhere `--out`/`--format` do (`run`, `report`, `score`); a `--group-by`
+  view is intentionally not folded in — the consumer aggregates the rows.
 - Per-case **wall-clock timeout**: give up on a case after a budget of seconds,
   cancelling the in-flight run (best-effort `cancel` over the protocol) and
   recording it as a failed case. Set it on the CLI (`mira run --timeout SECONDS`,

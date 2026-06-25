@@ -226,7 +226,7 @@ struct RunArgs {
     /// saved run folder, which is always written unless --dry-run.
     #[arg(long)]
     out: Option<String>,
-    /// Report file format for --out: json | junit | md | html.
+    /// Report file format for --out: json | jsonl | csv | junit | md | html.
     #[arg(long, default_value = "json")]
     format: String,
     /// Don't save a run folder (ephemeral run). By default every run is saved
@@ -287,7 +287,7 @@ struct ScoreArgs {
     /// saved as a run under the results dir, like `mira run`.
     #[arg(long)]
     dry_run: bool,
-    /// Report file format for --out: json | junit | md | html.
+    /// Report file format for --out: json | jsonl | csv | junit | md | html.
     #[arg(long, default_value = "json")]
     format: String,
 }
@@ -307,7 +307,7 @@ struct ReportArgs {
     /// Also write a standalone report file here (see --format).
     #[arg(long)]
     out: Option<String>,
-    /// Report file format for --out: json | junit | md | html.
+    /// Report file format for --out: json | jsonl | csv | junit | md | html.
     #[arg(long, default_value = "json")]
     format: String,
 }
