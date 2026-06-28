@@ -1998,7 +1998,7 @@ dependencies = [
 
 [[package]]
 name = "mira-cli"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "clap",
  "indicatif",
@@ -2012,7 +2012,7 @@ dependencies = [
 
 [[package]]
 name = "mira-eval"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "async-trait",
  "inventory",
@@ -2027,7 +2027,7 @@ dependencies = [
 
 [[package]]
 name = "mira-everruns"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "async-trait",
  "everruns-core",
@@ -2039,7 +2039,7 @@ dependencies = [
 
 [[package]]
 name = "mira-example-cli_subject"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "mira-eval",
  "tokio",
@@ -2047,7 +2047,7 @@ dependencies = [
 
 [[package]]
 name = "mira-example-coding"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "mira-eval",
  "tokio",
@@ -2055,7 +2055,7 @@ dependencies = [
 
 [[package]]
 name = "mira-example-greet"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "mira-eval",
  "tokio",
@@ -2063,7 +2063,7 @@ dependencies = [
 
 [[package]]
 name = "mira-example-infra"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "mira-eval",
  "tokio",
@@ -2071,7 +2071,7 @@ dependencies = [
 
 [[package]]
 name = "mira-example-interactive"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "mira-eval",
  "tokio",
@@ -2079,7 +2079,7 @@ dependencies = [
 
 [[package]]
 name = "mira-example-llm-judge"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "mira-eval",
  "mira-judge",
@@ -2088,7 +2088,7 @@ dependencies = [
 
 [[package]]
 name = "mira-example-llmsim"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "everruns-core",
  "everruns-runtime",
@@ -2099,7 +2099,7 @@ dependencies = [
 
 [[package]]
 name = "mira-example-matrix"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "mira-eval",
  "tokio",
@@ -2107,7 +2107,7 @@ dependencies = [
 
 [[package]]
 name = "mira-example-metrics"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "mira-eval",
  "tokio",
@@ -2115,7 +2115,7 @@ dependencies = [
 
 [[package]]
 name = "mira-example-multimodal"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "mira-eval",
  "tokio",
@@ -2123,7 +2123,7 @@ dependencies = [
 
 [[package]]
 name = "mira-example-swe_bench"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "mira-eval",
  "tokio",
@@ -2131,7 +2131,7 @@ dependencies = [
 
 [[package]]
 name = "mira-example-trials"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "mira-eval",
  "tokio",
@@ -2139,7 +2139,7 @@ dependencies = [
 
 [[package]]
 name = "mira-judge"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "async-trait",
  "mira-eval",
@@ -2151,7 +2151,7 @@ dependencies = [
 
 [[package]]
 name = "mira-macros"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -2160,7 +2160,7 @@ dependencies = [
 
 [[package]]
 name = "mira-schema-gen"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "jsonschema",
  "mira-eval",
