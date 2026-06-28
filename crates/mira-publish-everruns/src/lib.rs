@@ -657,7 +657,10 @@ mod tests {
 
         let req = server.await.unwrap();
         let lower = req.to_ascii_lowercase();
-        assert!(req.starts_with("POST /v1/evals/import "), "request line: {req}");
+        assert!(
+            req.starts_with("POST /v1/evals/import "),
+            "request line: {req}"
+        );
         assert!(lower.contains("authorization: bearer evr_pat_secret"));
         assert!(lower.contains("x-org-id: org_42"));
         assert!(req.contains("\"system\":\"mira\""));
