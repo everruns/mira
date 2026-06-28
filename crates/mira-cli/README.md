@@ -1,25 +1,131 @@
 # mira-cli
 
-The `mira` host CLI for [Mira](https://github.com/everruns/mira), a Rust-first,
-code-first evaluation framework. It compiles + spawns an eval **study** (a
-program built on [`mira-eval`](https://crates.io/crates/mira-eval)), plans the
-run across the model matrix, executes each case over the protocol, and reports.
+The `mira` **host CLI** for [Mira](https://github.com/everruns/mira), a
+Rust-first, code-first evaluation framework for agents and tools. It compiles +
+spawns an eval **study** (a program built on
+[`mira-eval`](https://crates.io/crates/mira-eval)), plans the run across the
+model matrix, executes each case over the protocol, scores it, and reports.
+
+[![crates.io](https://img.shields.io/crates/v/mira-cli.svg)](https://crates.io/crates/mira-cli)
+[![docs.rs](https://img.shields.io/docsrs/mira-eval)](https://docs.rs/mira-eval)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](../../LICENSE)
+
+## Install
+
+Via Homebrew (recommended) — installs the `mira` binary:
 
 ```bash
-cargo install mira-cli      # installs the `mira` binary
-
-mira --bin greet list
-mira --bin greet run                 # whole matrix (sim runs; keyed cases skip)
-mira --bin greet run greet           # selective (substring), like cargo test
-mira --bin greet run --tag smoke
-mira --bin greet run --targets sim --format junit --out results.xml
-mira --bin greet run                        # saves a run folder by default
-mira --bin greet run --resume <run_id>      # resume; run only the missing cases
-mira report <run_id>                        # re-render a saved run's reports
+brew install everruns/tap/mira
 ```
 
-Point it at any study: `--bin NAME` (a Rust eval crate), `--cmd "..."` (e.g. a
-Python study), `--example NAME`, or another package via `--package` /
-`--manifest-path`.
+Works on macOS (arm64 / x86_64) and Linux (x86_64). If your Homebrew enforces
+tap trust checks, trust the tap once first:
 
-See the [docs](https://github.com/everruns/mira/tree/main/docs). Licensed under MIT.
+```bash
+brew trust --tap everruns/tap   # only if your Homebrew requires it
+```
+
+Other ways to install:
+
+```bash
+cargo binstall mira-cli         # prebuilt release tarball, no compile
+cargo install mira-cli --locked # build from source
+```
+
+All three install the same `mira` binary. Verify with `mira --version`.
+
+## How it works
+
+The host and your study run as **two processes talking newline-delimited JSON
+over stdio** (MCP-style). Your study owns the evals, subjects, and scoring — and
+your provider API keys, which never cross the wire. The `mira` CLI owns
+everything operational: selection, the model matrix, concurrency, saved runs,
+and reporting.
+
+```text
+        you author                       the `mira` CLI does the rest
+  ┌────────────────────────┐
+  │  study (mira-eval)     │
+  │  evals + subjects      │   mira --bin greet run --targets … --axis … --tag …
+  │  + scorers             │                       │
+  │  Rust · Python · TS    │                       ▼
+  └───────────┬────────────┘   ┌───────────────────────────────────────────────┐
+              │                 │ 1. spawn      compile + launch the study      │
+   compiles + │ spawns          │ 2. initialize protocol_version · capabilities │
+              └────────────────▶│ 3. list       evals · samples · axes · targets│
+                                │ 4. plan grid  cases = evals × targets         │
+        ┌───────── stdio ──────▶│               × axes × samples                │
+        │  run · event · log    │ 5. execute    run each case, concurrent,      │
+        │  RunResult · scores   │               retry · throttle                │
+        ▼                       │ 6. score      scorers ⇒ pass / fail           │
+  ┌────────────┐                │               missing API key ⇒ skipped (N/A) │
+  │  study     │◀── per case ───│ 7. report     terminal · JSON · HTML · JUnit  │
+  │  subject → │                │               · md  (non-zero exit ⇒ CI gate) │
+  │  model     │                │ 8. save run   ./results/<run_id>/             │
+  └────────────┘                └───────────────────────────────────────────────┘
+                                       saved run ──▶ mira run --resume · mira report
+```
+
+A single run reads as a conversation over one pipe: the host handshakes
+(`initialize`), enumerates (`list`), plans the grid, then drives a `run` per
+case while the study streams `event`/`log` notifications back. Richer renderings
+of these flows live in the docs:
+
+- [Run lifecycle (sequence)](https://github.com/everruns/mira/blob/main/docs/assets/mira-run-lifecycle.svg)
+  — host ↔ study over one stdio pipe.
+- [Author → plan → execute → score → report](https://github.com/everruns/mira/blob/main/docs/assets/mira-workflow.svg)
+  — what you write vs. what the host does for you.
+
+## Usage
+
+```bash
+mira --bin greet list                          # what the study advertises
+
+mira --bin greet run                           # whole matrix (sim runs; keyed cases skip)
+mira --bin greet run greet                      # selective (substring), like cargo test
+mira --bin greet run --tag smoke               # filter by tag
+mira --bin greet run --targets sim             # subset the matrix by target
+mira --bin greet run --axis effort=low         # subset an arbitrary axis
+
+mira --bin greet run --format junit --out results.xml   # CI-friendly output
+mira --bin greet run --format html  --out report.html   # self-contained viewer
+
+mira --bin greet run                           # saves ./results/<run_id>/ by default
+mira --bin greet run --dry-run                 # ephemeral; don't save a run folder
+mira --bin greet run --resume <run_id>         # finish an interrupted run (missing cases only)
+mira report <run_id>                           # re-render a saved run's reports
+```
+
+Execution and scoring can be **split** — handy for long-running subjects whose
+transcripts take minutes to play out:
+
+```bash
+mira --bin greet run --execute-only --artifacts art/   # capture one transcript per case
+mira --bin greet score --artifacts art/                # score (or re-score) without re-running
+```
+
+## Pointing it at a study
+
+`--bin NAME` resolves a Rust eval crate's binary across the workspace. Point the
+host at any study shape:
+
+| Flag | Study |
+|------|-------|
+| `--bin NAME` | a Rust eval crate exposing a like-named binary |
+| `--example NAME` | a workspace example study |
+| `--package` / `--manifest-path` | another Cargo package |
+| `--cmd "..."` | an arbitrary command (any language) |
+| `--uv` / `--python` / `--python3 SCRIPT` | a non-Rust (e.g. Python) study |
+
+Save a repeated invocation as `[launchers.NAME]` in `mira.toml` and select it
+with `--launcher NAME` (or a `default_launcher`) instead of retyping the flags.
+Run folders default to `./results/`; configure via `[results].dir` in
+`mira.toml`.
+
+## Learn more
+
+- [Getting started](https://github.com/everruns/mira/blob/main/docs/getting-started.md)
+- [How it works](https://github.com/everruns/mira/blob/main/docs/how-it-works.md)
+- [The eval protocol](https://github.com/everruns/mira/blob/main/docs/protocol.md)
+
+Licensed under MIT — see [LICENSE](../../LICENSE).
