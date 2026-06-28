@@ -2003,6 +2003,7 @@ dependencies = [
  "clap",
  "indicatif",
  "mira-eval",
+ "mira-publish-everruns",
  "serde",
  "serde_json",
  "tempfile",
@@ -2156,6 +2157,18 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn",
+]
+
+[[package]]
+name = "mira-publish-everruns"
+version = "0.3.0"
+dependencies = [
+ "anyhow",
+ "mira-eval",
+ "reqwest 0.12.28",
+ "serde",
+ "serde_json",
+ "tokio",
 ]
 
 [[package]]

@@ -164,8 +164,54 @@ enum Cmd {
     Score(ScoreArgs),
     /// Re-render a saved run's reports from its stored results (no study needed).
     Report(ReportArgs),
+    /// Publish a saved run's results to a hosted viewer (everruns).
+    Publish(PublishArgs),
     /// Show help. Add `--full` for an overview, every flag, examples, and links.
     Help(HelpArgs),
+}
+
+/// everruns connection flags, shared by `run --publish` and `publish`. Each
+/// falls back to an env var, then the everruns CLI credentials file, so a prior
+/// `everruns login` is enough.
+#[derive(Args, Clone, Default)]
+struct PublishConn {
+    /// everruns API base URL (else $EVERRUNS_API_URL, else credentials file).
+    #[arg(long = "everruns-url")]
+    api_url: Option<String>,
+    /// everruns API key / PAT (else $EVERRUNS_API_KEY, else credentials file).
+    #[arg(long = "everruns-api-key")]
+    api_key: Option<String>,
+    /// everruns org id (else $EVERRUNS_ORG_ID, else credentials file).
+    #[arg(long = "everruns-org")]
+    org_id: Option<String>,
+    /// everruns credentials profile (else its `current_profile`).
+    #[arg(long = "everruns-profile")]
+    profile: Option<String>,
+}
+
+impl PublishConn {
+    fn to_options(&self) -> mira_publish_everruns::PublishOptions {
+        mira_publish_everruns::PublishOptions {
+            base_url: self.api_url.clone(),
+            api_key: self.api_key.clone(),
+            org_id: self.org_id.clone(),
+            profile: self.profile.clone(),
+        }
+    }
+}
+
+/// `mira publish <run_id>`: send a saved run's results to a hosted viewer.
+#[derive(Args)]
+struct PublishArgs {
+    /// The `<run_id>` of a saved run under the results dir.
+    run_id: String,
+    /// Substring filter on the case key `eval/sample@target`.
+    filter: Option<String>,
+    /// Target viewer. Currently only `everruns`.
+    #[arg(long, default_value = "everruns")]
+    to: String,
+    #[command(flatten)]
+    conn: PublishConn,
 }
 
 #[derive(Args)]
@@ -267,6 +313,12 @@ struct RunArgs {
     /// Written when --execute-only; read by `mira score`.
     #[arg(long)]
     artifacts: Option<String>,
+    /// After the run, publish results to a hosted viewer. Currently: `everruns`.
+    /// Requires a saved run (incompatible with --dry-run / --execute-only).
+    #[arg(long, value_name = "TARGET", conflicts_with_all = ["dry_run", "execute_only"])]
+    publish: Option<String>,
+    #[command(flatten)]
+    publish_conn: PublishConn,
 }
 
 #[derive(Args)]
@@ -335,6 +387,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         // `report` re-renders a saved run from disk — no study process needed, so
         // handle it before spawning the host.
         Some(Cmd::Report(args)) => return report(args),
+        // `publish` reads a saved run from disk and POSTs it — no study either.
+        Some(Cmd::Publish(args)) => return publish_cmd(args).await,
         _ => {}
     }
 
@@ -372,8 +426,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
         Some(Cmd::Run(args)) => run(host, info, listing, *args, progress).await,
         Some(Cmd::Score(args)) => score(host, info, listing, args).await,
-        // Help/report/no-args returned earlier, before the host was spawned.
-        None | Some(Cmd::Help(_)) | Some(Cmd::Report(_)) => {
+        // Help/report/publish/no-args returned earlier, before the host spawned.
+        None | Some(Cmd::Help(_)) | Some(Cmd::Report(_)) | Some(Cmd::Publish(_)) => {
             unreachable!("handled before host spawn")
         }
     }
@@ -757,6 +811,11 @@ async fn run(
         };
         config::finalize_run(dir, &meta, &results, group)?;
         eprintln!("\nsaved run {run_id} to {}", dir.display());
+
+        // Optional: publish the just-saved run to a hosted viewer.
+        if let Some(target) = &args.publish {
+            publish_results(target, &args.publish_conn, &meta, &results).await?;
+        }
     }
 
     // A case that's N/A (all scores N/A — e.g. an infra failure) is neither
@@ -776,6 +835,53 @@ fn collect_environment() -> Option<mira::run::Environment> {
         .enabled
         .then(|| env::collect(&cfg.environment.labels))
         .flatten()
+}
+
+/// `mira publish <run_id>`: load a saved run from disk and publish its results
+/// to a hosted viewer. No study process or re-execution — it reads `meta.json`
+/// and `cases/*/result.json`, like `report`.
+async fn publish_cmd(args: &PublishArgs) -> Result<(), Box<dyn std::error::Error>> {
+    let base = config::Config::load().results_dir();
+    let dir = config::run_dir(&base, &args.run_id);
+    let meta = config::load_meta(&dir).ok_or_else(|| {
+        format!(
+            "no saved run '{}' found under {}",
+            args.run_id,
+            dir.display()
+        )
+    })?;
+    let mut results = config::load_case_results(&dir);
+    if let Some(f) = &args.filter {
+        results.retain(|r| r.key().contains(f.as_str()));
+    }
+    if results.is_empty() {
+        return Err(format!("no case results to publish for run {}", args.run_id).into());
+    }
+    publish_results(&args.to, &args.conn, &meta, &results).await
+}
+
+/// Route a publish target name to its sink. Shared by `publish` and
+/// `run --publish`.
+async fn publish_results(
+    target: &str,
+    conn: &PublishConn,
+    meta: &RunMeta,
+    results: &[RunResult],
+) -> Result<(), Box<dyn std::error::Error>> {
+    if target != "everruns" {
+        return Err(
+            format!("unknown publish target '{target}': only 'everruns' is supported").into(),
+        );
+    }
+    let outcome = mira_publish_everruns::publish(meta, results, &conn.to_options()).await?;
+    eprintln!(
+        "published {} eval(s), {} case(s) to everruns",
+        outcome.evals, outcome.cases
+    );
+    for id in &outcome.run_ids {
+        eprintln!("  run {id}");
+    }
+    Ok(())
 }
 
 /// `mira report <run_id>`: re-render a saved run's reports from its stored
@@ -1532,6 +1638,8 @@ mod tests {
             execute_only: false,
             artifacts: None,
             timeout: None,
+            publish: None,
+            publish_conn: PublishConn::default(),
         }
     }
 

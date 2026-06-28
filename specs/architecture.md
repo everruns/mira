@@ -189,6 +189,13 @@ publishable; heavy integrations are separate, optional crates.
 | `mira-eval` | lib `mira` | Core: types, traits, scorers, `subject_fn`/`CliSubject`, protocol, study, host, runner, report. | none |
 | `mira-cli` | bin `mira` | The host CLI. | none |
 | `mira-everruns` | lib | `RuntimeSubject` over published `everruns-runtime`. | everruns |
+| `mira-publish-everruns` | lib | Publish a saved run to an everruns instance (host/viewer for external results) over HTTP. | reqwest |
+
+Like `mira-everruns`, the **publish** path is a separate integration crate
+(`mira-publish-everruns`): it maps a finished run (`RunMeta` + `RunResult`s) onto
+everruns' `POST /v1/evals/import` and POSTs it, so the core never grows an HTTP
+client. It is the *producer* counterpart to `mira-everruns`'s *consumer* role —
+one publishes results out, the other drives the runtime as a subject.
 
 The core takes **no everruns dependency**; `Target` is provider-agnostic and
 `mira-everruns` maps it to an everruns `ResolvedModel`. This keeps a `cargo
