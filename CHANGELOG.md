@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Publish runs to everruns.** A new `mira-publish-everruns` crate plus
+  `mira publish <run_id>` and `mira run --publish everruns` send a saved run's
+  results to an [everruns](https://everruns.com) instance, which hosts and
+  visualizes eval results it did not execute. Credentials reuse the everruns
+  CLI: `--everruns-*` flags, then `EVERRUNS_API_KEY`/`EVERRUNS_API_URL`/
+  `EVERRUNS_ORG_ID`, then `~/.config/everruns/credentials.json` — so a prior
+  `everruns login` is enough. One Mira run becomes one everruns run group (one
+  EvalRun per eval, idempotent on the run id); everruns trusts Mira's verdict
+  and does not re-grade.
+
 ## [0.3.0] - 2026-06-28
 
 ### Added

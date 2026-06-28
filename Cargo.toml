@@ -45,6 +45,8 @@ mira-macros = { version = "0.3.0", path = "crates/mira-macros" }
 mira-everruns = { version = "0.3.0", path = "crates/mira-everruns" }
 # LLM-as-judge scorers backed by real providers (OpenAI, Anthropic).
 mira-judge = { version = "0.3.0", path = "crates/mira-judge" }
+# Publish saved runs to everruns (host/viewer for external eval results).
+mira-publish-everruns = { version = "0.3.0", path = "crates/mira-publish-everruns" }
 
 # Async runtime. The core stays runtime-light (io + process); servers pull what
 # they need.

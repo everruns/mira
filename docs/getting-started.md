@@ -190,6 +190,24 @@ region = "us-east-1"
 
 Configured labels override auto-detected ones on a key collision.
 
+## 5. Publish to everruns (optional)
+
+Every run is saved locally, but you can also publish it to an
+[everruns](https://everruns.com) instance, which hosts and visualizes results it
+did not execute — useful for sharing, comparing runs, and onboarding people who
+shouldn't have to run the eval themselves.
+
+```bash
+everruns login                 # one-time: mira reuses these credentials
+mira --bin greet run --publish everruns
+mira publish <run_id>          # or publish a previously saved run
+```
+
+Credentials resolve from `--everruns-*` flags, then
+`EVERRUNS_API_KEY`/`EVERRUNS_API_URL`/`EVERRUNS_ORG_ID`, then the everruns CLI's
+own `~/.config/everruns/credentials.json`. One run becomes one everruns run group
+(one EvalRun per eval), idempotent on the run id. See `mira-publish-everruns`.
+
 ## Next steps
 
 - [Authoring evals](authoring.md) — datasets, the matrix, extra axes, metadata.
