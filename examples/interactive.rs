@@ -1,10 +1,27 @@
+#!/usr/bin/env -S cargo +nightly -Zscript
+---
+# Single-file Mira study (cargo-script frontmatter, RFC 3502). Run it with
+# the host CLI — no per-study crate:
+#
+#   mira --script examples/interactive.rs run
+#
+# The host shims cargo-script on **stable** (it's otherwise nightly-only
+# `cargo -Zscript`); set MIRA_SCRIPT_NATIVE=1 to run it natively on nightly.
+# Outside this repo, depend on the published crates: mira-eval = "0.3".
+[package]
+edition = "2024"
+
+[dependencies]
+mira-eval = { path = "../crates/mira-eval" }
+tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
+---
 //! An **interactive** (multi-turn) eval: the subject and a *simulated user*
 //! exchange turns until the conversation resolves. The subject answers from the
 //! running conversation (`cx.conversation`); the `.responder(..)` closure plays
 //! the user. Runs offline against `sim`:
 //!
 //! ```bash
-//! mira --bin interactive run
+//! mira --script examples/interactive.rs run
 //! ```
 //!
 //! Here the subject asks a clarifying question; the simulated user answers it;

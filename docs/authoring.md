@@ -198,7 +198,7 @@ let eval = Eval::new("clarify")
 
 This is in-process and needs no protocol feature — the study owns the loop. A
 model-graded responder (an LLM playing the user) is just a closure that calls a
-judge. Runnable example: `examples/interactive/`.
+judge. Runnable example: `examples/interactive.rs`.
 
 ## Metadata & observability
 
@@ -225,8 +225,8 @@ The host can break resolve-rate down by any metadata (or axis) key with
 `--group-by`:
 
 ```bash
-mira --bin swe_bench run --group-by difficulty   # one resolve-rate row per difficulty
-mira --bin swe_bench run --group-by agent         # …or per model-level config key
+mira --script examples/swe_bench.rs run --group-by difficulty   # one resolve-rate row per difficulty
+mira --script examples/swe_bench.rs run --group-by agent         # …or per model-level config key
 ```
 
 Each case's group value is resolved in order: axis `params`, then sample

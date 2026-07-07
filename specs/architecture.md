@@ -216,6 +216,22 @@ feature.
 `--provider-concurrency`, `--no-adaptive`, `--max-retries`. Non-zero exit on
 failure, so it drops into CI. In-process `Runner` for evals as `#[tokio::test]`s.
 
+**Study packaging** — a study is any program the host can spawn, so it takes
+whatever shape fits: a crate `[[bin]]`/`examples/*.rs` (`--bin`/`--example`), a
+non-Rust program (`--cmd`/`--python3`/`--uv`), or — the lightest Rust form — a
+**single file** with cargo-script frontmatter (`--script study.rs`), no
+`Cargo.toml`. cargo-script (`cargo -Zscript`, RFC 3502) is nightly-only, so the
+host **shims it onto stable**: it parses the `---` TOML frontmatter, materializes
+a content-hashed throwaway crate under the temp dir (re-anchoring relative
+`path` deps to the script's directory, appending a `[[bin]]` and an isolating
+empty `[workspace]`), and `cargo run`s it with a shared `--target-dir` so study
+deps compile once across scripts. The on-disk file format is exactly native
+cargo-script, so the same study runs under `cargo -Zscript` unchanged — the shim
+is a stable-channel bridge, not a fork of the format, and `MIRA_SCRIPT_NATIVE=1`
+switches to the native path (the intended default once cargo-script stabilizes).
+Most bundled examples are single-file; a crate is reserved for the multi-file or
+heavy-dep cases (`cli_subject`, `metrics`, `matrix`, `llmsim`).
+
 ## 7. Reporting, run folders & resume
 
 The host owns all of this; the study only returns per-case results.
@@ -419,7 +435,7 @@ ordered `Part` list for a multimodal subject, and `Sample::modalities()` reports
 the distinct kinds. This needs **no protocol change**: `Sample` is not a wire
 type — the study owns the dataset and the host addresses samples by id — so the
 schema, `PROTOCOL_VERSION`, and the SDKs are untouched. Example:
-`examples/multimodal/`.
+`examples/multimodal.rs`.
 
 ### 14.3 Multimodal outputs — stable
 
@@ -452,7 +468,7 @@ response wins; usage/duration/tools/events/files/metrics accumulate), so:
   per-turn `event` notifications, but the in-process driver covers the common
   simulated-user case.)
 
-Example: `examples/interactive/` (a clarify-then-answer dialog). A
+Example: `examples/interactive.rs` (a clarify-then-answer dialog). A
 model-graded responder (an LLM playing the user) is just a closure that calls a
 judge, no new machinery.
 

@@ -155,14 +155,17 @@ where
 /// launch.
 ///
 /// ```toml
-/// [launchers.greet]
-/// bin = "greet"            # cargo run -q --bin greet
+/// [launchers.single]
+/// script = "study.rs"      # a single-file Rust study (cargo-script frontmatter)
+///
+/// [launchers.crate]
+/// bin = "metrics"          # cargo run -q --bin metrics
 /// package = "myapp"        # …from package `myapp` (optional)
 ///
 /// [launchers.py]
 /// python3 = "study.py"     # python3 study.py (a polyglot study)
 ///
-/// default_launcher = "greet"
+/// default_launcher = "single"
 /// ```
 #[derive(Debug, Default, Clone, Deserialize)]
 pub struct LauncherConfig {
@@ -175,6 +178,10 @@ pub struct LauncherConfig {
     /// An arbitrary command (split on whitespace).
     #[serde(default)]
     pub cmd: Option<String>,
+    /// A single-file Rust study (`study.rs` with cargo-script frontmatter). Run
+    /// on stable via the built-in shim; see `materialize_script` in main.rs.
+    #[serde(default)]
+    pub script: Option<String>,
     /// `uv run <SCRIPT...>` (split on whitespace).
     #[serde(default)]
     pub uv: Option<String>,

@@ -51,10 +51,21 @@ Cross-language studies need no Rust framework at all — see [SDKs](#cross-langu
 ## Authoring an eval study
 
 A study is a program that defines evals and calls
-`mira::Study::registered().serve()`; register factories with `#[eval]`. It's just
-a `[[bin]]`, resolved with `--bin NAME`.
+`mira::Study::registered().serve()`; register factories with `#[eval]`. The
+lightest form is a **single file** (`study.rs`) with cargo-script frontmatter for
+its deps — run with `--script study.rs`, no `Cargo.toml`. The same code also
+works as a crate `[[bin]]` (`--bin NAME`) or `examples/*.rs` (`--example NAME`).
 
 ```rust
+#!/usr/bin/env -S cargo +nightly -Zscript
+---
+[package]
+edition = "2024"
+
+[dependencies]
+mira-eval = "0.3"
+tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
+---
 use mira::scorer::{file_contains, succeeded};
 use mira::subject::subject_fn;
 use mira::{eval, Eval, Sample, Target, Transcript};
@@ -81,6 +92,9 @@ fn coding() -> Eval {
 async fn main() -> std::io::Result<()> { mira::Study::registered().serve().await }
 ```
 
+The host shims cargo-script onto **stable** (materializes a throwaway crate from
+the frontmatter); `MIRA_SCRIPT_NATIVE=1` uses `cargo -Zscript` on nightly.
+
 Full example (tools + budget scorers + main), the polyglot `CliSubject`, the
 everruns runtime subject, in-process `Runner` tests, and custom scorers:
 [`references/cookbook.md`](references/cookbook.md). A non-Rust study runs via
@@ -89,18 +103,19 @@ everruns runtime subject, in-process `Runner` tests, and custom scorers:
 ## Running
 
 ```bash
-mira --bin coding list                 # advertised evals/samples/scorers/targets
-mira --bin coding run                  # whole matrix
-mira --bin coding run add-fn           # substring filter on eval/sample@target
-mira --bin coding run --tag smoke
-mira --bin coding run --targets sim                      # restrict the target axis
-mira --bin coding run --axis effort=low                  # restrict any declared axis
-mira --bin coding run --preset smoke                     # saved selection from mira.toml
-mira --bin coding run --format junit --out results.xml   # CI artifact
-mira --bin coding run --format html  --out report.html   # transcript viewer
-mira --bin coding run                                    # saves a run folder by default
-mira --bin coding run --resume <run_id>                  # resume; run only the missing cases
-mira report <run_id>                                     # re-render a saved run's reports
+mira --script study.rs list                 # advertised evals/samples/scorers/targets
+mira --script study.rs run                  # whole matrix
+mira --script study.rs run add-fn           # substring filter on eval/sample@target
+mira --script study.rs run --tag smoke
+mira --script study.rs run --targets sim                      # restrict the target axis
+mira --script study.rs run --axis effort=low                  # restrict any declared axis
+mira --script study.rs run --preset smoke                     # saved selection from mira.toml
+mira --script study.rs run --format junit --out results.xml   # CI artifact
+mira --script study.rs run --format html  --out report.html   # transcript viewer
+mira --script study.rs run                                    # saves a run folder by default
+mira --script study.rs run --resume <run_id>                  # resume; run only the missing cases
+mira report <run_id>                                          # re-render a saved run's reports
+mira --bin NAME run                    # a crate study (workspace bin)
 mira --cmd "python3 study.py" run      # a study written in another language
 mira --bin coding doctor               # diagnose config/study/saved runs; --fix repairs
 ```
@@ -153,14 +168,15 @@ from the canonical schema, so they never drift from the wire format.
 All run against the `sim` model with no API keys, so they stay green in CI and
 cost nothing. Browse: <https://github.com/everruns/mira/tree/main/examples>
 
-- `greet` — smallest eval: `#[eval]`, a closure subject, text + LLM-judge scorers — <https://github.com/everruns/mira/tree/main/examples/greet>
-- `coding` — seeded files, a model matrix, structural + file scorers — <https://github.com/everruns/mira/tree/main/examples/coding>
-- `cli_subject` — the polyglot path: driving an external program — <https://github.com/everruns/mira/tree/main/examples/cli_subject>
-- `matrix` — a multi-axis matrix (targets × a custom `effort` axis) — <https://github.com/everruns/mira/tree/main/examples/matrix>
+- `greet` — smallest eval, single-file (`--script`): `#[eval]`, a closure subject, text + LLM-judge scorers — <https://github.com/everruns/mira/blob/main/examples/greet.rs>
+- `coding` — single-file (`--script`): seeded files, a model matrix, structural + file scorers — <https://github.com/everruns/mira/blob/main/examples/coding.rs>
+- `cli_subject` — crate (`--bin`): the polyglot path, driving an external program — <https://github.com/everruns/mira/tree/main/examples/cli_subject>
+- `matrix` — crate (`--bin`): a multi-axis matrix (targets × a custom `effort` axis) — <https://github.com/everruns/mira/tree/main/examples/matrix>
 - `greet-python` — a whole study in Python via the SDK — <https://github.com/everruns/mira/tree/main/examples/greet-python>
 
 ```bash
-cargo run -p mira-cli -- --bin greet run                                  # a Rust example
+cargo run -p mira-cli -- --script examples/greet.rs run                   # a single-file Rust example
+cargo run -p mira-cli -- --bin matrix run                                 # a crate example
 cargo run -p mira-cli -- --cmd "python3 examples/greet-python/study.py" run  # polyglot
 ```
 

@@ -342,6 +342,7 @@ const LAUNCHER_KEYS: &[&str] = &[
     "bin",
     "example",
     "cmd",
+    "script",
     "uv",
     "python",
     "python3",
@@ -444,6 +445,7 @@ fn edit_distance(a: &str, b: &str) -> usize {
 fn launcher_modes(l: &config::LauncherConfig) -> Vec<(&'static str, &String)> {
     [
         ("cmd", &l.cmd),
+        ("script", &l.script),
         ("uv", &l.uv),
         ("python", &l.python),
         ("python3", &l.python3),
@@ -475,7 +477,7 @@ fn check_launchers(cfg: &Config) -> Vec<Finding> {
         match modes.len() {
             0 => out.push(Finding::warn(format!(
                 "launcher {name:?}: no launch mode set \
-                 (bin/example/cmd/uv/python/python3) — falls back to the default `greet` bin"
+                 (script/bin/example/cmd/uv/python/python3) — falls back to the default `greet` bin"
             ))),
             1 => {}
             _ => {
@@ -501,7 +503,7 @@ fn check_launchers(cfg: &Config) -> Vec<Finding> {
         if let Some((mode, value)) = modes.first() {
             let program = value.split_whitespace().next().unwrap_or_default();
             match *mode {
-                "uv" | "python" | "python3"
+                "script" | "uv" | "python" | "python3"
                     if !program.is_empty() && !Path::new(program).exists() =>
                 {
                     out.push(Finding::warn(format!(
@@ -945,6 +947,26 @@ mod tests {
         assert!(
             f.iter()
                 .any(|f| f.severity == Severity::Error && f.message.contains("empty")),
+            "{:?}",
+            messages(&f)
+        );
+    }
+
+    #[test]
+    fn script_launcher_is_a_recognized_mode() {
+        // `script` is a launch mode: a valid single-file study is clean, and a
+        // missing one warns (not "no launch mode set").
+        let f = check_launchers(&cfg("[launchers.s]\nscript = \"examples/greet.rs\"\n"));
+        assert!(
+            !f.iter().any(|f| f.message.contains("no launch mode")),
+            "{:?}",
+            messages(&f)
+        );
+        let f = check_launchers(&cfg(
+            "[launchers.s]\nscript = \"definitely/missing/study.rs\"\n",
+        ));
+        assert!(
+            f.iter().any(|f| f.message.contains("not found")),
             "{:?}",
             messages(&f)
         );

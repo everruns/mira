@@ -22,11 +22,20 @@ cargo binstall mira-cli             # prebuilt binary, no compile (installs `mir
 ## 2. Write an eval study
 
 An eval **study** is just a program that defines evals and calls
-`mira::Study::registered().serve()`. Put it anywhere `cargo run` can reach it — a
-binary, or (handy for libraries) an example:
+`mira::Study::registered().serve()`. The lightest way to write one is a **single
+file** — no crate, no `Cargo.toml` — using cargo-script frontmatter for its
+deps. Save this as `study.rs`:
 
 ```rust
-// examples/my_evals.rs
+#!/usr/bin/env -S cargo +nightly -Zscript
+---
+[package]
+edition = "2024"
+
+[dependencies]
+mira-eval = "0.3"
+tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
+---
 use mira::scorer::{contains, succeeded, tool_called};
 use mira::subject::subject_fn;
 use mira::{eval, Eval, Target, Sample, Transcript};
@@ -58,10 +67,17 @@ async fn main() -> std::io::Result<()> {
 }
 ```
 
+`cargo -Zscript` is nightly-only, so the host **shims it onto stable**: it reads
+the frontmatter, materializes a throwaway crate, and builds it — no nightly
+toolchain required. (Set `MIRA_SCRIPT_NATIVE=1` to run it natively once
+cargo-script stabilizes.) Prefer a real crate? The same `#[eval]`/`main` works as
+a `[[bin]]` or an `examples/*.rs` target — run it with `--bin NAME` /
+`--example NAME` instead of `--script`.
+
 ## 3. Run it
 
 ```bash
-mira --example my_evals list
+mira --script study.rs list
 ```
 
 ```text
@@ -75,7 +91,7 @@ The cloud case is **unavailable** because `ANTHROPIC_API_KEY` isn't set — it w
 be skipped, not failed. Run the matrix:
 
 ```bash
-mira --example my_evals run
+mira --script study.rs run
 ```
 
 ```text
@@ -96,27 +112,27 @@ Set `ANTHROPIC_API_KEY` and the cloud column lights up too.
 ## 4. Select, report, resume
 
 ```bash
-mira --example my_evals run france                 # substring grep on the case key
-mira --example my_evals run --samples 'geo/*'      # glob on sample ids
-mira --example my_evals run --tag smoke            # by sample tag
-mira --example my_evals run --targets 'anthropic/*' # glob on target labels
-mira --example my_evals run --format junit --out results.xml   # CI artifact
-mira --example my_evals run --format html  --out report.html   # self-contained viewer
-mira --example my_evals run --format csv   --out runs.csv      # long-format, for analysis
-mira --example my_evals run --format jsonl --out runs.jsonl    # one RunResult per line
-mira --example my_evals run                        # saves a run folder by default
-mira --example my_evals run --dry-run              # ephemeral; don't save a run folder
-mira --example my_evals run --resume <run_id>      # reopen a run; run only the missing cases
+mira --script study.rs run france                 # substring grep on the case key
+mira --script study.rs run --samples 'geo/*'      # glob on sample ids
+mira --script study.rs run --tag smoke            # by sample tag
+mira --script study.rs run --targets 'anthropic/*' # glob on target labels
+mira --script study.rs run --format junit --out results.xml   # CI artifact
+mira --script study.rs run --format html  --out report.html   # self-contained viewer
+mira --script study.rs run --format csv   --out runs.csv      # long-format, for analysis
+mira --script study.rs run --format jsonl --out runs.jsonl    # one RunResult per line
+mira --script study.rs run                        # saves a run folder by default
+mira --script study.rs run --dry-run              # ephemeral; don't save a run folder
+mira --script study.rs run --resume <run_id>      # reopen a run; run only the missing cases
 mira report <run_id>                               # re-render a saved run's reports
 ```
 
-Tired of retyping `--example my_evals`? Save it as a **named launcher** in
+Tired of retyping `--script study.rs`? Save it as a **named launcher** in
 `mira.toml` and select it with `--launcher`, or set a `default_launcher` so a
 bare `mira run` just works:
 
 ```toml
 [launchers.evals]
-example = "my_evals"   # or bin = "…" / cmd = "python study.py"
+script = "study.rs"    # or bin = "…" / example = "…" / cmd = "python study.py"
 
 default_launcher = "evals"
 ```
@@ -199,7 +215,7 @@ shouldn't have to run the eval themselves.
 
 ```bash
 everruns login                 # one-time: mira reuses these credentials
-mira --bin greet run --publish everruns
+mira --script study.rs run --publish everruns
 mira publish <run_id>          # or publish a previously saved run
 ```
 

@@ -8,25 +8,25 @@
 //! opts out.
 //!
 //! ```bash
-//! mira --bin greet list
-//! mira --bin greet run                          # all cases (sim runs; keyed cases skip)
-//! mira --bin greet run greet                    # substring filter
-//! mira --bin greet run --tag smoke
-//! mira --bin greet run --targets sim --format junit --out results.xml
-//! mira --bin greet run --dry-run                # don't save a run folder
-//! mira --bin greet run --resume <run_id>        # finish an interrupted run
-//! mira --bin greet report <run_id>              # re-render a saved run
-//! mira --bin greet run --execute-only --artifacts art/  # capture transcripts
-//! mira --bin greet score --artifacts art/        # score (or re-score) them
-//! mira --bin greet doctor --fix                  # diagnose the setup; apply safe fixes
+//! mira --script study.rs list
+//! mira --script study.rs run                    # all cases (sim runs; keyed cases skip)
+//! mira --script study.rs run greet              # substring filter
+//! mira --script study.rs run --tag smoke
+//! mira --script study.rs run --targets sim --format junit --out results.xml
+//! mira --script study.rs run --dry-run          # don't save a run folder
+//! mira --script study.rs run --resume <run_id>  # finish an interrupted run
+//! mira --script study.rs report <run_id>        # re-render a saved run
+//! mira --script study.rs run --execute-only --artifacts art/  # capture transcripts
+//! mira --script study.rs score --artifacts art/  # score (or re-score) them
+//! mira --script study.rs doctor --fix           # diagnose the setup; apply safe fixes
 //! ```
 //!
 //! Execution and scoring can be split: `run --execute-only` captures one
 //! full-transcript artifact per case (for long-running subjects), and `score`
 //! (re-)scores those artifacts without re-executing the subject.
 //!
-//! Each Rust example is a crate exposing a like-named binary, so `--bin <name>`
-//! resolves it across the workspace. Point it at any study: `--bin NAME`,
+//! Point it at any study: a single-file Rust study via `--script study.rs`
+//! (cargo-script frontmatter, shimmed onto stable), a crate via `--bin NAME` /
 //! `--example NAME`, an arbitrary `--cmd "..."`, a non-Rust study via
 //! `--uv` / `--python` / `--python3 SCRIPT`, or another package with
 //! `--package` / `--manifest-path`. Save a repo's invocation as
@@ -138,6 +138,11 @@ struct Launcher {
     /// Launch an arbitrary command (split on whitespace).
     #[arg(long, global = true)]
     cmd: Option<String>,
+    /// Run a single-file Rust study (`study.rs` with cargo-script frontmatter).
+    /// Compiled on stable via a built-in shim; set MIRA_SCRIPT_NATIVE=1 to use
+    /// `cargo -Zscript` on nightly instead.
+    #[arg(long, global = true, value_name = "SCRIPT")]
+    script: Option<String>,
     /// Run `uv run <SCRIPT...>` (e.g. a Python study; split on whitespace).
     #[arg(long, global = true, value_name = "SCRIPT")]
     uv: Option<String>,
@@ -481,26 +486,28 @@ OVERVIEW
   (`report <run_id>`); `--dry-run` opts out. Execution and scoring can be split
   for long runs (`run --execute-only` then `score`).
 
-  Point it at any study: `--bin NAME`, `--example NAME`, an arbitrary
-  `--cmd \"...\"`, a non-Rust study via `--uv` / `--python` / `--python3 SCRIPT`,
-  or `--package` / `--manifest-path`. Save a repo's invocation as
-  `[launchers.NAME]` in mira.toml and select it with `--launcher NAME` (or a
-  `default_launcher`).";
+  Point it at any study: a single-file Rust study via `--script study.rs`
+  (cargo-script frontmatter, shimmed onto stable), a crate via `--bin NAME` /
+  `--example NAME`, an arbitrary `--cmd \"...\"`, a non-Rust study via
+  `--uv` / `--python` / `--python3 SCRIPT`, or `--package` / `--manifest-path`.
+  Save a repo's invocation as `[launchers.NAME]` in mira.toml and select it with
+  `--launcher NAME` (or a `default_launcher`).";
 
     let examples = "\
 EXAMPLES
-  mira --bin greet list                 # what the study advertises
-  mira --bin greet run                  # run the whole matrix
-  mira --bin greet run greet            # selective (substring), like cargo test
-  mira --bin greet run --tag smoke      # only samples carrying a tag
-  mira --bin greet run --targets sim --format junit --out results.xml
-  mira --bin greet run --format html --out report.html   # standalone viewer file
-  mira --bin greet run --dry-run                         # don't save a run folder
-  mira --bin greet run --resume <run_id>                 # finish an interrupted run
-  mira --bin greet report <run_id>                       # re-render a saved run
-  mira --bin greet run --execute-only --artifacts art/   # capture transcripts
-  mira --bin greet score --artifacts art/                # score (or re-score) them
-  mira --bin greet doctor               # check config/study/saved runs (--fix repairs)
+  mira --script study.rs list           # what the study advertises
+  mira --script study.rs run            # run the whole matrix
+  mira --script study.rs run greet      # selective (substring), like cargo test
+  mira --script study.rs run --tag smoke  # only samples carrying a tag
+  mira --script study.rs run --targets sim --format junit --out results.xml
+  mira --script study.rs run --format html --out report.html  # standalone viewer file
+  mira --script study.rs run --dry-run                    # don't save a run folder
+  mira --script study.rs run --resume <run_id>            # finish an interrupted run
+  mira --script study.rs report <run_id>                  # re-render a saved run
+  mira --script study.rs run --execute-only --artifacts art/  # capture transcripts
+  mira --script study.rs score --artifacts art/           # score (or re-score) them
+  mira --script study.rs doctor         # check config/study/saved runs (--fix repairs)
+  mira --bin NAME run                   # drive a crate study (workspace bin)
   mira --python3 study.py run           # drive a non-Rust (polyglot) study
   mira --launcher greet run             # use [launchers.greet] from mira.toml
   mira run                              # use mira.toml's default_launcher";
@@ -544,8 +551,8 @@ LINKS
 /// Resolve the effective launcher from the CLI flags overlaid on `mira.toml`,
 /// then build the study launch command. Loads `mira.toml` only when it could
 /// matter — `--launcher` is given, or no explicit launch mode is set (so a
-/// `default_launcher` might apply) — so a plain `mira --bin greet run` does no
-/// config I/O.
+/// `default_launcher` might apply) — so a plain `mira --script study.rs run` does
+/// no config I/O.
 fn build_launch_command(cli: &Launcher) -> Result<Command, String> {
     let needs_config = cli.launcher.is_some() || !cli_sets_mode(cli);
     let cfg = if needs_config {
@@ -553,13 +560,14 @@ fn build_launch_command(cli: &Launcher) -> Result<Command, String> {
     } else {
         config::Config::default()
     };
-    Ok(build_command(&resolve_launcher(cli, &cfg)?))
+    build_command(&resolve_launcher(cli, &cfg)?)
 }
 
 /// True when the CLI picked an explicit launch **mode** of its own — any of the
-/// mutually-exclusive `cmd`/`bin`/`example`/`uv`/`python`/`python3` flags.
+/// mutually-exclusive `cmd`/`script`/`bin`/`example`/`uv`/`python`/`python3` flags.
 fn cli_sets_mode(cli: &Launcher) -> bool {
     cli.cmd.is_some()
+        || cli.script.is_some()
         || cli.bin.is_some()
         || cli.example.is_some()
         || cli.uv.is_some()
@@ -569,7 +577,7 @@ fn cli_sets_mode(cli: &Launcher) -> bool {
 
 /// Merge a named launcher (`--launcher`, else `default_launcher`) with the
 /// explicit launch flags. Flags win, mirroring `--preset`: an explicit launch
-/// **mode** (`--cmd`/`--bin`/`--example`/`--uv`/`--python`/`--python3`) replaces
+/// **mode** (`--cmd`/`--script`/`--bin`/`--example`/`--uv`/`--python`/`--python3`) replaces
 /// the named launcher's mode entirely (the modes are mutually exclusive), and
 /// `--package`/`--manifest-path` overlay on top.
 fn resolve_launcher(
@@ -589,6 +597,7 @@ fn resolve_launcher(
 
     if cli_sets_mode(cli) {
         base.cmd = cli.cmd.clone();
+        base.script = cli.script.clone();
         base.bin = cli.bin.clone();
         base.example = cli.example.clone();
         base.uv = cli.uv.clone();
@@ -600,14 +609,39 @@ fn resolve_launcher(
     Ok(base)
 }
 
-/// Build the study launch command from a resolved launcher.
-fn build_command(launcher: &config::LauncherConfig) -> Command {
+/// Build the study launch command from a resolved launcher. Fallible because the
+/// single-file `--script` mode materializes a crate on disk before it can run.
+fn build_command(launcher: &config::LauncherConfig) -> Result<Command, String> {
     if let Some(raw) = &launcher.cmd {
         let mut parts = raw.split_whitespace();
         let program = parts.next().unwrap_or("false");
         let mut command = Command::new(program);
         command.args(parts);
-        return command;
+        return Ok(command);
+    }
+
+    // Single-file Rust study: `--script study.rs`. cargo-script (`cargo -Zscript`)
+    // is nightly-only, so by default we shim it on stable — materialize a crate
+    // from the file's frontmatter and `cargo run --manifest-path` it. The same
+    // file runs natively under `cargo -Zscript` once it stabilizes; opt in early
+    // with MIRA_SCRIPT_NATIVE=1.
+    if let Some(script) = &launcher.script {
+        let path = script.split_whitespace().next().unwrap_or(script);
+        if std::env::var_os("MIRA_SCRIPT_NATIVE").is_some() {
+            let mut command = Command::new("cargo");
+            command.arg("-Zscript").arg(path);
+            return Ok(command);
+        }
+        let (manifest, target_dir) = materialize_script(Path::new(path))?;
+        let mut command = Command::new("cargo");
+        command
+            .arg("run")
+            .arg("-q")
+            .arg("--manifest-path")
+            .arg(manifest)
+            .arg("--target-dir")
+            .arg(target_dir);
+        return Ok(command);
     }
 
     // Convenience launchers for non-Rust studies: `--uv`/`--python`/`--python3
@@ -616,17 +650,17 @@ fn build_command(launcher: &config::LauncherConfig) -> Command {
     if let Some(script) = &launcher.uv {
         let mut command = Command::new("uv");
         command.arg("run").args(script.split_whitespace());
-        return command;
+        return Ok(command);
     }
     if let Some(script) = &launcher.python {
         let mut command = Command::new("python");
         command.args(script.split_whitespace());
-        return command;
+        return Ok(command);
     }
     if let Some(script) = &launcher.python3 {
         let mut command = Command::new("python3");
         command.args(script.split_whitespace());
-        return command;
+        return Ok(command);
     }
 
     let mut command = Command::new("cargo");
@@ -645,7 +679,195 @@ fn build_command(launcher: &config::LauncherConfig) -> Command {
     if let Some(manifest) = &launcher.manifest_path {
         command.arg("--manifest-path").arg(manifest);
     }
-    command
+    Ok(command)
+}
+
+/// Turn a single-file cargo-script study into a runnable throwaway crate,
+/// returning `(manifest_path, shared_target_dir)` for `cargo run`.
+///
+/// cargo-script (RFC 3502, `cargo -Zscript`) is nightly-only; this shim gives the
+/// same single-file ergonomics on stable. It parses the leading `---` TOML
+/// frontmatter (after an optional `#!` shebang), then writes a content-hashed
+/// crate under the temp dir: a `Cargo.toml` (frontmatter deps, with relative
+/// `path` deps re-anchored to the script's directory, plus a `[[bin]]` and an
+/// empty `[workspace]` so it never gets adopted by an enclosing workspace) and a
+/// `src/main.rs` holding the script body. A shared `--target-dir` lets the study
+/// deps (e.g. `mira-eval`) compile once across scripts. The file format matches
+/// native cargo-script, so the same study runs under `cargo -Zscript` unchanged.
+fn materialize_script(script: &Path) -> Result<(PathBuf, PathBuf), String> {
+    let src = std::fs::read_to_string(script)
+        .map_err(|e| format!("cannot read study script {}: {e}", script.display()))?;
+    let (manifest_toml, body, skipped_lines) = parse_script(&src)
+        .map_err(|e| format!("invalid study script {}: {e}", script.display()))?;
+
+    let script_dir = script
+        .parent()
+        .filter(|p| !p.as_os_str().is_empty())
+        .map(Path::to_path_buf)
+        .unwrap_or_else(|| PathBuf::from("."));
+    let script_dir = std::fs::canonicalize(&script_dir)
+        .map_err(|e| format!("cannot resolve script directory: {e}"))?;
+
+    let stem = script
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .unwrap_or("study");
+    let crate_name = sanitize_crate_name(stem);
+
+    // Build the generated manifest, re-anchoring relative path deps.
+    let manifest = render_manifest(&manifest_toml, &crate_name, &script_dir)?;
+
+    // Preserve original line numbers in compiler diagnostics: pad the body with
+    // one blank line per stripped (shebang/frontmatter) line.
+    let main_rs = format!("{}{}", "\n".repeat(skipped_lines), body);
+
+    // Content-hash everything that affects the build so edits invalidate the cache.
+    let hash = short_hash(&[&manifest, &main_rs, script_dir.to_string_lossy().as_ref()]);
+    let base = std::env::temp_dir().join("mira-script");
+    let crate_dir = base.join(format!("{crate_name}-{hash}"));
+    let src_dir = crate_dir.join("src");
+    std::fs::create_dir_all(&src_dir)
+        .map_err(|e| format!("cannot create script cache {}: {e}", src_dir.display()))?;
+    write_if_changed(&crate_dir.join("Cargo.toml"), &manifest)?;
+    write_if_changed(&src_dir.join("main.rs"), &main_rs)?;
+
+    Ok((crate_dir.join("Cargo.toml"), base.join("target")))
+}
+
+/// Split a single-file study into `(frontmatter_toml, body, stripped_line_count)`.
+/// Frontmatter is a `---` fenced TOML block (RFC 3502), allowed after an optional
+/// `#!` shebang. A file with no frontmatter is valid — it just has no deps.
+fn parse_script(src: &str) -> Result<(String, String, usize), String> {
+    let mut lines = src.lines().peekable();
+    let mut skipped = 0usize;
+
+    // Optional shebang.
+    if lines.peek().is_some_and(|l| l.starts_with("#!")) {
+        lines.next();
+        skipped += 1;
+    }
+    // Skip blank lines before the fence.
+    while lines.peek().is_some_and(|l| l.trim().is_empty()) {
+        lines.next();
+        skipped += 1;
+    }
+
+    if lines.peek().map(|l| l.trim_end()) != Some("---") {
+        // No frontmatter: whole (post-shebang) remainder is the body.
+        let body = src.lines().skip(skipped).collect::<Vec<_>>().join("\n");
+        return Ok((String::new(), body, skipped));
+    }
+    lines.next();
+    skipped += 1;
+
+    let mut manifest = String::new();
+    let mut closed = false;
+    for line in lines.by_ref() {
+        skipped += 1;
+        if line.trim_end() == "---" {
+            closed = true;
+            break;
+        }
+        manifest.push_str(line);
+        manifest.push('\n');
+    }
+    if !closed {
+        return Err("frontmatter opened with `---` but never closed".into());
+    }
+    let body = src.lines().skip(skipped).collect::<Vec<_>>().join("\n");
+    Ok((manifest, body, skipped))
+}
+
+/// Render the generated `Cargo.toml` from the script's frontmatter: fill in
+/// `[package]` defaults, re-anchor relative `path` deps to the script dir, and
+/// append a `[[bin]]` plus an isolating empty `[workspace]`.
+fn render_manifest(
+    frontmatter: &str,
+    crate_name: &str,
+    script_dir: &Path,
+) -> Result<String, String> {
+    let mut doc: toml::Table =
+        toml::from_str(frontmatter).map_err(|e| format!("frontmatter is not valid TOML: {e}"))?;
+
+    // [package] defaults (edition 2024, matching the workspace).
+    let pkg = doc
+        .entry("package".to_string())
+        .or_insert_with(|| toml::Value::Table(Default::default()));
+    if let Some(pkg) = pkg.as_table_mut() {
+        pkg.entry("name".to_string())
+            .or_insert_with(|| toml::Value::String(crate_name.to_string()));
+        pkg.entry("version".to_string())
+            .or_insert_with(|| toml::Value::String("0.0.0".to_string()));
+        pkg.entry("edition".to_string())
+            .or_insert_with(|| toml::Value::String("2024".to_string()));
+        pkg.insert("publish".to_string(), toml::Value::Boolean(false));
+    }
+
+    // Re-anchor relative `path` deps against the script's directory so the
+    // generated crate (which lives in a temp dir) still resolves them.
+    for key in ["dependencies", "dev-dependencies", "build-dependencies"] {
+        if let Some(table) = doc.get_mut(key).and_then(|v| v.as_table_mut()) {
+            for (_name, dep) in table.iter_mut() {
+                if let Some(dep) = dep.as_table_mut()
+                    && let Some(toml::Value::String(p)) = dep.get("path").cloned()
+                {
+                    let anchored = script_dir.join(&p);
+                    let abs = std::fs::canonicalize(&anchored).unwrap_or(anchored);
+                    dep.insert(
+                        "path".to_string(),
+                        toml::Value::String(abs.to_string_lossy().into_owned()),
+                    );
+                }
+            }
+        }
+    }
+
+    let mut manifest =
+        toml::to_string(&doc).map_err(|e| format!("cannot serialize generated manifest: {e}"))?;
+    // A [[bin]] pointing at our src/main.rs, and an empty [workspace] so an
+    // enclosing workspace (e.g. the repo's) never tries to adopt this crate.
+    manifest.push_str(&format!(
+        "\n[[bin]]\nname = \"{crate_name}\"\npath = \"src/main.rs\"\n\n[workspace]\n"
+    ));
+    Ok(manifest)
+}
+
+/// Cargo crate names allow only `[A-Za-z0-9_-]`; map anything else to `_`.
+fn sanitize_crate_name(stem: &str) -> String {
+    let mut name: String = stem
+        .chars()
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || c == '-' {
+                c
+            } else {
+                '_'
+            }
+        })
+        .collect();
+    if name.is_empty() || name.chars().next().is_some_and(|c| c.is_ascii_digit()) {
+        name.insert_str(0, "study-");
+    }
+    name
+}
+
+/// A short, stable hex digest of the inputs — enough to key the script cache.
+fn short_hash(parts: &[&str]) -> String {
+    use std::hash::{Hash, Hasher};
+    let mut h = std::collections::hash_map::DefaultHasher::new();
+    for p in parts {
+        p.hash(&mut h);
+        0u8.hash(&mut h); // separator so ["a","b"] != ["ab"]
+    }
+    format!("{:016x}", h.finish())
+}
+
+/// Write only when the content differs, so an unchanged script doesn't touch the
+/// file mtime and force cargo to rebuild.
+fn write_if_changed(path: &Path, content: &str) -> Result<(), String> {
+    if std::fs::read_to_string(path).ok().as_deref() == Some(content) {
+        return Ok(());
+    }
+    std::fs::write(path, content).map_err(|e| format!("cannot write {}: {e}", path.display()))
 }
 
 async fn run(
@@ -1630,6 +1852,7 @@ mod tests {
             bin: None,
             example: None,
             cmd: None,
+            script: None,
             uv: None,
             python: None,
             python3: None,
@@ -1827,7 +2050,7 @@ mod tests {
             uv: Some("study.py".into()),
             ..Default::default()
         };
-        let (program, args) = parts(&build_command(&l));
+        let (program, args) = parts(&build_command(&l).unwrap());
         assert_eq!(program, "uv");
         assert_eq!(args, ["run", "study.py"]);
     }
@@ -1838,7 +2061,7 @@ mod tests {
             python: Some("study.py --flag".into()),
             ..Default::default()
         };
-        let (program, args) = parts(&build_command(&l));
+        let (program, args) = parts(&build_command(&l).unwrap());
         assert_eq!(program, "python");
         assert_eq!(args, ["study.py", "--flag"]);
 
@@ -1846,7 +2069,7 @@ mod tests {
             python3: Some("examples/greet-python/study.py".into()),
             ..Default::default()
         };
-        let (program, args) = parts(&build_command(&l));
+        let (program, args) = parts(&build_command(&l).unwrap());
         assert_eq!(program, "python3");
         assert_eq!(args, ["examples/greet-python/study.py"]);
     }
@@ -1858,14 +2081,14 @@ mod tests {
             python3: Some("study.py".into()),
             ..Default::default()
         };
-        let (program, args) = parts(&build_command(&l));
+        let (program, args) = parts(&build_command(&l).unwrap());
         assert_eq!(program, "echo");
         assert_eq!(args, ["hi"]);
     }
 
     #[test]
     fn defaults_to_greet_bin() {
-        let (program, args) = parts(&build_command(&config::LauncherConfig::default()));
+        let (program, args) = parts(&build_command(&config::LauncherConfig::default()).unwrap());
         assert_eq!(program, "cargo");
         assert_eq!(args, ["run", "-q", "--bin", "greet"]);
     }
@@ -1876,7 +2099,7 @@ mod tests {
         let cfg = cfg("default_launcher = \"py\"\n[launchers.py]\npython3 = \"study.py\"\n");
         let l = resolve_launcher(&empty_launcher(), &cfg).unwrap();
         assert_eq!(l.python3.as_deref(), Some("study.py"));
-        let (program, args) = parts(&build_command(&l));
+        let (program, args) = parts(&build_command(&l).unwrap());
         assert_eq!(program, "python3");
         assert_eq!(args, ["study.py"]);
     }
@@ -1960,12 +2183,91 @@ mod tests {
         let l = resolve_launcher(&empty_launcher(), &config::Config::default()).unwrap();
         assert!(l.bin.is_none() && l.cmd.is_none() && l.example.is_none());
         // build_command fills in the greet default.
-        let cmd = build_command(&l);
+        let cmd = build_command(&l).unwrap();
         let argv: Vec<_> = cmd
             .as_std()
             .get_args()
             .map(|a| a.to_string_lossy().into_owned())
             .collect();
         assert_eq!(argv, vec!["run", "-q", "--bin", "greet"]);
+    }
+
+    #[test]
+    fn parse_script_strips_shebang_and_frontmatter() {
+        let src = "#!/usr/bin/env -S cargo -Zscript\n\
+                   ---\n\
+                   [dependencies]\n\
+                   foo = \"1\"\n\
+                   ---\n\
+                   fn main() {}\n";
+        let (manifest, body, skipped) = parse_script(src).unwrap();
+        assert_eq!(manifest, "[dependencies]\nfoo = \"1\"\n");
+        assert_eq!(body, "fn main() {}");
+        // shebang + `---` + 2 dep lines + `---` = 5 stripped lines, so the body's
+        // line number is preserved when we pad with that many newlines.
+        assert_eq!(skipped, 5);
+    }
+
+    #[test]
+    fn parse_script_allows_no_frontmatter() {
+        let (manifest, body, skipped) = parse_script("fn main() {}\n").unwrap();
+        assert!(manifest.is_empty());
+        assert_eq!(body, "fn main() {}");
+        assert_eq!(skipped, 0);
+    }
+
+    #[test]
+    fn parse_script_rejects_unterminated_frontmatter() {
+        let err = parse_script("---\n[dependencies]\nfn main() {}\n").unwrap_err();
+        assert!(err.contains("never closed"), "got: {err}");
+    }
+
+    #[test]
+    fn render_manifest_anchors_paths_and_adds_bin_workspace() {
+        // A relative path dep is re-anchored against the script dir; a version dep
+        // is left alone; [[bin]] and an isolating [workspace] are appended.
+        let fm = "[dependencies]\n\
+                  mira-eval = { path = \"../crates/mira-eval\" }\n\
+                  tokio = { version = \"1\" }\n";
+        // Use the repo root as the script dir so canonicalize resolves.
+        let script_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .unwrap() // crates/
+            .parent()
+            .unwrap() // repo root
+            .join("examples");
+        let out = render_manifest(fm, "greet", &script_dir).unwrap();
+        assert!(out.contains("[[bin]]"));
+        assert!(out.contains("name = \"greet\""));
+        assert!(out.contains("[workspace]"));
+        assert!(out.contains("edition = \"2024\""));
+        // The path dep became absolute and points at the real crate.
+        assert!(out.contains("crates/mira-eval"));
+        assert!(!out.contains("../crates/mira-eval"));
+        // The version dep is untouched.
+        assert!(out.contains("version = \"1\""));
+    }
+
+    #[test]
+    fn sanitize_crate_name_handles_odd_stems() {
+        assert_eq!(sanitize_crate_name("greet"), "greet");
+        assert_eq!(sanitize_crate_name("my study.rs"), "my_study_rs");
+        assert_eq!(sanitize_crate_name("123"), "study-123");
+    }
+
+    #[test]
+    fn script_launcher_native_mode_uses_zscript() {
+        // MIRA_SCRIPT_NATIVE routes to `cargo -Zscript <path>` without touching
+        // the filesystem. Scoped set/remove keeps the env change local.
+        let l = config::LauncherConfig {
+            script: Some("study.rs".into()),
+            ..Default::default()
+        };
+        // SAFETY: single-threaded test; restored immediately after the call.
+        unsafe { std::env::set_var("MIRA_SCRIPT_NATIVE", "1") };
+        let (program, args) = parts(&build_command(&l).unwrap());
+        unsafe { std::env::remove_var("MIRA_SCRIPT_NATIVE") };
+        assert_eq!(program, "cargo");
+        assert_eq!(args, ["-Zscript", "study.rs"]);
     }
 }

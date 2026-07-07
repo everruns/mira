@@ -1,9 +1,26 @@
+#!/usr/bin/env -S cargo +nightly -Zscript
+---
+# Single-file Mira study (cargo-script frontmatter, RFC 3502). Run it with
+# the host CLI — no per-study crate:
+#
+#   mira --script examples/coding.rs run
+#
+# The host shims cargo-script on **stable** (it's otherwise nightly-only
+# `cargo -Zscript`); set MIRA_SCRIPT_NATIVE=1 to run it natively on nightly.
+# Outside this repo, depend on the published crates: mira-eval = "0.3".
+[package]
+edition = "2024"
+
+[dependencies]
+mira-eval = { path = "../crates/mira-eval" }
+tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
+---
 //! A coding-style eval with seeded files, a model matrix, and structural +
 //! file-based scorers — the shape that replaces a bespoke bench harness.
 //!
 //! ```bash
-//! mira --bin coding list
-//! mira --bin coding run --tag smoke
+//! mira --script examples/coding.rs list
+//! mira --script examples/coding.rs run --tag smoke
 //! ```
 //!
 //! The subject is an in-process closure that "edits" the seeded file; swap it

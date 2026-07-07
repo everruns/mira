@@ -72,15 +72,18 @@ doc:
 # Drive each bundled example study through the host CLI (offline, sim only).
 # The TypeScript polyglot example needs the SDK built first (build-ts-sdk).
 run-examples: build-ts-sdk
-    cargo run -q -p mira-cli -- --bin greet run
-    cargo run -q -p mira-cli -- --bin coding run
+    # Single-file studies (examples/<name>.rs) via the cargo-script shim.
+    cargo run -q -p mira-cli -- --script examples/greet.rs run
+    cargo run -q -p mira-cli -- --script examples/coding.rs run
+    cargo run -q -p mira-cli -- --script examples/swe_bench.rs run
+    cargo run -q -p mira-cli -- --script examples/multimodal.rs run
+    cargo run -q -p mira-cli -- --script examples/interactive.rs run
+    # Crate examples (multi-file / heavy deps) via --bin.
     cargo run -q -p mira-cli -- --bin cli_subject run
     cargo run -q -p mira-cli -- --bin metrics run
     cargo run -q -p mira-cli -- --bin matrix run
-    cargo run -q -p mira-cli -- --bin swe_bench run
     cargo run -q -p mira-cli -- --bin llmsim run
-    cargo run -q -p mira-cli -- --bin multimodal run
-    cargo run -q -p mira-cli -- --bin interactive run
+    # Polyglot studies via the SDKs.
     cargo run -q -p mira-cli -- --python3 examples/greet-python/study.py run
     cargo run -q -p mira-cli -- --cmd "node examples/greet-typescript/study.mjs" run
 

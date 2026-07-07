@@ -110,28 +110,61 @@ cases.
 ## Launching the study
 
 The host has to *start* your study before it can enumerate or run it. Point it at
-any study with `--bin NAME` / `--example NAME` (cargo), a non-Rust study via
-`--uv` / `--python` / `--python3 SCRIPT` (or an arbitrary `--cmd "…"`), plus
-`--package` / `--manifest-path`. To avoid retyping a repo's invocation on every
-call, save it as a **named launcher** in `mira.toml`:
+any study with `--script study.rs` (a single-file Rust study — cargo-script
+frontmatter, shimmed onto stable; see below), `--bin NAME` / `--example NAME` (a
+cargo crate), a non-Rust study via `--uv` / `--python` / `--python3 SCRIPT` (or
+an arbitrary `--cmd "…"`), plus `--package` / `--manifest-path`. To avoid
+retyping a repo's invocation on every call, save it as a **named launcher** in
+`mira.toml`:
 
 ```toml
-[launchers.greet]
-bin = "greet"            # cargo run -q --bin greet  (+ optional package/manifest)
+[launchers.single]
+script = "study.rs"      # a single-file Rust study (cargo-script frontmatter)
+
+[launchers.crate]
+bin = "metrics"          # cargo run -q --bin metrics  (+ optional package/manifest)
 
 [launchers.py]
 python3 = "study.py"     # a polyglot study (python3 study.py)
 
-default_launcher = "greet"
+default_launcher = "single"
 ```
 
 - `--launcher NAME` selects `[launchers.NAME]`.
 - `default_launcher` is used when neither a launch flag nor `--launcher` picks
   one, so a bare `mira run` just works.
 - Explicit launch flags override the named launcher, mirroring `--preset`: an
-  explicit **mode** (`--cmd`/`--bin`/`--example`/`--uv`/`--python`/`--python3`)
+  explicit **mode**
+  (`--cmd`/`--script`/`--bin`/`--example`/`--uv`/`--python`/`--python3`)
   replaces the named mode (the modes are mutually exclusive), and
   `--package`/`--manifest-path` overlay on top.
+
+### Single-file studies (`--script`)
+
+A study needn't be a crate. `--script study.rs` runs a **single file** whose
+dependencies live in cargo-script frontmatter (RFC 3502):
+
+```rust
+#!/usr/bin/env -S cargo +nightly -Zscript
+---
+[package]
+edition = "2024"
+
+[dependencies]
+mira-eval = "0.3"
+tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
+---
+// … #[eval] factories + a main() that calls Study::registered().serve() …
+```
+
+`cargo -Zscript` is nightly-only, so by default the host **shims it onto
+stable**: it parses the frontmatter, materializes a content-hashed throwaway
+crate under the temp dir (re-anchoring any relative `path` deps, adding a
+`[[bin]]` and an isolating empty `[workspace]`), and `cargo run`s it with a
+shared target dir so study deps compile once. The file format matches native
+cargo-script, so the same study runs under `cargo -Zscript` unchanged — set
+`MIRA_SCRIPT_NATIVE=1` to opt into that today, and it becomes the default once
+cargo-script stabilizes.
 
 ## Concurrency & adaptive throttling
 

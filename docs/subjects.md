@@ -131,7 +131,7 @@ let kinds = sample.modalities();            // ["text", "image", "audio"]
 
 Media is *referenced* (`media_type` + a `uri` or inline base64 `data`), never raw
 bytes, so a sample stays plain JSON in a JSONL dataset. This is study-side only —
-no protocol change. Runnable example: `examples/multimodal/`. Multimodal *output*
+no protocol change. Runnable example: `examples/multimodal.rs`. Multimodal *output*
 (`Transcript::output`) is staged behind the `protocol-unstable` feature; see
 [architecture §14](../specs/architecture.md).
 
