@@ -365,17 +365,9 @@ fn check_unknown_keys(root: &toml::Value) -> Vec<Finding> {
         }
         match key.as_str() {
             "results" => check_table_keys(value, "results", RESULTS_KEYS, &mut out),
-            // `[environment.labels]` is free-form, so only the section's own
-            // keys are checked.
-            "environment" => {
-                if let Some(t) = value.as_table() {
-                    for k in t.keys() {
-                        if !ENVIRONMENT_KEYS.contains(&k.as_str()) {
-                            out.push(unknown_key(k, Some("environment"), ENVIRONMENT_KEYS));
-                        }
-                    }
-                }
-            }
+            // Only the section's own keys are checked — `[environment.labels]`
+            // is free-form and check_table_keys never descends into it.
+            "environment" => check_table_keys(value, "environment", ENVIRONMENT_KEYS, &mut out),
             // Named-entry tables: every entry's keys are checked against the set.
             "launchers" => check_named_tables(value, "launchers", LAUNCHER_KEYS, &mut out),
             "presets" => check_named_tables(value, "presets", PRESET_KEYS, &mut out),

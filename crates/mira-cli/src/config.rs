@@ -509,6 +509,14 @@ mod tests {
     }
 
     #[test]
+    fn parse_at_resolves_relative_paths_against_base() {
+        // Like load(): a relative results dir resolves against the file's dir.
+        let cfg = Config::parse_at("[results]\ndir = \"./out\"\n", Path::new("/proj")).unwrap();
+        assert_eq!(cfg.results_dir(), "/proj/out");
+        assert!(Config::parse_at("not toml", Path::new("/proj")).is_err());
+    }
+
+    #[test]
     fn launchers_parse_and_lookup() {
         let cfg = Config::parse(
             "default_launcher = \"greet\"\n\n\
