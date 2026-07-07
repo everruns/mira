@@ -208,6 +208,32 @@ Credentials resolve from `--everruns-*` flags, then
 own `~/.config/everruns/credentials.json`. One run becomes one everruns run group
 (one EvalRun per eval), idempotent on the run id. See `mira-publish-everruns`.
 
+## 6. Check your setup (`mira doctor`)
+
+When something misbehaves — a preset that selects nothing, a launcher that
+won't start, runs that look torn — `mira doctor` diagnoses the whole setup in
+one pass:
+
+- **Config** (`mira.toml`): parse errors, unknown or misspelled keys (with a
+  "did you mean" suggestion), launcher mistakes (no launch mode, conflicting
+  modes, missing scripts), presets and timeouts that can't work.
+- **Study**: launches your study exactly like `run` would, then lints what it
+  advertises — duplicate sample ids / target labels / axis values (these
+  collide case keys, so results silently overwrite), empty datasets or
+  matrices, unavailable targets — and cross-checks the config's presets and
+  `[targets.LABEL]` sections against the real listing.
+- **Saved runs** (the results dir): interrupted runs (with the `--resume` id to
+  finish them), invalid case results, leftover temp files from interrupted
+  writes, finished runs missing their reports.
+
+```bash
+mira doctor          # report findings; exits non-zero if any error
+mira doctor --fix    # also apply the safe fixes: remove leftover temp files,
+                     # re-render a finished run's missing report.json/report.html
+```
+
+Warnings never fail doctor; errors exit non-zero, so it can gate CI.
+
 ## Next steps
 
 - [Authoring evals](authoring.md) — datasets, the matrix, extra axes, metadata.

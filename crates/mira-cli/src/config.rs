@@ -288,6 +288,16 @@ impl Config {
         toml::from_str(text)
     }
 
+    /// Parse config text resolving relative paths against `base` (the directory
+    /// containing the file) — how [`Config::load`] builds it. Exposed so
+    /// `mira doctor` can surface the parse error itself instead of the
+    /// warn-and-default fallback `load()` applies.
+    pub fn parse_at(text: &str, base: &Path) -> Result<Config, toml::de::Error> {
+        let mut cfg = Config::parse(text)?;
+        cfg.base = Some(base.to_path_buf());
+        Ok(cfg)
+    }
+
     /// The configured results dir, or the default. A relative dir from a loaded
     /// `mira.toml` resolves against that file's directory, so results land in the
     /// same place no matter which subdir `mira` runs from.
@@ -304,7 +314,7 @@ impl Config {
 }
 
 /// Find `mira.toml` by walking up from the current working directory to the root.
-fn find_config() -> Option<PathBuf> {
+pub fn find_config() -> Option<PathBuf> {
     let mut dir = std::env::current_dir().ok()?;
     loop {
         let candidate = dir.join("mira.toml");
@@ -496,6 +506,14 @@ mod tests {
             ..Default::default()
         };
         assert_eq!(abs.results_dir(), "/var/evals");
+    }
+
+    #[test]
+    fn parse_at_resolves_relative_paths_against_base() {
+        // Like load(): a relative results dir resolves against the file's dir.
+        let cfg = Config::parse_at("[results]\ndir = \"./out\"\n", Path::new("/proj")).unwrap();
+        assert_eq!(cfg.results_dir(), "/proj/out");
+        assert!(Config::parse_at("not toml", Path::new("/proj")).is_err());
     }
 
     #[test]

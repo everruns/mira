@@ -9,6 +9,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **`mira doctor`.** One-command diagnosis of a Mira setup, in three layers:
+  `mira.toml` (parse errors, unknown/misspelled keys with a "did you mean"
+  suggestion, launcher mistakes, presets and timeouts that can't work), the
+  study's advertised listing (duplicate sample ids / target labels / axis
+  values that collide case keys, empty datasets and matrices, unavailable
+  targets, presets and `[targets.LABEL]` sections that match nothing), and the
+  saved-run store (interrupted runs, torn temp files, invalid case results,
+  missing reports). `mira doctor --fix` applies the safe repairs: removing
+  leftover `*.tmp` files and re-rendering a finished run's missing
+  `report.json`/`report.html` from its stored results. Warnings never fail;
+  errors exit non-zero, so doctor can gate CI.
+
+### Fixed
+
+- The repository's own `mira.toml` placed `default_launcher` below the
+  `[environment]` section header, which nests it inside that table — so the
+  setting was silently ignored (found by `mira doctor`). It now sits at the
+  top level.
+
 - **Publish runs to everruns.** A new `mira-publish-everruns` crate plus
   `mira publish <run_id>` and `mira run --publish everruns` send a saved run's
   results to an [everruns](https://everruns.com) instance, which hosts and

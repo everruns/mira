@@ -18,6 +18,7 @@
 //! mira --bin greet report <run_id>              # re-render a saved run
 //! mira --bin greet run --execute-only --artifacts art/  # capture transcripts
 //! mira --bin greet score --artifacts art/        # score (or re-score) them
+//! mira --bin greet doctor --fix                  # diagnose the setup; apply safe fixes
 //! ```
 //!
 //! Execution and scoring can be split: `run --execute-only` captures one
@@ -44,6 +45,7 @@ use indicatif::{ProgressBar, ProgressDrawTarget, ProgressStyle};
 use tokio::process::Command;
 
 mod config;
+mod doctor;
 mod env;
 
 use mira::Host;
@@ -166,6 +168,10 @@ enum Cmd {
     Report(ReportArgs),
     /// Publish a saved run's results to a hosted viewer (everruns).
     Publish(PublishArgs),
+    /// Diagnose the setup: mira.toml (keys, launchers, presets), the study's
+    /// listing (samples/targets/axes/matrix), and saved runs. `--fix` repairs
+    /// what's safe.
+    Doctor(DoctorArgs),
     /// Show help. Add `--full` for an overview, every flag, examples, and links.
     Help(HelpArgs),
 }
@@ -212,6 +218,17 @@ struct PublishArgs {
     to: String,
     #[command(flatten)]
     conn: PublishConn,
+}
+
+/// `mira doctor`: check config, study listing, and saved runs; report findings
+/// (warnings never fail; errors exit non-zero) and optionally apply safe fixes.
+#[derive(Args)]
+struct DoctorArgs {
+    /// Apply the fixes doctor knows are safe (remove leftover temp files from
+    /// interrupted writes, re-render a finished run's missing reports). Without
+    /// it, fixable findings are only listed.
+    #[arg(long)]
+    fix: bool,
 }
 
 #[derive(Args)]
@@ -389,6 +406,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         Some(Cmd::Report(args)) => return report(args),
         // `publish` reads a saved run from disk and POSTs it — no study either.
         Some(Cmd::Publish(args)) => return publish_cmd(args).await,
+        // `doctor` spawns (and tolerates a failing) study itself, so a broken
+        // launcher or study is a finding rather than a hard error here.
+        Some(Cmd::Doctor(args)) => {
+            doctor::doctor(build_launch_command(&cli.launcher), args.fix).await
+        }
         _ => {}
     }
 
@@ -426,8 +448,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
         Some(Cmd::Run(args)) => run(host, info, listing, *args, progress).await,
         Some(Cmd::Score(args)) => score(host, info, listing, args).await,
-        // Help/report/publish/no-args returned earlier, before the host spawned.
-        None | Some(Cmd::Help(_)) | Some(Cmd::Report(_)) | Some(Cmd::Publish(_)) => {
+        // Help/report/publish/doctor/no-args returned earlier, before the host
+        // spawned.
+        None
+        | Some(Cmd::Help(_))
+        | Some(Cmd::Report(_))
+        | Some(Cmd::Publish(_))
+        | Some(Cmd::Doctor(_)) => {
             unreachable!("handled before host spawn")
         }
     }
@@ -473,6 +500,7 @@ EXAMPLES
   mira --bin greet report <run_id>                       # re-render a saved run
   mira --bin greet run --execute-only --artifacts art/   # capture transcripts
   mira --bin greet score --artifacts art/                # score (or re-score) them
+  mira --bin greet doctor               # check config/study/saved runs (--fix repairs)
   mira --python3 study.py run           # drive a non-Rust (polyglot) study
   mira --launcher greet run             # use [launchers.greet] from mira.toml
   mira run                              # use mira.toml's default_launcher";

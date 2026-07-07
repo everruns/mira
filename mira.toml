@@ -1,6 +1,12 @@
 # Mira host configuration. Picked up by the `mira` CLI from the nearest
 # directory walking up from the working directory. All sections are optional.
 
+# Launcher used when neither a launch flag nor `--launcher` picks one — so a
+# bare `mira run` works. Top-level, so it must sit above the first [section]:
+# below one, TOML nests it inside that section and it is silently ignored
+# (`mira doctor` flags exactly that).
+default_launcher = "greet"
+
 [results]
 # Where `mira run --save` / `mira score --save` archive runs. Each run lands in
 # `<dir>/<run_id>/` (report.json, report.html, meta.json). Defaults to ./results.
@@ -20,10 +26,8 @@ enabled = true
 # Named launchers, selected with `mira --launcher NAME`. A launcher is a saved
 # way to start the study process (bin / example / cmd, plus package / manifest),
 # so a repo's invocation lives here instead of being retyped on every call.
-# Explicit launch flags override the named fields. `default_launcher` is used
-# when neither a flag nor `--launcher` picks one — so a bare `mira run` works.
-default_launcher = "greet"
-
+# Explicit launch flags override the named fields; `default_launcher` (top of
+# this file) is used when neither a flag nor `--launcher` picks one.
 [launchers.greet]
 # The bundled example study (cargo run -q --bin greet).
 bin = "greet"

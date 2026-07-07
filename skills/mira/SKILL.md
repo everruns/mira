@@ -102,10 +102,17 @@ mira --bin coding run                                    # saves a run folder by
 mira --bin coding run --resume <run_id>                  # resume; run only the missing cases
 mira report <run_id>                                     # re-render a saved run's reports
 mira --cmd "python3 study.py" run      # a study written in another language
+mira --bin coding doctor               # diagnose config/study/saved runs; --fix repairs
 ```
 
 Exit code is non-zero if any case failed — drops straight into CI. Run
 `mira help --full` for an overview, every flag, examples, and links.
+
+When a setup misbehaves (typo'd `mira.toml` keys, a preset that selects
+nothing, duplicate sample ids, unavailable targets, torn run folders), run
+`mira doctor`: it lints the config, the study's advertised listing, and the
+saved-run store, and `mira doctor --fix` applies the safe repairs (removing
+leftover temp files, re-rendering missing reports). Errors exit non-zero.
 
 ## Scorers
 
