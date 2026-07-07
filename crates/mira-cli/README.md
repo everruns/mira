@@ -46,7 +46,7 @@ and reporting.
         you author                       the `mira` CLI does the rest
   ┌────────────────────────┐
   │  study (mira-eval)     │
-  │  evals + subjects      │   mira --bin greet run --targets … --axis … --tag …
+  │  evals + subjects      │   mira --script study.rs run --targets … --axis … --tag …
   │  + scorers             │                       │
   │  Rust · Python · TS    │                       ▼
   └───────────┬────────────┘   ┌───────────────────────────────────────────────┐
@@ -79,20 +79,20 @@ of these flows live in the docs:
 ## Usage
 
 ```bash
-mira --bin greet list                          # what the study advertises
+mira --script study.rs list                          # what the study advertises
 
-mira --bin greet run                           # whole matrix (sim runs; keyed cases skip)
-mira --bin greet run greet                      # selective (substring), like cargo test
-mira --bin greet run --tag smoke               # filter by tag
-mira --bin greet run --targets sim             # subset the matrix by target
-mira --bin greet run --axis effort=low         # subset an arbitrary axis
+mira --script study.rs run                           # whole matrix (sim runs; keyed cases skip)
+mira --script study.rs run greet                      # selective (substring), like cargo test
+mira --script study.rs run --tag smoke               # filter by tag
+mira --script study.rs run --targets sim             # subset the matrix by target
+mira --script study.rs run --axis effort=low         # subset an arbitrary axis
 
-mira --bin greet run --format junit --out results.xml   # CI-friendly output
-mira --bin greet run --format html  --out report.html   # self-contained viewer
+mira --script study.rs run --format junit --out results.xml   # CI-friendly output
+mira --script study.rs run --format html  --out report.html   # self-contained viewer
 
-mira --bin greet run                           # saves ./results/<run_id>/ by default
-mira --bin greet run --dry-run                 # ephemeral; don't save a run folder
-mira --bin greet run --resume <run_id>         # finish an interrupted run (missing cases only)
+mira --script study.rs run                           # saves ./results/<run_id>/ by default
+mira --script study.rs run --dry-run                 # ephemeral; don't save a run folder
+mira --script study.rs run --resume <run_id>         # finish an interrupted run (missing cases only)
 mira report <run_id>                           # re-render a saved run's reports
 ```
 
@@ -100,17 +100,19 @@ Execution and scoring can be **split** — handy for long-running subjects whose
 transcripts take minutes to play out:
 
 ```bash
-mira --bin greet run --execute-only --artifacts art/   # capture one transcript per case
-mira --bin greet score --artifacts art/                # score (or re-score) without re-running
+mira --script study.rs run --execute-only --artifacts art/   # capture one transcript per case
+mira --script study.rs score --artifacts art/                # score (or re-score) without re-running
 ```
 
 ## Pointing it at a study
 
-`--bin NAME` resolves a Rust eval crate's binary across the workspace. Point the
-host at any study shape:
+`--script study.rs` runs a single-file Rust study (deps in cargo-script
+frontmatter) with no `Cargo.toml`; `--bin NAME` resolves a crate's binary across
+the workspace. Point the host at any study shape:
 
 | Flag | Study |
 |------|-------|
+| `--script study.rs` | a single-file Rust study (cargo-script frontmatter, shimmed onto stable) |
 | `--bin NAME` | a Rust eval crate exposing a like-named binary |
 | `--example NAME` | a workspace example study |
 | `--package` / `--manifest-path` | another Cargo package |

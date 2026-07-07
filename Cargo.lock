@@ -2047,47 +2047,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "mira-example-coding"
-version = "0.3.0"
-dependencies = [
- "mira-eval",
- "tokio",
-]
-
-[[package]]
-name = "mira-example-greet"
-version = "0.3.0"
-dependencies = [
- "mira-eval",
- "tokio",
-]
-
-[[package]]
-name = "mira-example-infra"
-version = "0.3.0"
-dependencies = [
- "mira-eval",
- "tokio",
-]
-
-[[package]]
-name = "mira-example-interactive"
-version = "0.3.0"
-dependencies = [
- "mira-eval",
- "tokio",
-]
-
-[[package]]
-name = "mira-example-llm-judge"
-version = "0.3.0"
-dependencies = [
- "mira-eval",
- "mira-judge",
- "tokio",
-]
-
-[[package]]
 name = "mira-example-llmsim"
 version = "0.3.0"
 dependencies = [
@@ -2108,30 +2067,6 @@ dependencies = [
 
 [[package]]
 name = "mira-example-metrics"
-version = "0.3.0"
-dependencies = [
- "mira-eval",
- "tokio",
-]
-
-[[package]]
-name = "mira-example-multimodal"
-version = "0.3.0"
-dependencies = [
- "mira-eval",
- "tokio",
-]
-
-[[package]]
-name = "mira-example-swe_bench"
-version = "0.3.0"
-dependencies = [
- "mira-eval",
- "tokio",
-]
-
-[[package]]
-name = "mira-example-trials"
 version = "0.3.0"
 dependencies = [
  "mira-eval",

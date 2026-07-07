@@ -1,13 +1,25 @@
+#!/usr/bin/env -S cargo +nightly -Zscript
+---
+# A single-file Mira study (cargo-script frontmatter, RFC 3502). Run it with the
+# host CLI — no per-study crate, no Cargo.toml:
+#
+#   mira --script examples/greet.rs run
+#
+# The host shims cargo-script on **stable** (it's otherwise `cargo -Zscript`,
+# nightly-only); set MIRA_SCRIPT_NATIVE=1 to run it natively on nightly.
+#
+# In your own repo, depend on the published crate instead of the path:
+#   mira-eval = "0.3"
+[package]
+edition = "2024"
+
+[dependencies]
+mira-eval = { path = "../crates/mira-eval" }
+tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
+---
 //! A minimal eval study, registered with the `#[eval]` attribute and served
-//! with `Study::registered().serve()`. Run it under the host CLI:
-//!
-//! ```bash
-//! mira --bin greet list
-//! mira --bin greet run
-//! ```
-//!
-//! The subject here is a deterministic in-process closure, so the whole thing
-//! runs offline against the `sim` model with no API key.
+//! with `Study::registered().serve()`. The subject is a deterministic in-process
+//! closure, so the whole thing runs offline against the `sim` model with no key.
 
 use mira::scorer::{contains, model_graded, succeeded};
 use mira::subject::subject_fn;

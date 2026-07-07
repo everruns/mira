@@ -9,6 +9,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Single-file studies (`--script study.rs`).** A study no longer needs a
+  crate: write one `.rs` file with cargo-script frontmatter (RFC 3502) for its
+  deps and run it with `mira --script study.rs`. `cargo -Zscript` is nightly-only,
+  so the host **shims it onto stable** — it parses the frontmatter, materializes a
+  content-hashed throwaway crate (re-anchoring relative `path` deps, adding a
+  `[[bin]]` and an isolating `[workspace]`), and `cargo run`s it with a shared
+  target dir. The file format matches native cargo-script, so the same study runs
+  under `cargo -Zscript` unchanged; `MIRA_SCRIPT_NATIVE=1` opts into that today.
+  Most bundled examples (`examples/<name>.rs`) are now single-file; multi-file /
+  heavy-dep ones (`cli_subject`, `metrics`, `matrix`, `llmsim`) stay crates.
 - **`mira doctor`.** One-command diagnosis of a Mira setup, in three layers:
   `mira.toml` (parse errors, unknown/misspelled keys with a "did you mean"
   suggestion, launcher mistakes, presets and timeouts that can't work), the
@@ -20,14 +30,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   leftover `*.tmp` files and re-rendering a finished run's missing
   `report.json`/`report.html` from its stored results. Warnings never fail;
   errors exit non-zero, so doctor can gate CI.
-
-### Fixed
-
-- The repository's own `mira.toml` placed `default_launcher` below the
-  `[environment]` section header, which nests it inside that table — so the
-  setting was silently ignored (found by `mira doctor`). It now sits at the
-  top level.
-
 - **Publish runs to everruns.** A new `mira-publish-everruns` crate plus
   `mira publish <run_id>` and `mira run --publish everruns` send a saved run's
   results to an [everruns](https://everruns.com) instance, which hosts and
@@ -37,6 +39,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `everruns login` is enough. One Mira run becomes one everruns run group (one
   EvalRun per eval, idempotent on the run id); everruns trusts Mira's verdict
   and does not re-grade.
+
+### Fixed
+
+- The repository's own `mira.toml` placed `default_launcher` below the
+  `[environment]` section header, which nests it inside that table — so the
+  setting was silently ignored (found by `mira doctor`). It now sits at the
+  top level.
 
 ## [0.3.0] - 2026-06-28
 

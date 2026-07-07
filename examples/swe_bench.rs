@@ -1,10 +1,27 @@
+#!/usr/bin/env -S cargo +nightly -Zscript
+---
+# Single-file Mira study (cargo-script frontmatter, RFC 3502). Run it with
+# the host CLI — no per-study crate:
+#
+#   mira --script examples/swe_bench.rs run
+#
+# The host shims cargo-script on **stable** (it's otherwise nightly-only
+# `cargo -Zscript`); set MIRA_SCRIPT_NATIVE=1 to run it natively on nightly.
+# Outside this repo, depend on the published crates: mira-eval = "0.3".
+[package]
+edition = "2024"
+
+[dependencies]
+mira-eval = { path = "../crates/mira-eval" }
+tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
+---
 //! A SWE-bench-style eval: fix a bug in a seeded repository so its failing test
 //! passes. This is the canonical "harness as a Mira eval" shape.
 //!
 //! ```bash
-//! mira --bin swe_bench list
-//! mira --bin swe_bench run
-//! mira --bin swe_bench run --group-by difficulty   # resolve rate per difficulty
+//! mira --script examples/swe_bench.rs list
+//! mira --script examples/swe_bench.rs run
+//! mira --script examples/swe_bench.rs run --group-by difficulty   # resolve rate per difficulty
 //! ```
 //!
 //! Each [`Sample`] seeds a buggy source file (and records the `FAIL_TO_PASS`
@@ -44,7 +61,7 @@ struct Instance {
     fixed: &'static str,
     fail_to_pass: &'static str,
     /// SWE-bench-style provenance, carried as sample metadata so the host can
-    /// break resolve-rate down by it: `mira --bin swe_bench run --group-by difficulty`.
+    /// break resolve-rate down by it: `mira --script examples/swe_bench.rs run --group-by difficulty`.
     difficulty: &'static str,
 }
 

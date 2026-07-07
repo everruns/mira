@@ -1,12 +1,29 @@
+#!/usr/bin/env -S cargo +nightly -Zscript
+---
+# Single-file Mira study (cargo-script frontmatter, RFC 3502). Run it with
+# the host CLI — no per-study crate:
+#
+#   mira --script examples/trials.rs run
+#
+# The host shims cargo-script on **stable** (it's otherwise nightly-only
+# `cargo -Zscript`); set MIRA_SCRIPT_NATIVE=1 to run it natively on nightly.
+# Outside this repo, depend on the published crates: mira-eval = "0.3".
+[package]
+edition = "2024"
+
+[dependencies]
+mira-eval = { path = "../crates/mira-eval" }
+tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
+---
 //! Trials / repetitions + seed: run the *same* case N times so the host can
 //! report pass@k, pass-rate, and score variance over a stochastic subject.
 //!
 //! ```bash
-//! mira --bin trials list                 # shows `trials=8, seed=…`
-//! mira --bin trials run                   # 8 trials per case, aggregated
-//! mira --bin trials run --trials 20       # override the count
-//! mira --bin trials run --seed 1          # different seed base, reproducible
-//! mira --bin trials run --format json --out report.json   # `trials` array in the record
+//! mira --script examples/trials.rs list                 # shows `trials=8, seed=…`
+//! mira --script examples/trials.rs run                   # 8 trials per case, aggregated
+//! mira --script examples/trials.rs run --trials 20       # override the count
+//! mira --script examples/trials.rs run --seed 1          # different seed base, reproducible
+//! mira --script examples/trials.rs run --format json --out report.json   # `trials` array in the record
 //! ```
 //!
 //! Unlike an `axis` (which forms *new* cases), trials are repetitions of one

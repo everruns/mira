@@ -68,11 +68,13 @@ The `#[eval]` attribute (re-exported from
 [`mira-macros`](https://crates.io/crates/mira-macros) via the default `macros`
 feature) gives `cargo test`-style discovery as an alternative to
 `register_eval!`. Run the study with the
-[`mira-cli`](https://crates.io/crates/mira-cli) host:
+[`mira-cli`](https://crates.io/crates/mira-cli) host — as a crate `[[bin]]`, or
+as a single-file [cargo-script](https://github.com/everruns/mira/blob/main/docs/how-it-works.md#single-file-studies---script)
+study with no `Cargo.toml` at all:
 
 ```bash
-mira --bin greet list   # what the study advertises
-mira --bin greet run    # run the whole matrix, score, and report
+mira --script study.rs run    # a single-file study (deps in frontmatter)
+mira --bin NAME run           # …or a crate bin/example study
 ```
 
 ## Two processes, one protocol

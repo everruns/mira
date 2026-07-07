@@ -8,8 +8,9 @@ when-to-invoke live in [`../SKILL.md`](../SKILL.md); canonical prose is in
 
 A study is a program that defines evals and calls
 `mira::Study::registered().serve()`. Register factories with `#[eval]` (or
-`register_eval!`). A study is just a `[[bin]]`; the host resolves it with
-`--bin NAME`.
+`register_eval!`). Ship it as a single-file `study.rs` (cargo-script frontmatter,
+run with `--script study.rs`) or as a crate `[[bin]]` / `examples/*.rs` (run with
+`--bin NAME` / `--example NAME`) — the body below is identical either way.
 
 ```rust
 use mira::scorer::{file_contains, latency_within, succeeded, tool_called, tokens_within};

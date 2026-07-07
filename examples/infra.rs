@@ -1,9 +1,26 @@
+#!/usr/bin/env -S cargo +nightly -Zscript
+---
+# Single-file Mira study (cargo-script frontmatter, RFC 3502). Run it with
+# the host CLI — no per-study crate:
+#
+#   mira --script examples/infra.rs run
+#
+# The host shims cargo-script on **stable** (it's otherwise nightly-only
+# `cargo -Zscript`); set MIRA_SCRIPT_NATIVE=1 to run it natively on nightly.
+# Outside this repo, depend on the published crates: mira-eval = "0.3".
+[package]
+edition = "2024"
+
+[dependencies]
+mira-eval = { path = "../crates/mira-eval" }
+tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
+---
 //! Demonstrates Mira's distinction between a **failure** (the model under test
 //! got it wrong) and an **infrastructure error** (budget/quota, rate limit,
 //! provider outage, timeout — not the model's fault).
 //!
 //! ```bash
-//! mira --bin infra run
+//! mira --script examples/infra.rs run
 //! ```
 //!
 //! Three samples show the three outcomes:

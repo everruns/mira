@@ -4,23 +4,18 @@
 
 [workspace]
 resolver = "2"
-# Each Rust example is its own self-contained crate under examples/<name>/.
-# Polyglot examples (e.g. examples/greet-python/) are plain folders with no
-# Cargo.toml — they aren't workspace members, so they're simply not listed here.
+# Most examples are single-file studies (examples/<name>.rs, cargo-script
+# frontmatter) run via `mira --script`; they aren't workspace members. Only
+# examples that need a real crate stay here: multi-file ones (matrix, metrics),
+# the one driving an external sibling script (cli_subject), and the one pulling
+# the heavy everruns runtime (llmsim). Polyglot examples (e.g.
+# examples/greet-python/) are plain folders, also not listed.
 members = [
     "crates/*",
-    "examples/greet",
-    "examples/coding",
     "examples/cli_subject",
     "examples/metrics",
     "examples/matrix",
-    "examples/trials",
-    "examples/swe_bench",
     "examples/llmsim",
-    "examples/llm_judge",
-    "examples/infra",
-    "examples/multimodal",
-    "examples/interactive",
 ]
 
 [workspace.package]

@@ -1,10 +1,27 @@
+#!/usr/bin/env -S cargo +nightly -Zscript
+---
+# Single-file Mira study (cargo-script frontmatter, RFC 3502). Run it with
+# the host CLI — no per-study crate:
+#
+#   mira --script examples/multimodal.rs run
+#
+# The host shims cargo-script on **stable** (it's otherwise nightly-only
+# `cargo -Zscript`); set MIRA_SCRIPT_NATIVE=1 to run it natively on nightly.
+# Outside this repo, depend on the published crates: mira-eval = "0.3".
+[package]
+edition = "2024"
+
+[dependencies]
+mira-eval = { path = "../crates/mira-eval" }
+tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
+---
 //! A multimodal eval study: the sample carries an **image attachment** next to
 //! its text prompt, and the subject reads the full multimodal prompt via
 //! [`Sample::prompt_parts`]. Runs offline against `sim` (no API key):
 //!
 //! ```bash
-//! mira --bin multimodal list
-//! mira --bin multimodal run
+//! mira --script examples/multimodal.rs list
+//! mira --script examples/multimodal.rs run
 //! ```
 //!
 //! Multimodal *input* is study-side and needs no protocol feature. The subject
