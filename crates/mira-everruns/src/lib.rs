@@ -99,7 +99,6 @@ impl Subject for RuntimeSubject {
                 Ok(result) => {
                     transcript.final_response = result.response;
                     transcript.iterations += result.iterations;
-                    transcript.tool_calls_count += result.tool_calls_count;
                     if !result.success {
                         // A failed turn may be the model's doing or the
                         // provider's; classify by the error text.
@@ -125,13 +124,41 @@ impl Subject for RuntimeSubject {
                 }
             }
         }
-        let (usage, tools) = summarize_events(&transcript.events);
+        // `summarize_events` totals usage from a generic JSON walk, but its
+        // tool-call detection only matches `{ name, input }` objects, which the
+        // everruns stream never emits — tool calls arrive as `tool.completed`
+        // events keyed by `data.tool_name`. Pull names from that event shape
+        // here (the adapter owns it) so tool-selection scorers see real calls.
+        // See EVE-676.
+        let (usage, _) = summarize_events(&transcript.events);
         transcript.usage = usage;
-        transcript.tool_calls = tools;
+        transcript.tool_calls = extract_tool_calls(&transcript.events);
         transcript.tool_calls_count = transcript.tool_calls.len();
         transcript.timing.duration_ms = started.elapsed().as_millis() as u64;
         transcript
     }
+}
+
+/// Tool names from the everruns event stream, in order, one per completed call.
+///
+/// The runtime serializes each finished tool call as a `tool.completed` event
+/// (`everruns_core::TOOL_COMPLETED`) whose `data` is a `ToolCompletedData` with
+/// a `tool_name` field. This matches that shape directly rather than relying on
+/// Mira's generic `{ name, input }` walk, which the everruns stream never hits.
+/// Failed calls still emit `tool.completed` (with `success: false`), so they
+/// count as invocations — a tool the model chose to call, which is what
+/// tool-selection scorers ask about.
+fn extract_tool_calls(events: &[serde_json::Value]) -> Vec<String> {
+    events
+        .iter()
+        .filter(|e| e.get("type").and_then(|t| t.as_str()) == Some(everruns_core::TOOL_COMPLETED))
+        .filter_map(|e| {
+            e.get("data")
+                .and_then(|d| d.get("tool_name"))
+                .and_then(|n| n.as_str())
+                .map(String::from)
+        })
+        .collect()
 }
 
 /// Classify a runtime/provider error string as infrastructure vs. subject.
@@ -204,6 +231,55 @@ pub fn target_to_resolved(target: &Target) -> ResolvedModel {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use everruns_core::{Event, EventContext, ToolCompletedData};
+
+    /// Serialize a real everruns `tool.completed` event the way the runtime
+    /// does, so the assertion pins the on-the-wire shape: if `tool.completed`
+    /// or `data.tool_name` ever drifts, this reconstructs the *new* shape and
+    /// the extractor (which hardcodes the old keys) returns empty — a loud
+    /// failure instead of the silent zero-tool-call scoring of EVE-676.
+    fn tool_completed_event(tool_name: &str) -> serde_json::Value {
+        let data =
+            ToolCompletedData::success("call_1".into(), tool_name.into(), Vec::new(), Some(3));
+        let event = Event::new(SessionId::new(), EventContext::empty(), data);
+        serde_json::to_value(&event).expect("event serializes")
+    }
+
+    #[test]
+    fn extracts_tool_names_from_completed_events() {
+        let events = vec![
+            tool_completed_event("read_file"),
+            tool_completed_event("write_file"),
+        ];
+        assert_eq!(extract_tool_calls(&events), vec!["read_file", "write_file"]);
+    }
+
+    #[test]
+    fn extract_ignores_non_tool_events_and_generic_shapes() {
+        // A `{ name, input }` object (Mira's generic tool shape) and an
+        // unrelated event must not be counted — only `tool.completed` is.
+        let events = vec![
+            serde_json::json!({ "type": "output.message.completed", "data": { "text": "hi" } }),
+            serde_json::json!({ "name": "read_file", "input": { "path": "x" } }),
+        ];
+        assert!(extract_tool_calls(&events).is_empty());
+    }
+
+    #[test]
+    fn extract_includes_failed_tool_calls() {
+        // A failed tool call still emits `tool.completed`; the model chose to
+        // call the tool, so tool-selection scorers should see it.
+        let data = ToolCompletedData::failure(
+            "call_2".into(),
+            "search".into(),
+            "error".into(),
+            "boom".into(),
+            None,
+        );
+        let event = Event::new(SessionId::new(), EventContext::empty(), data);
+        let value = serde_json::to_value(&event).expect("event serializes");
+        assert_eq!(extract_tool_calls(&[value]), vec!["search"]);
+    }
 
     #[test]
     fn maps_known_providers() {
