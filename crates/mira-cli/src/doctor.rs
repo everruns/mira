@@ -501,20 +501,18 @@ fn check_launchers(cfg: &Config) -> Vec<Finding> {
         if let Some((mode, value)) = modes.first() {
             let program = value.split_whitespace().next().unwrap_or_default();
             match *mode {
-                "uv" | "python" | "python3" => {
-                    if !program.is_empty() && !Path::new(program).exists() {
-                        out.push(Finding::warn(format!(
-                            "launcher {name:?}: script {program:?} not found \
-                             (resolved from the directory `mira` runs in)"
-                        )));
-                    }
+                "uv" | "python" | "python3"
+                    if !program.is_empty() && !Path::new(program).exists() =>
+                {
+                    out.push(Finding::warn(format!(
+                        "launcher {name:?}: script {program:?} not found \
+                         (resolved from the directory `mira` runs in)"
+                    )));
                 }
-                "cmd" => {
-                    if !program.is_empty() && !on_path(program) {
-                        out.push(Finding::warn(format!(
-                            "launcher {name:?}: program {program:?} not found on PATH"
-                        )));
-                    }
+                "cmd" if !program.is_empty() && !on_path(program) => {
+                    out.push(Finding::warn(format!(
+                        "launcher {name:?}: program {program:?} not found on PATH"
+                    )));
                 }
                 // bin/example resolve via cargo at launch time.
                 _ => {}
