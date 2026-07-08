@@ -105,6 +105,14 @@ Actions secrets for publishing. The Homebrew tap push uses
 - Stage files explicitly by name. Avoid broad `git add .` / `git add -A`.
 - Merging PRs as part of the shipment flow is pre-approved when CI is green.
 
+### PRs
+
+- Use `.github/pull_request_template.md` for the description.
+- Center it on functional change and impact, not a code-location walkthrough (the
+  diff shows that). Add a Before / After with proof — CLI output, logs, metrics, or
+  screenshots for UI — whenever behaviour changes.
+- Conventional Commits titles; Squash and Merge; never merge red CI.
+
 ### Pre-PR checklist
 
 - `just check` passes (fmt, clippy `-D warnings`, tests).
