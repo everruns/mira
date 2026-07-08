@@ -58,6 +58,7 @@ pub mod scorer;
 pub mod study;
 pub mod subject;
 pub mod target;
+pub mod trajectory;
 
 use std::collections::BTreeMap;
 
@@ -103,6 +104,7 @@ pub use runner::{CaseOutcome, RunReport, Runner};
 pub use scorer::Scorer;
 pub use study::Study;
 pub use subject::{CliSubject, Subject, subject_fn};
+pub use trajectory::{ToolInvocation, Trajectory};
 
 /// Free-form, **open-ended** metadata attached to evals, samples, targets,
 /// transcripts, and runs.
@@ -261,19 +263,35 @@ impl Timing {
 /// [`Sample`].
 ///
 /// Every subject — in-process, CLI, or a custom integration — produces this same
-/// shape, so scorers and reporting never depend on a subject's internals. The
-/// `events` field carries the raw transcript (e.g. everruns' canonical JSONL
-/// `Event`s) for structural scorers to search.
+/// shape, so scorers and reporting never depend on a subject's internals.
+///
+/// Subjects that can produce a structured record of *what the agent did* set
+/// [`trajectory`](Transcript::trajectory) — the primary structured trajectory
+/// contract (ATIF; see [`crate::trajectory`]). **Provide `trajectory` and the
+/// rest is derived**: the flat fields (`final_response`, `tool_calls`,
+/// `iterations`, `usage`) are its projections, filled automatically by the
+/// framework wherever a transcript is produced or received (see
+/// [`Transcript::project_trajectory`]) — a trajectory-only transcript works
+/// with every existing scorer, no extra calls required. `events` is optional
+/// and fully independent of `trajectory`: providing one, the other, both, or
+/// neither are all valid, with no consistency obligation on the producer.
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub struct Transcript {
+    // The flat fields below are `#[serde(default)]` (but always serialized):
+    // a trajectory-only producer may omit every one of them and the wire
+    // still parses, with `project_trajectory` deriving them afterwards.
     /// The subject's final response text.
+    #[serde(default)]
     pub final_response: String,
     /// Reasoning iterations / turns taken.
+    #[serde(default)]
     pub iterations: usize,
     /// Number of tool calls made.
+    #[serde(default)]
     pub tool_calls_count: usize,
     /// Token / cost usage.
+    #[serde(default)]
     pub usage: Usage,
     /// Wall-clock timing (duration, time-to-first-token).
     #[serde(default, skip_serializing_if = "Timing::is_default")]
@@ -284,7 +302,22 @@ pub struct Transcript {
     /// Files present in the subject's workspace after the run (path → contents).
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub files: BTreeMap<String, String>,
-    /// Raw serialized events (e.g. the everruns `Event` JSONL transcript).
+    /// Structured ATIF trajectory of the run (steps with tool calls,
+    /// arguments, observations, per-step metrics) — the **primary structured
+    /// trajectory contract**. Optional: subjects that can produce it do;
+    /// text-only subjects omit it. When present, `final_response`,
+    /// `tool_calls`, `iterations`, and `usage` are projections of it, derived
+    /// automatically ([`trajectory::Trajectory::project_into`], applied by the
+    /// framework on produce/receive) — a producer sets this field alone and
+    /// owes nothing else, `events` included. See [`crate::trajectory`].
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub trajectory: Option<trajectory::Trajectory>,
+    /// **Advanced / secondary**: raw, producer-shaped debug events (e.g. the
+    /// everruns `Event` JSONL transcript). No cross-subject shape — scorers
+    /// and consumers must prefer [`trajectory`](Transcript::trajectory) for
+    /// anything it models (tool calls, arguments, observations, metrics);
+    /// `events` is only for debugging and data the trajectory doesn't carry.
+    /// Optional and independent of `trajectory` (either, both, or neither).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub events: Vec<serde_json::Value>,
     /// Extensible **numeric** metrics a subject measured that the core doesn't
@@ -385,6 +418,32 @@ impl Transcript {
             error: Some(error.into()),
             error_kind: ErrorKind::Infra,
             ..Default::default()
+        }
+    }
+
+    /// A transcript built from a structured ATIF [`Trajectory`] alone — the
+    /// zero-burden path for trajectory-producing subjects. The flat fields
+    /// (`final_response`, `tool_calls`, `iterations`, `usage`) are projected
+    /// from the trajectory automatically; there is nothing else to call, and
+    /// `events` is not required (it is independent of the trajectory).
+    pub fn from_trajectory(trajectory: trajectory::Trajectory) -> Self {
+        let mut t = Self::default();
+        trajectory.project_into(&mut t);
+        t.trajectory = Some(trajectory);
+        t
+    }
+
+    /// Fill any flat fields still at their defaults from
+    /// [`trajectory`](Transcript::trajectory) (no-op without one). Fields a
+    /// producer set explicitly are never overwritten — see
+    /// [`trajectory::Trajectory::project_into`]. The framework calls this at
+    /// every point a transcript is produced or received (subject execution,
+    /// `score` params, `execute` results), so a study that serializes
+    /// `{"trajectory": …}` and nothing else scores correctly end-to-end.
+    pub fn project_trajectory(&mut self) {
+        if let Some(trajectory) = self.trajectory.take() {
+            trajectory.project_into(self);
+            self.trajectory = Some(trajectory);
         }
     }
 
@@ -748,6 +807,45 @@ mod tests {
         assert!(json.contains(r#""kind":"image""#));
         let back: Transcript = serde_json::from_str(&json).unwrap();
         assert_eq!(back.output, t.output);
+    }
+
+    #[test]
+    fn trajectory_only_transcript_round_trips_the_wire_and_projects() {
+        use crate::trajectory::{Agent, Step, StepSource, ToolCall, Trajectory};
+
+        // A producer (e.g. a polyglot study) serializes ONLY a trajectory —
+        // no flat fields, no events. That is a fully valid transcript.
+        let mut trajectory = Trajectory::new(Agent::new("test-agent", "1.0"));
+        let mut step = Step::new(1, StepSource::Agent, "the answer is 42");
+        step.tool_calls = vec![ToolCall::new(
+            "c1",
+            "calc",
+            serde_json::json!({"expr": "6*7"}),
+        )];
+        trajectory.steps.push(step);
+        let wire = serde_json::to_string(&serde_json::json!({ "trajectory": trajectory })).unwrap();
+
+        // Receive it off the wire, normalize, and the projections appear.
+        let mut t: Transcript = serde_json::from_str(&wire).unwrap();
+        assert!(t.final_response.is_empty()); // nothing until projected
+        t.project_trajectory();
+        assert_eq!(t.final_response, "the answer is 42");
+        assert_eq!(t.tool_calls, vec!["calc"]);
+        assert_eq!(t.tool_calls_count, 1);
+        assert_eq!(t.iterations, 1);
+        assert!(t.events.is_empty()); // never required alongside
+
+        // It round-trips: the trajectory survives re-serialization…
+        let again: Transcript = serde_json::from_str(&serde_json::to_string(&t).unwrap()).unwrap();
+        assert_eq!(again.trajectory, t.trajectory);
+        // …and projecting again is idempotent.
+        let mut twice = again.clone();
+        twice.project_trajectory();
+        assert_eq!(twice.tool_calls, again.tool_calls);
+
+        // A transcript without a trajectory omits the key entirely.
+        let plain = serde_json::to_string(&Transcript::response("ok")).unwrap();
+        assert!(!plain.contains("trajectory"));
     }
 
     #[test]

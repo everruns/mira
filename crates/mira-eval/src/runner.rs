@@ -35,10 +35,18 @@ pub async fn execute_case(
         trial,
         conversation: Vec::new(),
     };
-    match &eval.responder {
+    let mut transcript = match &eval.responder {
         None => eval.subject.run(sample, &cx).await,
         Some(responder) => drive_interactive(eval, sample, &mut cx, responder.as_ref()).await,
-    }
+    };
+    // Zero-burden trajectory contract: a subject may set only
+    // `transcript.trajectory`; the flat fields (final_response, tool_calls,
+    // iterations, usage) are derived here — fill-if-default, so anything the
+    // subject set explicitly wins. This is the produce-side choke point every
+    // path shares (Runner, study `run`/`execute`); the receive-side ones are
+    // `Study::score` and `HostHandle::execute`.
+    transcript.project_trajectory();
+    transcript
 }
 
 /// Drive an interactive eval: invoke the subject once per turn (handing it the
@@ -58,7 +66,12 @@ async fn drive_interactive(
 
     for turn in 1..=cap {
         cx.conversation = convo.clone();
-        let t = eval.subject.run(sample, cx).await;
+        let mut t = eval.subject.run(sample, cx).await;
+        // Project each turn's trajectory (if any) into its flat fields before
+        // folding; the combined transcript accumulates those projections.
+        // Per-turn trajectories are not merged into one document — folding
+        // ATIF steps across turns is out of scope for interactive evals.
+        t.project_trajectory();
         merge_turn(&mut combined, &t);
         combined.iterations = turn;
         // Record the subject's turn so the responder (and transcript) see it.

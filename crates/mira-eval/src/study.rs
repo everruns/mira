@@ -216,6 +216,7 @@ impl Study {
                         capabilities::TRIALS.into(),
                         capabilities::CANCEL.into(),
                         capabilities::PAGINATE.into(),
+                        capabilities::TRAJECTORY.into(),
                     ],
                     // Structured config for the advertised capabilities (event
                     // kinds, supported modalities) — see capability_params.
@@ -461,7 +462,13 @@ impl Study {
             .find(|s| s.id == params.sample)
             .ok_or_else(|| format!("no such sample: {}/{}", params.eval, params.sample))?;
 
-        let scores = score_transcript(eval, sample, &params.transcript).await;
+        // Normalize on receipt: a replayed transcript may be trajectory-only
+        // (a foreign study set nothing but `trajectory`). Fill-if-default, so
+        // explicitly-set flat fields are never overwritten; scorers and the
+        // summary then see the projected names/usage.
+        let mut transcript = params.transcript.clone();
+        transcript.project_trajectory();
+        let scores = score_transcript(eval, sample, &transcript).await;
         Ok(RunResult {
             eval: params.eval.clone(),
             sample: params.sample.clone(),
@@ -475,7 +482,7 @@ impl Study {
             passed: verdict(&scores),
             aggregate: aggregate_value(&scores),
             scores,
-            transcript: TranscriptSummary::of(&params.transcript),
+            transcript: TranscriptSummary::of(&transcript),
             skipped: false,
         })
     }
@@ -566,6 +573,16 @@ fn advertised_capability_params() -> crate::Metadata {
         (
             "modalities".to_string(),
             serde_json::json!({ "input": modalities, "output": modalities }),
+        ),
+        (
+            // The trajectory representation this study emits (a reader is
+            // more lenient — any ATIF-v1.x parses). `format` keeps the door
+            // open for a non-ATIF or ATIF-v2 form without a new token.
+            capabilities::TRAJECTORY.to_string(),
+            serde_json::json!({
+                "format": crate::trajectory::ATIF_FORMAT,
+                "version": crate::trajectory::ATIF_VERSION.trim_start_matches("ATIF-v"),
+            }),
         ),
     ])
 }
@@ -938,6 +955,58 @@ mod tests {
         let second = s.score(&sp).await.unwrap();
         assert_eq!(first.scores, second.scores);
         assert!(first.passed && second.passed);
+    }
+
+    #[tokio::test]
+    async fn score_normalizes_a_trajectory_only_transcript() {
+        use crate::scorer::{tool_called, tool_calls_within};
+        use crate::trajectory::{Agent, Step, StepSource, ToolCall, Trajectory};
+
+        // A foreign/polyglot study serialized ONLY `{"transcript": {"trajectory": …}}`
+        // — no flat fields, no events. The study must normalize on receipt so
+        // the existing name-based scorers see the projected tool names.
+        let s = Study::new().eval(
+            Eval::new("traj")
+                .sample("hi", "say hi")
+                .subject(subject_fn(|_, _| async { Transcript::response("unused") }))
+                .scorer(contains("hi there"))
+                .scorer(tool_called("search"))
+                .scorer(tool_calls_within(1))
+                .build(),
+        );
+
+        let mut trajectory = Trajectory::new(Agent::new("external-agent", "1.0"));
+        let mut step = Step::new(1, StepSource::Agent, "hi there");
+        step.tool_calls = vec![ToolCall::new(
+            "c1",
+            "search",
+            serde_json::json!({"q": "hi"}),
+        )];
+        trajectory.steps.push(step);
+        // The exact wire shape a trajectory-only producer emits.
+        let wire = serde_json::json!({ "trajectory": trajectory });
+        let transcript: Transcript = serde_json::from_value(wire).unwrap();
+
+        let result = s
+            .score(&ScoreParams {
+                eval: "traj".into(),
+                sample: "hi".into(),
+                target: "sim".into(),
+                params: Default::default(),
+                trial: 0,
+                trials: 0,
+                seed: None,
+                transcript,
+            })
+            .await
+            .unwrap();
+
+        assert!(result.passed, "scores: {:?}", result.scores);
+        assert!(result.scores.iter().all(|sc| sc.pass));
+        // The summary carries the projections too.
+        assert_eq!(result.transcript.final_response, "hi there");
+        assert_eq!(result.transcript.tool_calls, vec!["search"]);
+        assert_eq!(result.transcript.tool_calls_count, 1);
     }
 
     #[tokio::test]

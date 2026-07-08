@@ -129,22 +129,23 @@ study.
 **Params**
 
 ```json
-{ "protocol_version": "1.0", "host": "mira-cli" }
+{ "protocol_version": "1.1", "host": "mira-cli" }
 ```
 
 **Result**
 
 ```json
 {
-  "protocol_version": "1.0",
+  "protocol_version": "1.1",
   "study": "my-evals",
   "evals": 3,
   "study_version": "0.1.0",
-  "capabilities": ["axes", "events", "usage", "execute", "score", "trials", "cancel", "paginate"],
+  "capabilities": ["axes", "events", "usage", "execute", "score", "trials", "cancel", "paginate", "trajectory"],
   "capability_params": {
     "events": { "kinds": ["started"] },
     "modalities": { "input": ["text", "image", "audio", "file", "json"],
-                    "output": ["text", "image", "audio", "file", "json"] }
+                    "output": ["text", "image", "audio", "file", "json"] },
+    "trajectory": { "format": "ATIF", "version": "1.7" }
   }
 }
 ```
@@ -152,7 +153,7 @@ study.
 The study replies with the `protocol_version` it implements. Compatibility is
 by **major**: a host refuses a study whose major differs from its own; a
 differing minor is additive and tolerated (see [Versioning](#versioning)). The
-current version is **`1.0`**.
+current version is **`1.1`**.
 
 `capabilities` lets a host feature-detect additively instead of sniffing
 versions. Defined tokens: `axes` (study advertises extra axes and honours
@@ -160,11 +161,18 @@ versions. Defined tokens: `axes` (study advertises extra axes and honours
 token/cost/timing), `execute` (answers `execute`), `score` (answers `score`),
 `trials` (threads the `seed` run param into the subject, so repetitions are
 reproducible), `cancel` (answers `cancel`), `paginate` (answers `list_samples`
-and may return `EvalInfo.next_cursor` from `list`). `study_version` and
+and may return `EvalInfo.next_cursor` from `list`), `trajectory` (attaches a
+[structured trajectory](#structured-trajectory-transcripttrajectory) to
+transcripts). `study_version` and
 `capabilities` are optional and default to empty. A study that implements only
 the base methods (`initialize`, `list`, `run`) and advertises no capabilities
 interoperates unchanged — the host simply won't see the
-`execute`/`score`/`trials`/`cancel`/`paginate` capabilities.
+`execute`/`score`/`trials`/`cancel`/`paginate`/`trajectory` capabilities.
+
+The `trajectory` token's `capability_params` entry names the representation the
+study **emits** — `{ "format": "ATIF", "version": "1.7" }`. `format` keeps the
+door open for a non-ATIF (or ATIF-v2) representation without a new token; a
+reader is more lenient than the advertised version (any `ATIF-v1.x` parses).
 
 `capability_params` (optional, defaulted) carries **structured config** for the
 advertised capabilities, keyed by capability token — the data a bare token
@@ -343,7 +351,7 @@ variance.
 | `passed` | bool | True iff every scorer passed (and at least one ran). |
 | `aggregate` | number | Mean of score `value`s, `0.0..=1.0`. |
 | `scores` | array | One [`Score`](#score) per scorer. |
-| `transcript` | object | Lightweight summary (raw events omitted on the wire). |
+| `transcript` | object | Lightweight summary (the trajectory and raw events are omitted on the wire). |
 | `skipped` | bool | True when the case was not executed (e.g. unavailable model). |
 
 The `transcript.usage` object may also carry `cache_read_tokens` and
@@ -411,9 +419,71 @@ execution artifact, to be scored — or re-scored — later. Advertised by the
 
 | Field | Type | Notes |
 |-------|------|-------|
-| `transcript` | object | The **full** transcript, including raw `events` and `files`. |
+| `transcript` | object | The **full** transcript, including `trajectory`, raw `events`, and `files`. |
 | `trial` / `trials` / `seed` | int / int / int | Echo the case's trial identity (optional), so a per-trial artifact stays distinct. |
 | `skipped` | bool | True when the case was not executed (e.g. unavailable model). |
+
+#### Structured trajectory (`transcript.trajectory`)
+
+`transcript.trajectory` is the protocol's **primary structured trajectory
+contract**: a typed, producer-agnostic record of *what the agent did* — ordered
+steps carrying structured tool calls (name **and** arguments), correlated
+observations, per-step reasoning, and per-step token/cost metrics. Its shape is
+the [Agent Trajectory Interchange Format](https://github.com/harbor-framework/harbor/blob/main/rfcs/0001-trajectory-format.md)
+(ATIF), carried verbatim, so a Mira transcript's trajectory is a valid ATIF
+document for external SFT/RL/visualization tooling. It rides the full
+`Transcript` — `execute` results and `score` params — and is deliberately
+**not** part of the lightweight `TranscriptSummary` that `run` results carry.
+Advertised by the `trajectory` capability, with the emitted format/version in
+`capability_params` (`{ "format": "ATIF", "version": "1.7" }`); readers accept
+any `ATIF-v1.x` and reject other prefixes with an error, never a crash.
+
+```json
+"transcript": {
+  "trajectory": {
+    "schema_version": "ATIF-v1.7",
+    "agent": { "name": "my-agent", "version": "1.0.0" },
+    "steps": [
+      { "step_id": 1, "source": "user", "message": "What is GOOGL trading at?" },
+      { "step_id": 2, "source": "agent",
+        "message": "GOOGL is trading at $185.35.",
+        "tool_calls": [ { "tool_call_id": "c1", "function_name": "financial_search",
+                          "arguments": { "ticker": "GOOGL" } } ],
+        "observation": { "results": [ { "source_call_id": "c1", "content": "$185.35" } ] },
+        "metrics": { "prompt_tokens": 520, "completion_tokens": 80 } }
+    ]
+  }
+}
+```
+
+**Provide `trajectory` and the rest is derived.** The flat transcript fields
+(`final_response`, `tool_calls`, `tool_calls_count`, `iterations`, `usage`) are
+*projections* of the trajectory: `final_response` is the last agent step's text,
+`tool_calls` every `function_name` in step order, `iterations` the agent steps
+with `llm_call_count != 0`, and `usage` comes from `final_metrics` (else the
+per-step sum). A producer may therefore serialize a transcript containing
+**only** `{ "trajectory": … }` — the framework fills the flat fields on
+receipt/production (never overwriting one the producer set explicitly), so
+every existing name-based scorer keeps working with zero producer-side effort.
+`events` is **not** required alongside a trajectory: trajectory, events, both,
+or neither are all valid, with no consistency obligation between them.
+
+**`events` is advanced/secondary.** The raw `events` array is a producer-shaped
+debug channel with no cross-subject shape. Scorers and consumers must prefer
+`trajectory` for anything it models (tool calls, arguments, observations,
+reasoning, metrics); reach for `events` only for debugging and data the
+trajectory doesn't carry.
+
+**Compatibility.** The field + token are the `1.1` minor addition. An old
+(pre-`1.1`) study never sets the field — nothing to do. A new study talking to a
+pre-`1.1` **host** keeps working too, with one consequence to know about: the
+old host parses `ExecuteResult` into *its* transcript shape, ignoring the
+unknown `trajectory` field, and re-serializes that when persisting execute
+artifacts — so **the trajectory is silently dropped from artifacts stored by a
+pre-`1.1` host** (deferred trajectory-aware scoring then degrades to the flat
+fields). Nothing breaks; a study that needs durable trajectories can detect the
+situation from the host's `protocol_version` in `initialize.params` and warn on
+`stderr`.
 
 ### `score`
 
@@ -605,15 +675,21 @@ stdin, by contrast, ends *every* in-flight run at once.)
 
 ## Versioning
 
-The protocol uses `MAJOR.MINOR` (`PROTOCOL_VERSION`, currently `1.0`). `1.0` is
+The protocol uses `MAJOR.MINOR` (`PROTOCOL_VERSION`, currently `1.1`). `1.0` is
 the initial stable baseline: the full method set (`initialize`, `list`,
 `list_samples`, `run`, `execute`, `score`, `cancel`), typed and
 `request_id`-correlated `event`/`log` notifications, JSON-RPC-shaped error
 objects, trials/repetitions with seeds, cursor-paginated sample listing,
 eval/sample/model `metadata` (open-ended JSON), and multimodal `output` plus
-structured `capability_params`. A study that implements only the base methods
+structured `capability_params`. **`1.1`** adds the
+[structured ATIF trajectory](#structured-trajectory-transcripttrajectory): one
+optional `Transcript.trajectory` field (riding `execute` results and `score`
+params) plus the `trajectory` capability token — additive, so a `1.0` peer
+ignores both and keeps interoperating (see the compatibility note in that
+section for the one artifact-persistence consequence). A study that implements
+only the base methods
 (`initialize`, `list`, `run`) — advertising no capabilities and emitting no
-notifications — interoperates with a full `1.0` host: every method and field
+notifications — interoperates with a full `1.1` host: every method and field
 beyond the base is feature-detected or defaulted. Future additions bump the minor.
 
 - A **MINOR** bump is **additive**: new optional fields, new notification kinds,
@@ -631,7 +707,7 @@ Forward compatibility is a hard requirement on both sides:
    still validates against a newer host.
 3. **Feature-detect via `capabilities`**, not version sniffing, for optional
    behaviour (`axes`, `events`, `usage`, `execute`, `score`, `trials`, `cancel`,
-   `paginate`).
+   `paginate`, `trajectory`).
 
 This is why a `0.x`-era study (no `axes`, no `timing`) and a `1.0` host
 interoperate: the host sees an empty `axes`/`capabilities` and a target-only
@@ -652,7 +728,8 @@ The wire types have a generated, language-neutral definition under `schema/`:
   payload type (`InitializeResult`, `ListResult`/`EvalInfo`,
   `ListSamplesParams`/`ListSamplesResult`, `RunParams`,
   `RunResult`/`TranscriptSummary`, `ExecuteResult`/`ScoreParams`, the notification
-  payloads `EventParams`/`LogParams`, and the full `Transcript`, `Score`, …) is
+  payloads `EventParams`/`LogParams`, and the full `Transcript`, `Score`, plus
+  the ATIF trajectory types `Trajectory`/`Step`/`ToolCall`/`Observation`/…) is
   published under `$defs`.
 - `schema/v1/meta.json` — a small index: the current `version`, `min_version`,
   the method list, the defined `capabilities` tokens, and the `event_kinds`

@@ -29,6 +29,7 @@ from ._wire import (
     TranscriptSummary,
 )
 from .scorers import Scorer, make_score
+from .trajectory import ATIF_FORMAT, ATIF_VERSION, normalize as _normalize_trajectory
 
 # PROTOCOL_VERSION is imported from the generated `_meta` (above) — derived from
 # schema/v1/meta.json, not hardcoded, so a version bump can't leave it stale.
@@ -196,7 +197,7 @@ class Study:
         return deco
 
     def _capabilities(self) -> List[str]:
-        caps = ["usage", "execute", "score", "paginate"]
+        caps = ["usage", "execute", "score", "paginate", "trajectory"]
         if any(ev.axes for ev in self._evals.values()):
             caps.insert(0, "axes")
         return caps
@@ -242,14 +243,23 @@ class Study:
             return Transcript(error=f"target unavailable: {m.label}", error_kind="infra"), True
         cx = RunCx(target=m.label, provider=m.provider, max_turns=ev.max_turns,
                    params=params.get("params", {}))
-        return ev.subject(sample, cx), False
+        # Zero-burden trajectory contract: a subject may set only
+        # `transcript.trajectory`; the flat fields are projected here
+        # (fill-if-default — explicitly set fields win).
+        return _normalize_trajectory(ev.subject(sample, cx)), False
 
     def handle(self, method: str, params: dict) -> dict:
         if method == "initialize":
             return _codec.to_dict(InitializeResult(
                 protocol_version=PROTOCOL_VERSION, study=self.name,
                 evals=len(self._evals), study_version=self.version,
-                capabilities=self._capabilities()))
+                capabilities=self._capabilities(),
+                capability_params={
+                    # The trajectory representation this study emits (readers
+                    # are more lenient — any ATIF-v1.x parses).
+                    "trajectory": {"format": ATIF_FORMAT,
+                                   "version": ATIF_VERSION.removeprefix("ATIF-v")},
+                }))
         if method == "list":
             return _codec.to_dict(ListResult(
                 evals=[self._eval_info(e) for e in self._evals.values()]))
@@ -271,7 +281,11 @@ class Study:
             ev = self._evals[params["eval"]]
             sample = ev._sample(params["sample"])
             if method == "score":
-                transcript, skipped = _codec.from_dict(Transcript, params["transcript"]), False
+                # Normalize on receipt: a replayed transcript may be
+                # trajectory-only; name-based scorers then see the projections.
+                transcript = _normalize_trajectory(
+                    _codec.from_dict(Transcript, params["transcript"]))
+                skipped = False
             else:
                 transcript, skipped = self._execute(params)
             scores = _score_transcript(ev, sample, transcript)

@@ -9,6 +9,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **ATIF trajectories: the primary structured trajectory contract (protocol
+  1.1).** `Transcript` gains an optional `trajectory` field carrying an
+  [ATIF](https://github.com/harbor-framework/harbor/blob/main/rfcs/0001-trajectory-format.md)
+  document (new `mira::trajectory` module: steps with structured tool calls,
+  arguments, correlated observations, per-step reasoning and metrics — emitted
+  as `ATIF-v1.7`; any `ATIF-v1.x` parses, other prefixes are rejected
+  gracefully). The flat fields (`final_response`, `tool_calls`, `iterations`,
+  `usage`) are now *projections* of the trajectory: the framework derives them
+  wherever a transcript is produced or received (fill-if-default, never
+  overwriting explicit values), so a subject or polyglot study can return
+  `{"trajectory": …}` alone and every existing scorer keeps working —
+  `Transcript::from_trajectory` is the one-call constructor, and
+  `Transcript::tool_invocations()` exposes names + arguments + observation
+  content (trajectory-first, falling back to the legacy name list). `events` is
+  repositioned as an advanced, producer-shaped debug channel — independent of
+  and never required alongside the trajectory. The protocol bumps `1.0 → 1.1`
+  (additive) with a new `trajectory` capability and
+  `capability_params.trajectory = {format: "ATIF", version: "1.7"}`; both SDKs
+  gain the generated `Trajectory` wire types, a hand-mirrored projection
+  (`mira.trajectory` / `trajectory.ts`), and serve-loop normalization, all
+  pinned by a new three-runner conformance fixture
+  (`schema/v1/conformance/trajectory.json`).
 - **Single-file studies (`--script study.rs`).** A study no longer needs a
   crate: write one `.rs` file with cargo-script frontmatter (RFC 3502) for its
   deps and run it with `mira --script study.rs`. `cargo -Zscript` is nightly-only,

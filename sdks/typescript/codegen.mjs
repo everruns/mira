@@ -31,8 +31,11 @@ const SCALAR = { string: "string", integer: "number", number: "number", boolean:
 
 const refName = (ref) => ref.split("/").pop();
 
-/** A $def we emit as an interface (vs. a `oneOf` union). */
-const isObjectDef = (defs, name) => !("oneOf" in (defs[name] ?? {}));
+/** A $def we emit as an interface (vs. a `oneOf`/`anyOf` union). */
+const isObjectDef = (defs, name) => {
+  const d = defs[name] ?? {};
+  return !("oneOf" in d) && !("anyOf" in d);
+};
 
 /** A `oneOf` whose members are all bare `const`s (e.g. ErrorKind) -> string union.
  * The other `oneOf` shape is a union of *objects* (a tagged union like Part, or
@@ -53,8 +56,12 @@ function tsType(defs, schema) {
   }
   const t = schema.type;
   if (Array.isArray(t)) {
+    // e.g. ["string", "null"] or ["array", "null"]
     const nonNull = t.filter((x) => x !== "null");
-    const inner = SCALAR[nonNull[0]] ?? "unknown";
+    const inner =
+      nonNull[0] === "array"
+        ? `${tsType(defs, schema.items ?? true)}[]`
+        : (SCALAR[nonNull[0]] ?? "unknown");
     return t.includes("null") ? `${inner} | null` : inner;
   }
   if (t === "array") return `${tsType(defs, schema.items ?? true)}[]`;
@@ -98,6 +105,14 @@ function emitConstEnum(name, schema) {
   return `export type ${name} = ${vals};\n`;
 }
 
+/** A top-level `anyOf` def — an *untagged* union of shapes (e.g. ATIF's
+ * StepContent: a plain string OR a ContentPart array). TypeScript can express
+ * it precisely; the codec passes the raw JSON value through unchanged. */
+function emitUntaggedUnion(defs, name, schema) {
+  const members = schema.anyOf.filter((m) => m.type !== "null").map((m) => tsType(defs, m));
+  return `export type ${name} = ${members.join(" | ")};\n`;
+}
+
 function emitObjectUnion(name, schema) {
   const kinds = schema.oneOf
     .map((m) => m.properties?.kind?.const)
@@ -128,6 +143,8 @@ function renderWire(schemaDoc) {
         ([prop, ps]) => `    ${JSON.stringify(prop)}: ${fieldDesc(defs, ps, required.has(prop))},`,
       );
       fieldTable.push(`  ${name}: {\n${entries.join("\n")}\n  },`);
+    } else if ("anyOf" in schema) {
+      out.push(emitUntaggedUnion(defs, name, schema));
     } else if (isConstEnum(schema)) {
       out.push(emitConstEnum(name, schema));
     } else {

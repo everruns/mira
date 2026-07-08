@@ -1,0 +1,272 @@
+{
+  "$comment": "Cross-language ATIF trajectory conformance vectors. The Rust types in crates/mira-eval/src/trajectory.rs are the source of truth: `Trajectory::project_into` defines how the Transcript flat fields (final_response, tool_calls, tool_calls_count, iterations, usage) are derived from a trajectory, hand-mirrored by sdks/python/mira/trajectory.py and sdks/typescript/src/trajectory.ts. Each case carries one ATIF document; every runner asserts it (1) parses — or is rejected when `rejects` is set (only the ATIF-v1.x schema_version prefix is accepted), (2) round-trips (re-serializing and re-parsing yields the same document, `extra` maps included; unknown fields are tolerated on parse, per the crate-wide lenient-serde posture), and (3) projects onto the pinned `projection`. Three runners, one fixture (the scorers.json pattern): crates/mira-eval/tests/trajectory_conformance.rs (the oracle), sdks/python/tests/test_trajectory_conformance.py, sdks/typescript/tests/trajectory-conformance.test.mjs. The 'rfc worked example' case is the worked example from harbor RFC 0001 (Section IV), verbatim.",
+  "version": "1.0",
+  "cases": [
+    {
+      "name": "rfc worked example",
+      "trajectory": {
+        "schema_version": "ATIF-v1.5",
+        "session_id": "025B810F-B3A2-4C67-93C0-FE7A142A947A",
+        "agent": {
+          "name": "harbor-agent",
+          "version": "1.0.0",
+          "model_name": "gemini-2.5-flash",
+          "tool_definitions": [
+            {
+              "type": "function",
+              "function": {
+                "name": "financial_search",
+                "description": "Search for financial data for a given stock ticker",
+                "parameters": {
+                  "type": "object",
+                  "properties": {
+                    "ticker": { "type": "string", "description": "Stock ticker symbol" },
+                    "metric": { "type": "string", "description": "The financial metric to retrieve (e.g., price, volume)" }
+                  },
+                  "required": ["ticker", "metric"]
+                }
+              }
+            }
+          ],
+          "extra": {}
+        },
+        "notes": "Initial test trajectory for financial data retrieval using a single-hop ReAct pattern, focusing on multi-tool execution in Step 2.",
+        "extra": {},
+        "final_metrics": {
+          "total_prompt_tokens": 1120,
+          "total_completion_tokens": 124,
+          "total_cached_tokens": 200,
+          "total_cost_usd": 0.00078,
+          "total_steps": 3,
+          "extra": {}
+        },
+        "steps": [
+          {
+            "step_id": 1,
+            "timestamp": "2025-10-11T10:30:00Z",
+            "source": "user",
+            "message": "What is the current trading price of Alphabet (GOOGL)?",
+            "extra": {}
+          },
+          {
+            "step_id": 2,
+            "timestamp": "2025-10-11T10:30:02Z",
+            "source": "agent",
+            "model_name": "gemini-2.5-flash",
+            "reasoning_effort": "medium",
+            "message": "I will search for the current trading price and volume for GOOGL.",
+            "reasoning_content": "The request requires two data points: the current stock price and the latest volume data. I will execute two simultaneous tool calls—one for price and one for volume—to retrieve this information in a single step.",
+            "tool_calls": [
+              {
+                "tool_call_id": "call_price_1",
+                "function_name": "financial_search",
+                "arguments": { "ticker": "GOOGL", "metric": "price" }
+              },
+              {
+                "tool_call_id": "call_volume_2",
+                "function_name": "financial_search",
+                "arguments": { "ticker": "GOOGL", "metric": "volume" }
+              }
+            ],
+            "observation": {
+              "results": [
+                {
+                  "source_call_id": "call_price_1",
+                  "content": "GOOGL is currently trading at $185.35 (Close: 10/11/2025)"
+                },
+                {
+                  "source_call_id": "call_volume_2",
+                  "content": "GOOGL volume: 1.5M shares traded."
+                }
+              ]
+            },
+            "metrics": {
+              "prompt_tokens": 520,
+              "completion_tokens": 80,
+              "cached_tokens": 200,
+              "cost_usd": 0.00045
+            }
+          },
+          {
+            "step_id": 3,
+            "timestamp": "2025-10-11T10:30:05Z",
+            "source": "agent",
+            "model_name": "gemini-2.5-flash",
+            "reasoning_effort": "low",
+            "message": "As of October 11, 2025, Alphabet (GOOGL) is trading at $185.35 with a volume of 1.5M shares traded.",
+            "reasoning_content": "The previous step retrieved all necessary data. I will now format this into a final conversational response for the user and terminate the task.",
+            "metrics": {
+              "prompt_tokens": 600,
+              "completion_tokens": 44,
+              "completion_token_ids": [
+                1722, 310, 5533, 1722, 13, 1640, 13, 1423, 13, 8425, 338, 313, 18672,
+                29, 338, 11302, 472, 395, 29896, 29945, 29945, 29889, 29941, 29945,
+                411, 263, 7977, 310, 29871, 29896, 29889, 29945, 29924, 29358, 3534,
+                287, 29889
+              ],
+              "logprobs": [
+                -0.1, -0.05, -0.02, -0.01, -0.2, -0.15, -0.08, -0.03, -0.12, -0.06,
+                -0.04, -0.11, -0.07, -0.09, -0.13, -0.05, -0.02, -0.08, -0.14, -0.06,
+                -0.03, -0.1, -0.04, -0.07, -0.05, -0.09, -0.03, -0.11, -0.08, -0.06,
+                -0.12, -0.04, -0.07, -0.05, -0.1, -0.03, -0.08, -0.06, -0.11, -0.04,
+                -0.07, -0.05, -0.09, -0.02
+              ],
+              "cost_usd": 0.00033,
+              "extra": {
+                "reasoning_tokens": 12
+              }
+            }
+          }
+        ]
+      },
+      "projection": {
+        "final_response": "As of October 11, 2025, Alphabet (GOOGL) is trading at $185.35 with a volume of 1.5M shares traded.",
+        "tool_calls": ["financial_search", "financial_search"],
+        "tool_calls_count": 2,
+        "iterations": 2,
+        "usage": {
+          "input_tokens": 1120,
+          "output_tokens": 124,
+          "cache_read_tokens": 200,
+          "reasoning_tokens": 0,
+          "cost_usd": 0.00078
+        }
+      }
+    },
+    {
+      "name": "step metrics fallback with unknown fields",
+      "$case_comment": "No final_metrics: usage is the per-step sum, with reasoning_tokens read from metrics.extra. Step 3 is a deterministic dispatch (llm_call_count: 0) — its tool call counts, but it is excluded from iterations. The final agent step's message is a v1.6 ContentPart array: final_response is its text parts joined by newlines (image parts skipped). Unknown fields at every level must be tolerated; the non-empty extra maps must survive a round-trip.",
+      "trajectory": {
+        "schema_version": "ATIF-v1.7",
+        "trajectory_id": "traj-0001",
+        "agent": {
+          "name": "mira-test-agent",
+          "version": "0.1.0",
+          "future_agent_field": true
+        },
+        "extra": { "harness": "conformance" },
+        "future_root_field": { "ignore": "me" },
+        "steps": [
+          {
+            "step_id": 1,
+            "source": "user",
+            "message": "Create hello.txt and verify it."
+          },
+          {
+            "step_id": 2,
+            "source": "agent",
+            "llm_call_count": 1,
+            "message": "Writing the file.",
+            "reasoning_content": "One write, then a deterministic verify pass.",
+            "tool_calls": [
+              {
+                "tool_call_id": "call_1",
+                "function_name": "file_write",
+                "arguments": { "path": "hello.txt", "content": "Hello, world!" },
+                "extra": { "retry_count": 0 }
+              }
+            ],
+            "observation": {
+              "results": [
+                {
+                  "source_call_id": "call_1",
+                  "content": "wrote hello.txt (13 bytes)",
+                  "extra": { "exit_status": 0 }
+                }
+              ]
+            },
+            "metrics": {
+              "prompt_tokens": 100,
+              "completion_tokens": 20,
+              "cached_tokens": 10,
+              "cost_usd": 0.001,
+              "extra": { "reasoning_tokens": 5 }
+            },
+            "future_step_field": [1, 2, 3]
+          },
+          {
+            "step_id": 3,
+            "source": "agent",
+            "llm_call_count": 0,
+            "message": "",
+            "tool_calls": [
+              {
+                "tool_call_id": "call_2",
+                "function_name": "file_read",
+                "arguments": { "path": "hello.txt" }
+              }
+            ],
+            "observation": {
+              "results": [
+                { "source_call_id": "call_2", "content": "Hello, world!" }
+              ]
+            }
+          },
+          {
+            "step_id": 4,
+            "source": "agent",
+            "llm_call_count": 1,
+            "message": [
+              { "type": "text", "text": "Created hello.txt." },
+              { "type": "image", "source": { "media_type": "image/png", "path": "images/step_4.png" } },
+              { "type": "text", "text": "Contents verified." }
+            ],
+            "metrics": {
+              "prompt_tokens": 200,
+              "completion_tokens": 30,
+              "cost_usd": 0.002
+            }
+          }
+        ]
+      },
+      "projection": {
+        "final_response": "Created hello.txt.\nContents verified.",
+        "tool_calls": ["file_write", "file_read"],
+        "tool_calls_count": 2,
+        "iterations": 2,
+        "usage": {
+          "input_tokens": 300,
+          "output_tokens": 50,
+          "cache_read_tokens": 10,
+          "reasoning_tokens": 5,
+          "cost_usd": 0.003
+        }
+      }
+    },
+    {
+      "name": "future v1 minor parses",
+      "$case_comment": "Any ATIF-v1.x schema_version is accepted — the advertised capability version is what Mira emits, not a ceiling on what it reads.",
+      "trajectory": {
+        "schema_version": "ATIF-v1.99",
+        "agent": { "name": "future-agent", "version": "9.9.9" },
+        "steps": [
+          { "step_id": 1, "source": "user", "message": "hi" },
+          { "step_id": 2, "source": "agent", "message": "hello" }
+        ]
+      },
+      "projection": {
+        "final_response": "hello",
+        "tool_calls": [],
+        "tool_calls_count": 0,
+        "iterations": 1,
+        "usage": {
+          "input_tokens": 0,
+          "output_tokens": 0,
+          "cache_read_tokens": 0,
+          "reasoning_tokens": 0,
+          "cost_usd": 0.0
+        }
+      }
+    },
+    {
+      "name": "non-v1 schema version rejected",
+      "$case_comment": "A non-ATIF-v1 prefix must be rejected gracefully (an error the caller can surface, never a crash).",
+      "rejects": true,
+      "trajectory": {
+        "schema_version": "ATIF-v2.0",
+        "agent": { "name": "future-agent", "version": "2.0.0" },
+        "steps": []
+      }
+    }
+  ]
+}

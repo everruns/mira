@@ -4,6 +4,14 @@
 // language-neutral contract the Rust host is generated from). CI runs
 // `node codegen.mjs --check` to fail on drift.
 
+export interface Agent {
+  extra?: Record<string, unknown>;
+  model_name?: string | null;
+  name: string;
+  tool_definitions?: unknown[];
+  version: string;
+}
+
 export interface AxisInfo {
   name: string;
   values: string[];
@@ -15,6 +23,13 @@ export interface CancelParams {
 
 export interface CancelResult {
   cancelled: boolean;
+}
+
+export interface ContentPart {
+  extra?: Record<string, unknown>;
+  source?: ImageSource | null;
+  text?: string | null;
+  type: string;
 }
 
 export type ErrorKind = "subject" | "infra";
@@ -57,6 +72,20 @@ export interface ExecuteResult {
   trials?: number;
 }
 
+export interface FinalMetrics {
+  extra?: Record<string, unknown>;
+  total_cached_tokens?: number | null;
+  total_completion_tokens?: number | null;
+  total_cost_usd?: number | null;
+  total_prompt_tokens?: number | null;
+  total_steps?: number | null;
+}
+
+export interface ImageSource {
+  media_type: string;
+  path: string;
+}
+
 export interface InitializeResult {
   capabilities?: string[];
   capability_params?: Record<string, unknown>;
@@ -88,6 +117,17 @@ export interface LogParams {
 export interface Notification {
   method: string;
   params?: unknown;
+}
+
+export interface Observation {
+  results: ObservationResult[];
+}
+
+export interface ObservationResult {
+  content?: StepContent | null;
+  extra?: Record<string, unknown>;
+  source_call_id?: string | null;
+  subagent_trajectory_ref?: SubagentTrajectoryRef[];
 }
 
 export type Part = Record<string, unknown>; // tagged union: kind in (text, image, audio, file, json)
@@ -165,6 +205,42 @@ export interface ScoreParams {
 
 export type Source = Record<string, unknown>; // union of objects
 
+export interface Step {
+  extra?: Record<string, unknown>;
+  is_copied_context?: boolean | null;
+  llm_call_count?: number | null;
+  message?: StepContent;
+  metrics?: StepMetrics | null;
+  model_name?: string | null;
+  observation?: Observation | null;
+  reasoning_content?: string | null;
+  reasoning_effort?: unknown;
+  source: string;
+  step_id: number;
+  timestamp?: string | null;
+  tool_calls?: ToolCall[];
+}
+
+export type StepContent = string | ContentPart[];
+
+export interface StepMetrics {
+  cached_tokens?: number | null;
+  completion_token_ids?: number[] | null;
+  completion_tokens?: number | null;
+  cost_usd?: number | null;
+  extra?: Record<string, unknown>;
+  logprobs?: number[] | null;
+  prompt_token_ids?: number[] | null;
+  prompt_tokens?: number | null;
+}
+
+export interface SubagentTrajectoryRef {
+  extra?: Record<string, unknown>;
+  session_id?: string | null;
+  trajectory_id?: string | null;
+  trajectory_path?: string | null;
+}
+
 export interface TargetInfo {
   available: boolean;
   label: string;
@@ -177,20 +253,41 @@ export interface Timing {
   time_to_first_token_ms?: number | null;
 }
 
+export interface ToolCall {
+  arguments: unknown;
+  extra?: Record<string, unknown>;
+  function_name: string;
+  tool_call_id: string;
+}
+
+export interface Trajectory {
+  agent: Agent;
+  continued_trajectory_ref?: string | null;
+  extra?: Record<string, unknown>;
+  final_metrics?: FinalMetrics | null;
+  notes?: string | null;
+  schema_version: string;
+  session_id?: string | null;
+  steps: Step[];
+  subagent_trajectories?: Trajectory[];
+  trajectory_id?: string | null;
+}
+
 export interface Transcript {
   error?: string | null;
   error_kind?: ErrorKind;
   events?: unknown[];
   files?: Record<string, string>;
-  final_response: string;
-  iterations: number;
+  final_response?: string;
+  iterations?: number;
   metadata?: Record<string, unknown>;
   metrics?: Record<string, number>;
   output?: Part[];
   timing?: Timing;
   tool_calls?: string[];
-  tool_calls_count: number;
-  usage: Usage;
+  tool_calls_count?: number;
+  trajectory?: Trajectory | null;
+  usage?: Usage;
 }
 
 export interface TranscriptSummary {
@@ -225,6 +322,13 @@ export interface FieldMeta {
 }
 
 export const WIRE_FIELDS: Record<string, Record<string, FieldMeta>> = {
+  Agent: {
+    "extra": { required: false },
+    "model_name": { required: false },
+    "name": { required: true },
+    "tool_definitions": { required: false },
+    "version": { required: true },
+  },
   AxisInfo: {
     "name": { required: true },
     "values": { required: true },
@@ -234,6 +338,12 @@ export const WIRE_FIELDS: Record<string, Record<string, FieldMeta>> = {
   },
   CancelResult: {
     "cancelled": { required: true },
+  },
+  ContentPart: {
+    "extra": { required: false },
+    "source": { required: false },
+    "text": { required: false },
+    "type": { required: true },
   },
   EvalInfo: {
     "axes": { required: false, arrayRef: "AxisInfo" },
@@ -270,6 +380,18 @@ export const WIRE_FIELDS: Record<string, Record<string, FieldMeta>> = {
     "trial": { required: false },
     "trials": { required: false },
   },
+  FinalMetrics: {
+    "extra": { required: false },
+    "total_cached_tokens": { required: false },
+    "total_completion_tokens": { required: false },
+    "total_cost_usd": { required: false },
+    "total_prompt_tokens": { required: false },
+    "total_steps": { required: false },
+  },
+  ImageSource: {
+    "media_type": { required: true },
+    "path": { required: true },
+  },
   InitializeResult: {
     "capabilities": { required: false },
     "capability_params": { required: false },
@@ -296,6 +418,15 @@ export const WIRE_FIELDS: Record<string, Record<string, FieldMeta>> = {
   Notification: {
     "method": { required: true },
     "params": { required: false },
+  },
+  Observation: {
+    "results": { required: true, arrayRef: "ObservationResult" },
+  },
+  ObservationResult: {
+    "content": { required: false },
+    "extra": { required: false },
+    "source_call_id": { required: false },
+    "subagent_trajectory_ref": { required: false, arrayRef: "SubagentTrajectoryRef" },
   },
   Request: {
     "id": { required: true },
@@ -360,6 +491,37 @@ export const WIRE_FIELDS: Record<string, Record<string, FieldMeta>> = {
     "trial": { required: false },
     "trials": { required: false },
   },
+  Step: {
+    "extra": { required: false },
+    "is_copied_context": { required: false },
+    "llm_call_count": { required: false },
+    "message": { required: false },
+    "metrics": { required: false },
+    "model_name": { required: false },
+    "observation": { required: false },
+    "reasoning_content": { required: false },
+    "reasoning_effort": { required: false },
+    "source": { required: true },
+    "step_id": { required: true },
+    "timestamp": { required: false },
+    "tool_calls": { required: false, arrayRef: "ToolCall" },
+  },
+  StepMetrics: {
+    "cached_tokens": { required: false },
+    "completion_token_ids": { required: false },
+    "completion_tokens": { required: false },
+    "cost_usd": { required: false },
+    "extra": { required: false },
+    "logprobs": { required: false },
+    "prompt_token_ids": { required: false },
+    "prompt_tokens": { required: false },
+  },
+  SubagentTrajectoryRef: {
+    "extra": { required: false },
+    "session_id": { required: false },
+    "trajectory_id": { required: false },
+    "trajectory_path": { required: false },
+  },
   TargetInfo: {
     "available": { required: true },
     "label": { required: true },
@@ -370,20 +532,39 @@ export const WIRE_FIELDS: Record<string, Record<string, FieldMeta>> = {
     "duration_ms": { required: false },
     "time_to_first_token_ms": { required: false },
   },
+  ToolCall: {
+    "arguments": { required: true },
+    "extra": { required: false },
+    "function_name": { required: true },
+    "tool_call_id": { required: true },
+  },
+  Trajectory: {
+    "agent": { required: true, ref: "Agent" },
+    "continued_trajectory_ref": { required: false },
+    "extra": { required: false },
+    "final_metrics": { required: false },
+    "notes": { required: false },
+    "schema_version": { required: true },
+    "session_id": { required: false },
+    "steps": { required: true, arrayRef: "Step" },
+    "subagent_trajectories": { required: false, arrayRef: "Trajectory" },
+    "trajectory_id": { required: false },
+  },
   Transcript: {
     "error": { required: false },
     "error_kind": { required: false },
     "events": { required: false },
     "files": { required: false },
-    "final_response": { required: true },
-    "iterations": { required: true },
+    "final_response": { required: false },
+    "iterations": { required: false },
     "metadata": { required: false },
     "metrics": { required: false },
     "output": { required: false },
     "timing": { required: false, ref: "Timing" },
     "tool_calls": { required: false },
-    "tool_calls_count": { required: true },
-    "usage": { required: true, ref: "Usage" },
+    "tool_calls_count": { required: false },
+    "trajectory": { required: false },
+    "usage": { required: false, ref: "Usage" },
   },
   TranscriptSummary: {
     "error": { required: false },

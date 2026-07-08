@@ -57,16 +57,23 @@ use crate::{Metadata, Params, Score, Timing, Transcript, Usage};
 /// ignored (no `deny_unknown_fields`) and new fields are `#[serde(default)]`, so
 /// adding a field is a minor, non-breaking change.
 ///
-/// This is the **`1.0`** baseline — the initial stable protocol. It carries the
-/// full method set (`initialize`, `list`, `list_samples`, `run`, `execute`,
-/// `score`, `cancel`), typed and `request_id`-correlated `event`/`log`
-/// notifications ([`EventParams`]/[`LogParams`]), JSON-RPC-shaped [`RpcError`]s,
-/// trials/seed repetitions (pass@k / variance), cursor-paginated sample listing,
+/// The `1.0` baseline carries the full method set (`initialize`, `list`,
+/// `list_samples`, `run`, `execute`, `score`, `cancel`), typed and
+/// `request_id`-correlated `event`/`log` notifications
+/// ([`EventParams`]/[`LogParams`]), JSON-RPC-shaped [`RpcError`]s, trials/seed
+/// repetitions (pass@k / variance), cursor-paginated sample listing,
 /// eval/sample/target `metadata` (open-ended JSON), and multimodal `output` plus
-/// structured `capability_params`. A later addition bumps the **minor** and must
-/// stay additive (a new optional field, method, or capability token); a breaking
-/// wire change bumps the **major**.
-pub const PROTOCOL_VERSION: &str = "1.0";
+/// structured `capability_params`.
+///
+/// **`1.1`** (current) adds the structured **ATIF trajectory**: one optional
+/// field (`Transcript::trajectory`, riding `execute` results and `score`
+/// params) plus the [`capabilities::TRAJECTORY`] token — the primary structured
+/// trajectory contract (see [`crate::trajectory`]). Additive per the contract
+/// above: a `1.0` peer ignores the unknown field and token and keeps
+/// interoperating. A later addition bumps the **minor** and must stay additive
+/// (a new optional field, method, or capability token); a breaking wire change
+/// bumps the **major**.
+pub const PROTOCOL_VERSION: &str = "1.1";
 
 /// The oldest protocol version this build can still talk to.
 pub const MIN_PROTOCOL_VERSION: &str = "1.0";
@@ -387,6 +394,13 @@ pub mod capabilities {
     /// `EvalInfo.next_cursor` from `list`, so the host pages large or lazily
     /// generated sample sets instead of receiving them all in one `list`.
     pub const PAGINATE: &str = "paginate";
+    /// Study attaches a structured ATIF trajectory to transcripts
+    /// (`Transcript::trajectory` on `execute` results / `score` params), and
+    /// its scorers can grade trajectory structure. The format/version pair
+    /// rides `capability_params` (`{"trajectory": {"format": "ATIF",
+    /// "version": "1.7"}}`), so a non-ATIF or ATIF-v2 representation needs no
+    /// new token. See [`crate::trajectory`].
+    pub const TRAJECTORY: &str = "trajectory";
 }
 
 /// Defined `event` notification kinds — the value of [`EventParams::kind`].
@@ -834,6 +848,9 @@ mod tests {
     #[test]
     fn version_compatibility() {
         assert!(version_compatible(PROTOCOL_VERSION));
+        // 1.1 (trajectory) is additive: a 1.0 study/host keeps interoperating.
+        assert!(version_compatible(MIN_PROTOCOL_VERSION));
+        assert!(version_compatible("1.0"));
         assert!(version_compatible("1.5")); // a future minor, same major
         assert!(!version_compatible("2.0")); // newer major
         assert!(!version_compatible("0.9")); // older major
