@@ -241,14 +241,14 @@ impl Fold {
 /// * `tool.started` / `tool.call_requested` → structured
 ///   `ToolCall { tool_call_id, function_name, arguments }` (deduped by id).
 /// * `tool.completed` → a correlated `ObservationResult` — failures included,
-///   same policy as [`extract_tool_calls`] (EVE-676): the model chose to call
+///   same policy as `extract_tool_calls` (EVE-676): the model chose to call
 ///   the tool. A completion whose call was never announced still synthesizes
 ///   the call (arguments unknown → `{}`), so completed-only streams count.
 /// * `output.message.completed` → the step's full message text (and its usage
 ///   block, only when the iteration's `reason.completed` didn't carry one —
 ///   they describe the same LLM call, so counting both would double-bill).
 ///
-/// `agent` is `everruns-runtime`/[`EVERRUNS_RUNTIME_VERSION`]; `model_name`
+/// `agent` is `everruns-runtime`/`EVERRUNS_RUNTIME_VERSION`; `model_name`
 /// comes from the first model the stream mentions ([`RuntimeSubject`] falls
 /// back to the target's model when the stream never names one).
 pub fn atif_from_events(events: &[Event]) -> Trajectory {
