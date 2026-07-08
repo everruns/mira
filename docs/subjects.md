@@ -25,13 +25,20 @@ pub struct Transcript {
     pub timing: Timing,                   // typed metrics: duration, TTFT
     pub tool_calls: Vec<String>,          // tool names, in order
     pub files: BTreeMap<String, String>,  // workspace after the run
-    pub events: Vec<serde_json::Value>,   // raw transcript (e.g. JSONL Events)
+    pub trajectory: Option<Trajectory>,   // structured ATIF trajectory (primary)
+    pub events: Vec<serde_json::Value>,   // raw producer stream (advanced/debug)
     pub metrics: BTreeMap<String, f64>,   // open metrics: any numeric you measure
     pub metadata: Metadata,
     pub error: Option<String>,
     pub error_kind: ErrorKind,            // Subject (default) | Infra (→ N/A, retried)
 }
 ```
+
+A subject that can describe *what the agent did* — tool calls with arguments,
+observations, per-step reasoning and metrics — should set `trajectory` (an
+[ATIF](https://github.com/harbor-framework/harbor/blob/main/rfcs/0001-trajectory-format.md)
+document); the flat fields above are derived from it automatically. See the
+[protocol reference](protocol.md#structured-trajectory-transcripttrajectory).
 
 Mira ships two general subjects, plus a runtime adapter in `mira-everruns`.
 
@@ -72,19 +79,41 @@ let s = CliSubject::new("my-agent").arg("--task").arg("{prompt}");
 // Or send the prompt on stdin.
 let s = CliSubject::new("my-agent").stdin_prompt();
 
-// Read structured results from a canonical JSONL Event stream instead of stdout.
-let s = CliSubject::new("coding-cli")
+// RECOMMENDED for tool-using agents: the agent writes one ATIF trajectory
+// JSON document into the workdir; Mira parses it into Transcript.trajectory.
+let s = CliSubject::new("my-agent")
     .arg("--prompt").arg("{prompt}")
-    .arg("--transcript").arg("{workdir}/events.jsonl")
-    .transcript(TranscriptSource::EventsFile("events.jsonl".into()))
+    .transcript(TranscriptSource::AtifFile("trajectory.json".into()))
     .capture_files();   // read the workdir back into Transcript.files
 ```
 
+**`AtifFile` is the recommended source for any agent that uses tools.** The
+agent writes a single [ATIF](https://github.com/harbor-framework/harbor/blob/main/rfcs/0001-trajectory-format.md)
+document (a file, not stdout — ATIF is one JSON document, and harbor-ecosystem
+agents already write `trajectory.json`); the subprocess receives the absolute
+target path as `MIRA_TRAJECTORY_PATH`. The parsed document becomes the
+transcript's [structured trajectory](protocol.md#structured-trajectory-transcripttrajectory),
+and the flat fields — `final_response`, `tool_calls`, `usage`, `iterations` —
+are derived from it, so every scorer works with zero extra emission code. A
+missing or invalid file becomes a subject-kind `Transcript.error`.
+
+The events variants are the **advanced** path for agents that already emit a
+producer-shaped JSONL stream:
+
+```rust
+// Advanced: parse a JSONL Event stream (stdout, or a file in the workdir).
+let s = CliSubject::new("coding-cli")
+    .arg("--prompt").arg("{prompt}")
+    .arg("--transcript").arg("{workdir}/events.jsonl")
+    .transcript(TranscriptSource::EventsFile("events.jsonl".into()));
+```
+
 When reading a JSONL transcript, Mira extracts tool-call names and token/cost
-usage structurally — any producer emitting `{input_tokens, output_tokens, cost}`
+usage heuristically — any producer emitting `{input_tokens, output_tokens, cost}`
 usage blocks and `{name, input}` tool-call objects is understood, including
 everruns coding CLIs. A line with a `final_response` / `response` / `text` field
-sets the final response.
+sets the final response. Unlike a trajectory, this yields names-only tool calls:
+no arguments, observations, or per-step data.
 
 The subprocess also receives `MIRA_TARGET` and `MIRA_PROVIDER` env vars so it can
 route on the matrix case.
@@ -94,7 +123,10 @@ route on the matrix case.
 `mira_everruns::RuntimeSubject` drives a real `everruns-runtime`
 `InProcessRuntime` session — the in-process path to evaluating everruns agents.
 The embedder supplies a factory that builds a runtime for each matrix case; Mira
-normalizes the `TurnResult` and `Event` stream into a `Transcript`.
+normalizes the `TurnResult` and `Event` stream into a `Transcript`, folding the
+typed events into an ATIF trajectory (`mira_everruns::atif_from_events`: one
+agent step per reasoning iteration, with structured tool calls, correlated
+observations, and per-step metrics) alongside the raw `events` channel.
 
 ```rust
 use mira_everruns::{RuntimeSubject, target_to_resolved};

@@ -58,7 +58,10 @@ More: <https://github.com/everruns/mira/blob/main/docs/authoring.md>.
 use mira::subject::{CliSubject, TranscriptSource};
 let s = CliSubject::new("my-agent")
     .arg("--prompt").arg("{prompt}")             // or .stdin_prompt()
-    .transcript(TranscriptSource::EventsFile("events.jsonl".into()))  // JSONL Events
+    // Recommended for tool-using agents: the agent writes one ATIF document
+    // (path hinted via MIRA_TRAJECTORY_PATH) → Transcript.trajectory + all
+    // flat fields derived. EventsFile/EventsStdout (JSONL) is the advanced path.
+    .transcript(TranscriptSource::AtifFile("trajectory.json".into()))
     .capture_files();                            // read workdir into Transcript.files
 ```
 
