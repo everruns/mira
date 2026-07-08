@@ -381,10 +381,8 @@ pub fn atif_from_events(events: &[Event]) -> Trajectory {
                     trajectory.agent.model_name = Some(meta.model.clone());
                 }
             }
-            EventData::LlmGeneration(d) => {
-                if trajectory.agent.model_name.is_none() {
-                    trajectory.agent.model_name = Some(d.metadata.model.clone());
-                }
+            EventData::LlmGeneration(d) if trajectory.agent.model_name.is_none() => {
+                trajectory.agent.model_name = Some(d.metadata.model.clone());
             }
             _ => {}
         }
