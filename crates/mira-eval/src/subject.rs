@@ -6,10 +6,12 @@
 //!
 //! * [`subject_fn`] — wrap an async closure. The in-process path: ideal for
 //!   evals that live next to the code under test, and for tests.
-//! * [`CliSubject`] — run an external binary and read back its result (stdout,
-//!   or a canonical JSONL transcript). The **polyglot** path: any agent in any
-//!   language becomes evaluable, including everruns/coding-CLIs that already
-//!   emit the JSONL `Event` transcript.
+//! * [`CliSubject`] — run an external binary and read back its result. The
+//!   **polyglot** path: any agent in any language becomes evaluable. Tool-using
+//!   agents should write an ATIF trajectory file
+//!   ([`TranscriptSource::AtifFile`] — the structured contract, see
+//!   [`crate::trajectory`]); plain stdout and the JSONL `Event` heuristics
+//!   remain for text-only agents and producer-shaped streams.
 //!
 //! Richer in-process adapters (e.g. driving a live runtime session) live in
 //! integration crates such as `mira-everruns`.
@@ -77,6 +79,16 @@ pub enum TranscriptSource {
     EventsStdout,
     /// A file (relative to the workdir) holds the JSONL `Event` stream.
     EventsFile(String),
+    /// A file (relative to the workdir) holds one ATIF trajectory JSON
+    /// document (e.g. `"trajectory.json"`) — the **recommended** source for
+    /// tool-using external agents. The parsed document becomes
+    /// [`Transcript::trajectory`]; the flat fields (`final_response`,
+    /// `tool_calls`, `usage`, `iterations`) are derived from it (see
+    /// [`crate::trajectory`]). A file, not stdout: ATIF is a single JSON
+    /// document (with an `images/` sidecar convention), not a JSONL stream,
+    /// and harbor-ecosystem agents already write `trajectory.json`. The child
+    /// process receives the absolute path as `MIRA_TRAJECTORY_PATH`.
+    AtifFile(String),
 }
 
 /// Runs an external binary as the subject under evaluation — the polyglot path.
@@ -180,6 +192,11 @@ impl Subject for CliSubject {
         }
         cmd.env("MIRA_TARGET", &cx.target.label);
         cmd.env("MIRA_PROVIDER", &cx.target.provider);
+        // Hint where the agent should write its ATIF document (absolute, so
+        // the agent needs no workdir knowledge of its own).
+        if let TranscriptSource::AtifFile(rel) = &self.source {
+            cmd.env("MIRA_TRAJECTORY_PATH", workdir_path.join(rel));
+        }
         cmd.stdout(Stdio::piped()).stderr(Stdio::piped());
         cmd.stdin(if self.stdin_prompt {
             Stdio::piped()
@@ -227,6 +244,25 @@ impl Subject for CliSubject {
             TranscriptSource::EventsFile(rel) => {
                 match tokio::fs::read_to_string(workdir_path.join(rel)).await {
                     Ok(text) => apply_events(&mut transcript, &text),
+                    Err(e) => {
+                        transcript.error.get_or_insert(format!("read {rel}: {e}"));
+                    }
+                }
+            }
+            TranscriptSource::AtifFile(rel) => {
+                // Read/parse failures are subject errors (like EventsFile):
+                // the agent was asked to produce a trajectory and didn't.
+                match tokio::fs::read_to_string(workdir_path.join(rel)).await {
+                    Ok(text) => match crate::trajectory::Trajectory::from_json(&text) {
+                        Ok(trajectory) => {
+                            transcript.trajectory = Some(trajectory);
+                            // Canonical projection — never hand-rolled here.
+                            transcript.project_trajectory();
+                        }
+                        Err(e) => {
+                            transcript.error.get_or_insert(format!("{rel}: {e}"));
+                        }
+                    },
                     Err(e) => {
                         transcript.error.get_or_insert(format!("read {rel}: {e}"));
                     }
@@ -434,6 +470,104 @@ mod tests {
         assert_eq!(t.tool_calls, vec!["read_file"]);
         assert_eq!(t.usage.input_tokens, 10);
         assert_eq!(t.usage.output_tokens, 4);
+    }
+
+    /// A minimal-but-real ATIF document: two tool calls with arguments, a
+    /// correlated observation, per-step metrics, and a final agent message.
+    const ATIF_DOC: &str = r#"{
+        "schema_version": "ATIF-v1.7",
+        "agent": {"name": "fake-cli-agent", "version": "1.0"},
+        "steps": [
+            {"step_id": 1, "source": "user", "message": "look up the price"},
+            {"step_id": 2, "source": "agent", "message": "",
+             "tool_calls": [
+                {"tool_call_id": "c1", "function_name": "financial_search",
+                 "arguments": {"ticker": "GOOGL"}},
+                {"tool_call_id": "c2", "function_name": "fetch_page",
+                 "arguments": {"url": "https://example"}}
+             ],
+             "observation": {"results": [
+                {"source_call_id": "c1", "content": "$185.35"}
+             ]},
+             "metrics": {"prompt_tokens": 100, "completion_tokens": 20, "cost_usd": 0.001}},
+            {"step_id": 3, "source": "agent", "message": "GOOGL trades at $185.35."}
+        ]
+    }"#;
+
+    #[tokio::test]
+    async fn cli_subject_reads_atif_trajectory_file() {
+        // The child writes its ATIF document to the hinted path — proving both
+        // the MIRA_TRAJECTORY_PATH env export and the AtifFile read-back.
+        let s = CliSubject::new("sh")
+            .arg("-c")
+            .arg(format!(
+                "printf '%s' '{}' > \"$MIRA_TRAJECTORY_PATH\"",
+                ATIF_DOC.replace('\n', " ")
+            ))
+            .transcript(TranscriptSource::AtifFile("trajectory.json".into()));
+        let t = s.run(&Sample::new("a", "look up the price"), &cx()).await;
+
+        assert!(t.succeeded(), "error: {:?}", t.error);
+        // Flat fields are projections of the trajectory — nothing hand-rolled.
+        assert_eq!(t.final_response, "GOOGL trades at $185.35.");
+        assert_eq!(t.tool_calls, vec!["financial_search", "fetch_page"]);
+        assert_eq!(t.tool_calls_count, 2);
+        assert_eq!(t.iterations, 2);
+        assert_eq!(t.usage.input_tokens, 100);
+        assert!((t.usage.cost_usd - 0.001).abs() < 1e-12);
+        // The structured layer is present: arguments + correlated observation.
+        let trajectory = t.trajectory.as_ref().expect("trajectory attached");
+        assert_eq!(trajectory.agent.name, "fake-cli-agent");
+        let calls = t.tool_invocations();
+        assert_eq!(calls[0].arguments.unwrap()["ticker"], "GOOGL");
+        assert_eq!(calls[0].result.unwrap().text(), "$185.35");
+    }
+
+    #[tokio::test]
+    async fn cli_subject_atif_names_feed_name_based_scorers() {
+        // End-to-end: an external agent writes ATIF, and the existing
+        // name-based scorer grades the projected tool names.
+        let s = CliSubject::new("sh")
+            .arg("-c")
+            .arg(format!(
+                "printf '%s' '{}' > trajectory.json",
+                ATIF_DOC.replace('\n', " ")
+            ))
+            .transcript(TranscriptSource::AtifFile("trajectory.json".into()));
+        let sample = Sample::new("a", "look up the price");
+        let t = s.run(&sample, &cx()).await;
+
+        let pass = crate::scorer::tool_called("financial_search")
+            .score(&sample, &t)
+            .await;
+        assert!(pass.pass, "reason: {}", pass.reason);
+        let fail = crate::scorer::tool_called("write_file")
+            .score(&sample, &t)
+            .await;
+        assert!(!fail.pass);
+    }
+
+    #[tokio::test]
+    async fn cli_subject_atif_parse_failure_is_subject_error() {
+        // Invalid ATIF (and a missing file) degrade to a subject-kind error on
+        // the transcript — same policy as EventsFile read errors, never a panic.
+        let s = CliSubject::new("sh")
+            .arg("-c")
+            .arg("printf '{not json' > trajectory.json")
+            .transcript(TranscriptSource::AtifFile("trajectory.json".into()));
+        let t = s.run(&Sample::new("a", "x"), &cx()).await;
+        assert!(!t.succeeded());
+        assert!(!t.errored_infra());
+        let err = t.error.as_ref().unwrap();
+        assert!(err.contains("trajectory.json"), "got: {err}");
+        assert!(err.contains("invalid ATIF trajectory"), "got: {err}");
+        assert!(t.trajectory.is_none());
+
+        // Missing file: the read error is reported, attributed to the file.
+        let s = CliSubject::new("true").transcript(TranscriptSource::AtifFile("t.json".into()));
+        let t = s.run(&Sample::new("a", "x"), &cx()).await;
+        assert!(!t.succeeded());
+        assert!(t.error.as_ref().unwrap().contains("read t.json"));
     }
 
     #[test]

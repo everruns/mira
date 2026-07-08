@@ -9,6 +9,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **ATIF trajectory producers.** Both built-in agent-shaped subjects now emit
+  the structured trajectory. `CliSubject` gains
+  `TranscriptSource::AtifFile("trajectory.json")` — the **recommended** source
+  for tool-using external agents: the agent writes one ATIF JSON document into
+  the workdir (absolute path hinted via a new `MIRA_TRAJECTORY_PATH` env var,
+  alongside `MIRA_TARGET`/`MIRA_PROVIDER`), Mira parses it into
+  `Transcript.trajectory` and derives every flat field from it; a missing or
+  invalid file becomes a subject-kind `Transcript.error`. The JSONL events
+  variants remain as the advanced path for producer-shaped streams. And
+  `mira-everruns` gains `atif_from_events`, a typed fold of the everruns
+  `Event` stream into ATIF — one agent step per reasoning iteration, with
+  structured tool calls (`tool.started`/`tool.call_requested` arguments
+  included), observations correlated via `source_call_id` (failures counted,
+  same policy as tool-name extraction), reasoning content, and per-step token
+  metrics — which `RuntimeSubject` now attaches to every transcript (the raw
+  `events` channel is unchanged).
 - **ATIF trajectories: the primary structured trajectory contract (protocol
   1.1).** `Transcript` gains an optional `trajectory` field carrying an
   [ATIF](https://github.com/harbor-framework/harbor/blob/main/rfcs/0001-trajectory-format.md)

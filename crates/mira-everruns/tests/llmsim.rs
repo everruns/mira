@@ -51,6 +51,29 @@ async fn runtime_subject_produces_a_transcript() {
     );
     // The adapter timed the run.
     assert!(t.timing.duration_ms < 60_000);
+
+    // The adapter folds the real runtime event stream into an ATIF trajectory
+    // (the primary structured contract) alongside the raw events channel.
+    let trajectory = t.trajectory.as_ref().expect("trajectory attached");
+    assert_eq!(trajectory.agent.name, "everruns-runtime");
+    assert_eq!(
+        trajectory.agent.model_name.as_deref(),
+        Some(Target::sim().model.as_str())
+    );
+    assert!(
+        trajectory.steps.iter().any(
+            |s| s.source == mira::trajectory::StepSource::User && s.message.text() == "Say hi."
+        ),
+        "user step folded from input.message"
+    );
+    let last_agent = trajectory
+        .steps
+        .iter()
+        .rev()
+        .find(|s| s.source == mira::trajectory::StepSource::Agent)
+        .expect("agent step folded from the reasoning iteration");
+    assert!(last_agent.message.text().contains("42"));
+    assert!(!t.events.is_empty(), "raw events channel kept as-is");
 }
 
 #[tokio::test]
