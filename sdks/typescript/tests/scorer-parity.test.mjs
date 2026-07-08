@@ -30,13 +30,17 @@ import {
   nonEmpty,
   not,
   notContains,
+  observationContains,
   outputTokensWithin,
   producedModality,
   regex,
+  stepsWithin,
   succeeded,
   tokensWithin,
+  toolArgMatches,
   toolCalled,
   toolCalledBefore,
+  toolCalledWith,
   toolCallsWithin,
   toolNotCalled,
   toolsUsedExactly,
@@ -70,6 +74,10 @@ function build(spec) {
     case "turns_within": return turnsWithin(spec.max);
     case "tools_used_exactly": return toolsUsedExactly(spec.tools);
     case "tool_called_before": return toolCalledBefore(spec.first, spec.second);
+    case "tool_called_with": return toolCalledWith(spec.tool, spec.pointer, spec.expected);
+    case "tool_arg_matches": return toolArgMatches(spec.tool, spec.pointer, spec.pattern);
+    case "observation_contains": return observationContains(spec.tool, spec.needle);
+    case "steps_within": return stepsWithin(spec.max);
     case "cost_within": return costWithin(spec.max_usd);
     case "tokens_within": return tokensWithin(spec.max);
     case "output_tokens_within": return outputTokensWithin(spec.max);

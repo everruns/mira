@@ -19,7 +19,8 @@ extend *data* by carrying it through the transcript and protocol.
 | Judge with an LLM | `model_graded(rubric, judge)` — just a scorer | [scorers.md](scorers.md#llm-as-judge) |
 | Attach provenance / links / labels | `metadata` (open-ended JSON) | [authoring.md](authoring.md#metadata--observability) |
 | Carry a custom **metric** | `Transcript.metrics` (numeric) + `metric_within`/`metric_at_least` | [metrics.md](metrics.md#adding-a-custom-metric) |
-| Stream structured run detail | `Transcript.events` (raw JSON) | [below](#events-the-structured-channel) |
+| Carry the structured run record | `Transcript.trajectory` (ATIF — the primary contract) | [below](#trajectory-and-events-the-structured-channels) |
+| Debug with raw producer output | `Transcript.events` (advanced) | [below](#trajectory-and-events-the-structured-channels) |
 | Vary a case on a non-model dimension | extra matrix **axes** (`.axis(name, values)`) | [authoring.md](authoring.md#extra-matrix-axes) |
 | Plug in a non-Rust study | implement the wire protocol in any language | [protocol.md](protocol.md#implementing-a-study-in-another-language) |
 | Advertise an optional behaviour to hosts | `capabilities` tokens | [protocol.md](protocol.md#initialize) |
@@ -55,7 +56,8 @@ pub struct Transcript {
     pub metrics: BTreeMap<String, f64>,   // open metrics: any numeric you measure
     pub tool_calls: Vec<String>,          // tool names, in call order
     pub files: BTreeMap<String, String>,  // workspace after the run
-    pub events: Vec<serde_json::Value>,   // free-form structured stream
+    pub trajectory: Option<Trajectory>,   // structured ATIF trajectory (primary)
+    pub events: Vec<serde_json::Value>,   // raw producer stream (advanced/debug)
     pub metadata: Metadata,               // free-form, open-ended JSON
     pub error: Option<String>,
     pub error_kind: ErrorKind,            // Subject (default) | Infra (→ N/A, retried)
@@ -89,17 +91,27 @@ let recall_scorer = metric_at_least("retrieval_recall@5", 0.80);
 
 The metric then surfaces as a **pass/fail score** in every report and in the
 per-case **`metrics` block** of the JSON/HTML. `metadata` (open-ended JSON) stays
-the channel for non-numeric provenance; `events` for non-scalar structured
-detail. See [metrics.md](metrics.md) for the full model.
+the channel for non-numeric provenance; the ATIF `trajectory` for structured
+run detail. See [metrics.md](metrics.md) for the full model.
 
-### Events: the structured channel
+### Trajectory and events: the structured channels
 
-`Transcript.events` is a `Vec<serde_json::Value>` — an open stream for anything
-structured you want to keep: per-step traces, retrieval hits, intermediate tool
-I/O. Subjects that already speak the canonical JSONL `Event` format (e.g.
-everruns coding CLIs via `CliSubject`) populate it for free; you can also push
-your own objects. Scorers receive the whole transcript, so a structural scorer
-can walk `t.events` and grade on what it finds.
+`Transcript.trajectory` is the **primary structured contract** for what the
+agent did: an [ATIF](protocol.md#structured-trajectory-transcripttrajectory)
+document of steps with tool calls (names *and arguments*), correlated
+observations, per-step reasoning and metrics. It is subject-agnostic — the
+same shape from `CliSubject` (`TranscriptSource::AtifFile`), `RuntimeSubject`,
+or any SDK study — so trajectory scorers (`tool_called_with`,
+`observation_contains`, `steps_within`, …) work across all of them, and the
+flat fields (`final_response`, `tool_calls`, `usage`, …) are derived from it
+automatically.
+
+`Transcript.events` (`Vec<serde_json::Value>`) is the **advanced** channel: a
+raw, producer-shaped stream with no cross-subject shape, kept for debugging and
+for data the trajectory doesn't model. Do not use `events` where the trajectory
+covers the need — a scorer that walks `t.events` is adapter-specific by
+construction, so reach for it only from a closure scorer grading something
+genuinely producer-specific.
 
 ## Protocol-level extension
 
@@ -112,8 +124,8 @@ forward-compatible payloads**, you can extend across the process line too:
 - **New fields.** Payloads ignore unknown fields and default missing ones, so a
   study can add fields an older host won't break on.
 - **Optional behaviours.** Advertise `capabilities` tokens (`axes`, `events`,
-  `usage`, `execute`, `score`, `paginate`) at `initialize` so hosts
-  feature-detect additively instead of sniffing versions.
+  `usage`, `execute`, `score`, `paginate`, `trajectory`) at `initialize` so
+  hosts feature-detect additively instead of sniffing versions.
 
 ## What is *not* (yet) pluggable
 

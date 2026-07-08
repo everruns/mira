@@ -25,9 +25,12 @@ Every scorer is handed the `Sample` and the full `Transcript`, so it can grade:
 
 - **the agent's result** — `Transcript.final_response` (e.g. `contains`, `equals`,
   `regex`, `json_valid`);
-- **the transcript** — including the ordered `tool_calls`, `iterations`, `files`,
-  and raw `events` (e.g. `tool_called`, `tools_used_exactly`, `tool_called_before`,
-  `file_contains`);
+- **the transcript** — the structured ATIF `Transcript.trajectory` (tool
+  arguments, correlated observations, steps — e.g. `tool_called_with`,
+  `observation_contains`, `steps_within`) plus the flat `tool_calls`,
+  `iterations`, and `files` (e.g. `tool_called`, `tools_used_exactly`,
+  `tool_called_before`, `file_contains`). The trajectory is the primary
+  structured contract; scorers never walk the raw `events` debug channel;
 - **prebuilt metrics** — the operational fields `Transcript.usage` (tokens, cost)
   and `Transcript.timing` (latency, TTFT) (e.g. `tokens_within`, `cost_within`,
   `latency_within`).
@@ -78,6 +81,34 @@ no provider credentials stays green: every judge case is simply N/A.
 | `tool_calls_within(n)` | at most `n` tool calls were made |
 | `tools_used_exactly([…])` | exactly that set of tools was used (order-independent) |
 | `tool_called_before(a, b)` | tool `a` was invoked before tool `b` |
+
+**Trajectory structure** (arguments, observations, steps)
+
+These grade the structured [ATIF trajectory](protocol.md#structured-trajectory-transcripttrajectory)
+(`Transcript.trajectory`) — the primary trajectory contract, and the only place
+tool *arguments* and *observations* exist. A transcript without a trajectory
+**fails** them with reason `subject reported no trajectory` (like `ttft_within`
+on unmeasured TTFT: an unverifiable check fails — N/A stays reserved for infra).
+
+| Scorer | Passes when |
+|--------|-------------|
+| `tool_called_with(t, ptr, v)` | some invocation of `t` has the JSON value `v` at [JSON Pointer](https://datatracker.ietf.org/doc/html/rfc6901) `ptr` in its arguments |
+| `tool_arg_matches(t, ptr, re)` | some invocation of `t` has a **string** argument at `ptr` matching regex `re` (a non-string value there fails with a reason) |
+| `observation_contains(t, s)` | the observation content correlated to an invocation of `t` (via `source_call_id`) contains `s` |
+| `steps_within(n)` | the trajectory has at most `n` steps (distinct from `turns_within`, which counts subject-reported iterations) |
+
+```rust
+use mira::scorer::*;
+use serde_json::json;
+
+let eval = Eval::new("stock")
+    .subject(/* … */)
+    .scorer(tool_called_with("financial_search", "/ticker", json!("GOOGL")))
+    .scorer(tool_arg_matches("fetch", "/url", r"^https://"))
+    .scorer(observation_contains("financial_search", "$"))
+    .scorer(steps_within(12))
+    .build();
+```
 
 **Operational budgets** (tokens, cost, latency)
 

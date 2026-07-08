@@ -25,7 +25,7 @@ in [`specs/`](../specs). Conventions for this directory are in
 ## Extending
 
 - [Extensibility](extensibility.md) — the map of every seam: subjects, scorers,
-  metrics, events, and protocol-level extension.
+  metrics, trajectories, and protocol-level extension.
 
 ## Reference
 

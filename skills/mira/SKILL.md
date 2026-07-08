@@ -133,10 +133,20 @@ leftover temp files, re-rendering missing reports). Errors exit non-zero.
 
 A case passes only if every `.scorer(...)` passes. Families: **text/output**
 (`succeeded`, `contains`, `regex`, `json_field_equals`…), **tools**
-(`tool_called`, `tools_used_exactly`, `tool_called_before`…), **budgets**
+(`tool_called`, `tools_used_exactly`, `tool_called_before`…), **trajectory
+structure** over the ATIF trajectory — tool arguments, observations, steps
+(`tool_called_with`, `tool_arg_matches`, `observation_contains`,
+`steps_within`; they fail if the subject reported no trajectory), **budgets**
 (`tokens_within`, `cost_within`, `latency_within`…), **files** (`file_exists`,
 `file_contains`), and **combinators / custom** (`all_of`, `any_of`, `not`,
 `scorer(name, closure)`, `model_graded(rubric, judge)`).
+
+Prefer trajectory-based scoring for agent behaviour: `Transcript.trajectory`
+(ATIF) is the primary structured contract — produce it via
+`TranscriptSource::AtifFile`, the everruns subject, or an SDK study — and it is
+the only place tool *arguments* and *observations* exist. The raw `events`
+channel is an advanced fallback for producer-specific data the trajectory
+doesn't model; don't score against `events` when the trajectory covers the need.
 
 Full catalog with semantics: [`references/scorers.md`](references/scorers.md).
 

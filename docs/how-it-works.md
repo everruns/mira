@@ -17,12 +17,16 @@ Eval = Dataset(Sample…) + Subject + [Scorer…]  ×  model matrix × axes
 - **`Subject`** — the thing under evaluation, one adapter per *shape*:
   - `subject_fn(closure)` — the in-process path.
   - `CliSubject` — an external binary; the **polyglot / other-language** path.
-    It reads stdout or a canonical JSONL transcript and can seed/capture files.
+    It reads stdout, an ATIF trajectory file (recommended for tool-using
+    agents), or a canonical JSONL transcript, and can seed/capture files.
   - `mira_everruns::RuntimeSubject` — drives a live `everruns-runtime` session.
 - **`Transcript`** — the normalized result of a run: final response,
-  iteration/tool counts, token + cost usage, tool names, captured files, raw
-  events, and any error. Every subject produces the same shape, so scoring and
-  reporting are shared.
+  iteration/tool counts, token + cost usage, tool names, captured files, the
+  structured ATIF `trajectory` (the **primary** trajectory contract: tool
+  arguments, correlated observations, per-step metrics), and any error. Every
+  subject produces the same shape, so scoring and reporting are shared. The raw
+  `events` channel is advanced-only, for debugging and data the trajectory
+  doesn't model.
 - **`Scorer`** — `score(&Sample, &Transcript) -> Score` (a `value` in `0..1`, a
   `pass`, and a `reason`). Deterministic built-ins, operational budgets, an
   arbitrary-closure escape hatch, and `model_graded` LLM-as-judge — one open

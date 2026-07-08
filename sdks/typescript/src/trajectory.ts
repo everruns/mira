@@ -53,8 +53,9 @@ export function parseTrajectory(data: unknown): Trajectory {
 }
 
 /** The text projection of a StepContent value: the string itself, or the
- * `text` parts joined by newlines (image parts skipped). */
-function contentText(content: StepContent | null | undefined): string {
+ * `text` parts joined by newlines (image parts skipped) — mirrors
+ * `StepContent::text`. Exported for the trajectory scorers. */
+export function contentText(content: StepContent | null | undefined): string {
   if (typeof content === "string") return content;
   if (Array.isArray(content)) {
     return content

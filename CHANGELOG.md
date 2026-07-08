@@ -9,6 +9,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Trajectory scorers.** Four deterministic scorers grade the structure of
+  the ATIF trajectory — the data only `Transcript.trajectory` carries:
+  `tool_called_with(tool, pointer, expected)` (some invocation of `tool` has
+  the JSON value `expected` at the RFC 6901 JSON Pointer in its arguments),
+  `tool_arg_matches(tool, pointer, regex)` (the regex variant, string values
+  only — a non-string at the pointer fails with a reason),
+  `observation_contains(tool, needle)` (the observation content correlated via
+  `source_call_id` contains a substring; multimodal content is graded on its
+  text projection), and `steps_within(max)` (the ATIF step-count budget,
+  distinct from `turns_within`). A transcript without a trajectory **fails**
+  them with reason "subject reported no trajectory" (the `ttft_within`
+  precedent: an unverifiable check fails; N/A stays reserved for infra). All
+  four are hand-mirrored in the Python and TypeScript SDKs and pinned by new
+  `schema/v1/conformance/scorers.json` vectors run by all three parity
+  runners. Docs, specs, and the agent skill now consistently position the ATIF
+  `trajectory` as the primary structured contract, with `events` as the
+  advanced debug channel not to be used where the trajectory covers the need.
 - **ATIF trajectory producers.** Both built-in agent-shaped subjects now emit
   the structured trajectory. `CliSubject` gains
   `TranscriptSource::AtifFile("trajectory.json")` — the **recommended** source

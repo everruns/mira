@@ -294,7 +294,11 @@ measure (`CliSubject` and
 `RuntimeSubject` time the run; the event walker totals usage from JSONL). Budget
 scorers (`tokens_within`, `cost_within`, `latency_within`, `ttft_within`,
 `metric_within`, `tools_used_exactly`, `tool_called_before`, …) turn these into
-pass/fail, and the JSON/HTML reports surface them per case and in aggregate.
+pass/fail; the trajectory scorers (`tool_called_with`, `tool_arg_matches`,
+`observation_contains`, `steps_within`) grade the ATIF trajectory's structure —
+tool arguments, correlated observations, step counts — failing (not N/A) when
+the subject reported no trajectory; and the JSON/HTML reports surface them per
+case and in aggregate.
 
 ## 10. Delivered since the initial cut
 
@@ -623,8 +627,8 @@ publishes).
 
 ## 16. Structured trajectories (ATIF) — the primary trajectory contract
 
-- Status: **implemented** (protocol `1.1`; the contract landed first, adapters
-  and trajectory-aware scorers follow).
+- Status: **implemented** (protocol `1.1`; the contract, the producers —
+  `AtifFile` + the everruns fold — and the trajectory scorers have all landed).
 
 ### 16.1 Problem
 
@@ -667,7 +671,12 @@ new deps). Key rules, enforced by code + the conformance fixture
   `score` params; deliberately absent from `TranscriptSummary` (results and
   checkpoints stay small). Landed as the `1.0 → 1.1` additive minor bump.
 
-Follow-ups (separate changes): `CliSubject` `AtifFile` transcript source and
-the everruns events→ATIF fold in `mira-everruns`; trajectory-aware scorers
-(`tool_called_with`, `steps_within`, …) with SDK mirrors; HTML report step
-viewer; `mira export --atif`.
+Delivered on top of the contract: the `CliSubject` `AtifFile` transcript
+source and the everruns events→ATIF fold in `mira-everruns`; the trajectory
+scorers (`tool_called_with`, `tool_arg_matches`, `observation_contains`,
+`steps_within`) with SDK mirrors and `scorers.json` parity vectors — they grade
+via `Transcript::tool_invocations` and **fail** with reason "subject reported
+no trajectory" when none exists, mirroring `ttft_within`'s
+unverifiable-budget precedent (N/A stays reserved for infra). Follow-ups
+(separate changes): retiring `events` from `RuntimeSubject` output; HTML
+report step viewer; `mira export --atif`.

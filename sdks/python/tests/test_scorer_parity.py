@@ -63,6 +63,14 @@ def build(spec: dict) -> mira.Scorer:
         return mira.tools_used_exactly(spec["tools"])
     if kind == "tool_called_before":
         return mira.tool_called_before(spec["first"], spec["second"])
+    if kind == "tool_called_with":
+        return mira.tool_called_with(spec["tool"], spec["pointer"], spec["expected"])
+    if kind == "tool_arg_matches":
+        return mira.tool_arg_matches(spec["tool"], spec["pointer"], spec["pattern"])
+    if kind == "observation_contains":
+        return mira.observation_contains(spec["tool"], spec["needle"])
+    if kind == "steps_within":
+        return mira.steps_within(spec["max"])
     if kind == "cost_within":
         return mira.cost_within(spec["max_usd"])
     if kind == "tokens_within":

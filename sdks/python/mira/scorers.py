@@ -19,9 +19,10 @@ from __future__ import annotations
 import json
 import re
 from dataclasses import dataclass
-from typing import Callable, List, Sequence, Union
+from typing import Any, Callable, Iterator, List, Optional, Sequence, Tuple, Union
 
-from ._wire import Score
+from ._wire import Score, Trajectory
+from .trajectory import _content_text
 
 
 def make_score(name: str, value: float, passed: bool, reason: str, na: bool = False) -> Score:
@@ -208,6 +209,156 @@ def tool_called_before(first: str, second: str) -> Scorer:
             return _passfail(name, fi < si, f"{first} before {second}",
                              f"{first} not before {second}")
         return make_score(name, 0.0, False, f"both {first} and {second} must be called")
+    return Scorer(name, fn)
+
+
+# ----- trajectory (ATIF) scorers ----------------------------------------------
+# These grade the structure of the ATIF trajectory (`Transcript.trajectory`,
+# the protocol's primary trajectory contract) — tool arguments, correlated
+# observations, step counts. A transcript without a trajectory FAILS with
+# "subject reported no trajectory" (the ttft_within precedent: an unverifiable
+# check fails, it isn't N/A — N/A is reserved for infra).
+
+_MISSING = object()
+
+
+def _json_pointer(value: Any, pointer: str) -> Any:
+    """Resolve an RFC 6901 JSON Pointer against a JSON value; `_MISSING` when it
+    doesn't resolve (distinct from a resolved JSON null) — mirrors
+    `serde_json::Value::pointer`."""
+    if pointer == "":
+        return value
+    if not pointer.startswith("/"):
+        return _MISSING
+    for token in pointer[1:].split("/"):
+        token = token.replace("~1", "/").replace("~0", "~")
+        if isinstance(value, dict):
+            if token not in value:
+                return _MISSING
+            value = value[token]
+        elif isinstance(value, list):
+            if not token.isdigit():
+                return _MISSING
+            idx = int(token)
+            if idx >= len(value):
+                return _MISSING
+            value = value[idx]
+        else:
+            return _MISSING
+    return value
+
+
+def _json_eq(a: Any, b: Any) -> bool:
+    """JSON value equality with Python's bool/int conflation removed
+    (`True != 1`, mirroring `serde_json::Value` equality)."""
+    if isinstance(a, bool) != isinstance(b, bool):
+        return False
+    if isinstance(a, dict) and isinstance(b, dict):
+        return a.keys() == b.keys() and all(_json_eq(v, b[k]) for k, v in a.items())
+    if isinstance(a, list) and isinstance(b, list):
+        return len(a) == len(b) and all(_json_eq(x, y) for x, y in zip(a, b))
+    if isinstance(a, (dict, list)) or isinstance(b, (dict, list)):
+        return False
+    return a == b
+
+
+def _trajectory_invocations(trajectory: Trajectory) -> Iterator[Tuple[str, Any, Optional[Any]]]:
+    """(function_name, arguments, observation content) triples in step order —
+    the trajectory case of `Transcript::tool_invocations` (observation content
+    joined on `source_call_id`)."""
+    for step in trajectory.steps:
+        results = step.observation.results if step.observation is not None else []
+        for call in step.tool_calls:
+            content = next(
+                (r.content for r in results if r.source_call_id == call.tool_call_id),
+                None,
+            )
+            yield call.function_name, call.arguments, content
+
+
+def tool_called_with(tool: str, pointer: str, expected: Any) -> Scorer:
+    """Passes when some invocation of `tool` has arguments whose value at
+    `pointer` (an RFC 6901 JSON Pointer) equals `expected` (JSON equality).
+    Requires the ATIF trajectory; a transcript without one fails."""
+    name = f"tool_called_with({tool}, {pointer}, {json.dumps(expected)})"
+
+    def fn(_sample, transcript) -> Score:
+        trajectory = transcript.trajectory
+        if trajectory is None:
+            return make_score(name, 0.0, False, "subject reported no trajectory")
+        for called, arguments, _content in _trajectory_invocations(trajectory):
+            if called != tool:
+                continue
+            v = _json_pointer(arguments, pointer)
+            if v is not _MISSING and _json_eq(v, expected):
+                return make_score(name, 1.0, True, f"{tool} called with {pointer} == {expected!r}")
+        return make_score(name, 0.0, False, f"no {tool} call with {pointer} == {expected!r}")
+    return Scorer(name, fn)
+
+
+def tool_arg_matches(tool: str, pointer: str, pattern: str) -> Scorer:
+    """Passes when some invocation of `tool` has a **string** argument at
+    `pointer` matching the regex `pattern` — the regex variant of
+    `tool_called_with`. A non-string value at the pointer fails with a reason.
+    Requires the ATIF trajectory; a transcript without one fails."""
+    name = f"tool_arg_matches({tool}, {pointer}, {pattern!r})"
+    compiled = re.compile(pattern)
+
+    def fn(_sample, transcript) -> Score:
+        trajectory = transcript.trajectory
+        if trajectory is None:
+            return make_score(name, 0.0, False, "subject reported no trajectory")
+        non_string = False
+        for called, arguments, _content in _trajectory_invocations(trajectory):
+            if called != tool:
+                continue
+            v = _json_pointer(arguments, pointer)
+            if v is _MISSING:
+                continue
+            if isinstance(v, str):
+                if compiled.search(v):
+                    return make_score(
+                        name, 1.0, True, f"{tool} called with {pointer} matching {pattern!r}"
+                    )
+            else:
+                non_string = True
+        if non_string:
+            return make_score(name, 0.0, False, f"non-string value at {pointer} in {tool} arguments")
+        return make_score(name, 0.0, False, f"no {tool} call with {pointer} matching {pattern!r}")
+    return Scorer(name, fn)
+
+
+def observation_contains(tool: str, needle: str) -> Scorer:
+    """Passes when the observation content correlated to some invocation of
+    `tool` (joined via `source_call_id`) contains `needle` as a substring
+    (multimodal content is graded on its text projection). Requires the ATIF
+    trajectory; a transcript without one fails."""
+    name = f"observation_contains({tool}, {needle!r})"
+
+    def fn(_sample, transcript) -> Score:
+        trajectory = transcript.trajectory
+        if trajectory is None:
+            return make_score(name, 0.0, False, "subject reported no trajectory")
+        for called, _arguments, content in _trajectory_invocations(trajectory):
+            if called == tool and content is not None and needle in _content_text(content):
+                return make_score(name, 1.0, True, f"{tool} observation contains {needle!r}")
+        return make_score(name, 0.0, False, f"no {tool} observation contains {needle!r}")
+    return Scorer(name, fn)
+
+
+def steps_within(maximum: int) -> Scorer:
+    """Passes when the trajectory has at most `maximum` steps — the ATIF
+    step-count budget (distinct from `turns_within`, which counts
+    subject-reported iterations). Requires the ATIF trajectory; a transcript
+    without one fails."""
+    name = f"steps_within({maximum})"
+
+    def fn(_sample, transcript) -> Score:
+        trajectory = transcript.trajectory
+        if trajectory is None:
+            return make_score(name, 0.0, False, "subject reported no trajectory")
+        n = len(trajectory.steps)
+        return _passfail(name, n <= maximum, f"{n} <= {maximum}", f"{n} > {maximum}")
     return Scorer(name, fn)
 
 

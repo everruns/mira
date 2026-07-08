@@ -29,6 +29,21 @@ them with `.scorer(...)`; a case passes only if every scorer passes. Import from
 | `tools_used_exactly([...])` | The exact set of tools was used. |
 | `tool_called_before(a, b)` | Tool `a` was called before tool `b`. |
 
+## Trajectory structure (ATIF)
+
+These grade the structured ATIF trajectory (`Transcript.trajectory`) — the
+primary trajectory contract, and the only place tool **arguments** and
+**observations** exist. A transcript without a trajectory **fails** them
+(reason: "subject reported no trajectory") — produce one via
+`TranscriptSource::AtifFile`, the everruns subject, or an SDK study.
+
+| Scorer | Passes when |
+|--------|-------------|
+| `tool_called_with(t, ptr, v)` | Some `t` invocation has JSON value `v` at JSON Pointer `ptr` in its arguments. |
+| `tool_arg_matches(t, ptr, re)` | Some `t` invocation has a string argument at `ptr` matching regex `re`. |
+| `observation_contains(t, s)` | The observation correlated to a `t` invocation contains `s`. |
+| `steps_within(n)` | The trajectory has ≤ `n` steps. |
+
 ## Budgets (operational)
 
 | Scorer | Passes when |
