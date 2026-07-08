@@ -42,6 +42,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **`mira-everruns` reported zero tool calls.** `RuntimeSubject` filled
+  `Transcript.tool_calls` via Mira's generic `summarize_events`, which only
+  recognizes `{ name, input }` tool objects — a shape the everruns event stream
+  never emits (tool calls arrive as `tool.completed` events keyed by
+  `data.tool_name`). Every tool-selection scorer silently saw zero calls while
+  the tools actually ran. The adapter now extracts tool names from the
+  `tool.completed` events it owns, with a regression test pinning that event
+  shape against schema drift (EVE-676).
 - The repository's own `mira.toml` placed `default_launcher` below the
   `[environment]` section header, which nests it inside that table — so the
   setting was silently ignored (found by `mira doctor`). It now sits at the
