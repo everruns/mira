@@ -257,5 +257,5 @@ Warnings never fail doctor; errors exit non-zero, so it can gate CI.
 - [Metrics](metrics.md) — tokens/cost/latency, and how to add a custom metric.
 - [Subjects](subjects.md) — in-process, CLI/polyglot, and runtime sessions.
 - [Extensibility](extensibility.md) — the map of every seam: custom subjects,
-  scorers, metrics, events, and protocol-level extension.
+  scorers, metrics, trajectories, and protocol-level extension.
 - [The protocol](protocol.md) — what flows over the wire, and its versioning.

@@ -113,10 +113,12 @@ example is [`examples/metrics`](../examples/metrics) — it reports
 
 If you want a *derived* verdict or your metric isn't a single number, use a
 [closure scorer](scorers.md#closures-the-escape-hatch): it receives the whole
-transcript, so it can combine `usage`/`timing`/`metrics`, walk `events` (the
-structured stream), and emit a `Score::graded(...)`. For non-numeric structured
-detail (per-step traces, retrieval hits), prefer `Transcript.events` over
-`metrics`.
+transcript, so it can combine `usage`/`timing`/`metrics`, read the structured
+ATIF `trajectory` (per-step tool calls, observations, and metrics — the primary
+structured contract), and emit a `Score::graded(...)`. For non-numeric
+structured detail (per-step traces, retrieval hits), prefer
+`Transcript.trajectory` over `metrics`; the raw `events` channel is
+advanced-only, for producer-specific data the trajectory doesn't model.
 
 ## Where metrics go
 

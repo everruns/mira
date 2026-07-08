@@ -13,8 +13,9 @@
 // human-facing and may differ across languages; the verdict (pass/value/na)
 // must not. The LLM-judge (`model_graded`) is deliberately not mirrored — it is
 // not a deterministic, portable scorer.
-import type { Score, Transcript, Part } from "./wire.js";
+import type { Score, StepContent, Trajectory, Transcript, Part } from "./wire.js";
 import type { Sample } from "./study.js";
+import { contentText } from "./trajectory.js";
 
 export interface Scorer {
   name: string;
@@ -202,6 +203,158 @@ export function toolCalledBefore(first: string, second: string): Scorer {
       return passfail(name, fi < si, `${first} before ${second}`, `${first} not before ${second}`);
     }
     return makeScore(name, 0, false, `both ${first} and ${second} must be called`);
+  });
+}
+
+// ----- trajectory (ATIF) scorers ---------------------------------------------
+// These grade the structure of the ATIF trajectory (`Transcript.trajectory`,
+// the protocol's primary trajectory contract) — tool arguments, correlated
+// observations, step counts. A transcript without a trajectory FAILS with
+// "subject reported no trajectory" (the ttft_within precedent: an unverifiable
+// check fails, it isn't N/A — N/A is reserved for infra).
+
+/** Sentinel for "the pointer did not resolve" (distinct from a resolved JSON
+ * null); JSON.parse never yields `undefined`, so it is safe here. */
+const MISSING = undefined;
+
+/** Resolve an RFC 6901 JSON Pointer against a JSON value — mirrors
+ * `serde_json::Value::pointer`. */
+function jsonPointer(value: unknown, pointer: string): unknown {
+  if (pointer === "") return value;
+  if (!pointer.startsWith("/")) return MISSING;
+  for (const raw of pointer.slice(1).split("/")) {
+    const token = raw.replace(/~1/g, "/").replace(/~0/g, "~");
+    if (Array.isArray(value)) {
+      if (!/^\d+$/.test(token)) return MISSING;
+      const idx = Number(token);
+      if (idx >= value.length) return MISSING;
+      value = value[idx];
+    } else if (typeof value === "object" && value !== null) {
+      if (!Object.prototype.hasOwnProperty.call(value, token)) return MISSING;
+      value = (value as Record<string, unknown>)[token];
+    } else {
+      return MISSING;
+    }
+  }
+  return value;
+}
+
+/** Deep JSON value equality — mirrors `serde_json::Value` equality. */
+function jsonEq(a: unknown, b: unknown): boolean {
+  if (Array.isArray(a) && Array.isArray(b)) {
+    return a.length === b.length && a.every((v, i) => jsonEq(v, b[i]));
+  }
+  if (
+    typeof a === "object" && a !== null && !Array.isArray(a) &&
+    typeof b === "object" && b !== null && !Array.isArray(b)
+  ) {
+    const ka = Object.keys(a).sort();
+    const kb = Object.keys(b).sort();
+    return (
+      ka.length === kb.length &&
+      ka.every((k, i) => k === kb[i] && jsonEq((a as Record<string, unknown>)[k], (b as Record<string, unknown>)[k]))
+    );
+  }
+  return a === b;
+}
+
+/** `(function_name, arguments, observation content)` triples in step order —
+ * the trajectory case of `Transcript::tool_invocations` (observation content
+ * joined on `source_call_id`). */
+function trajectoryInvocations(
+  trajectory: Trajectory,
+): Array<{ name: string; arguments: unknown; content: StepContent | null | undefined }> {
+  const out: Array<{ name: string; arguments: unknown; content: StepContent | null | undefined }> = [];
+  for (const step of trajectory.steps ?? []) {
+    const results = step.observation?.results ?? [];
+    for (const call of step.tool_calls ?? []) {
+      const content = results.find((r) => r.source_call_id === call.tool_call_id)?.content;
+      out.push({ name: call.function_name, arguments: call.arguments, content });
+    }
+  }
+  return out;
+}
+
+/** Passes when some invocation of `tool` has arguments whose value at
+ * `pointer` (an RFC 6901 JSON Pointer) equals `expected` (JSON equality).
+ * Requires the ATIF trajectory; a transcript without one fails. */
+export function toolCalledWith(tool: string, pointer: string, expected: unknown): Scorer {
+  const name = `tool_called_with(${tool}, ${pointer}, ${JSON.stringify(expected)})`;
+  return named(name, (_s, t) => {
+    const trajectory = t.trajectory;
+    if (trajectory == null) return makeScore(name, 0, false, "subject reported no trajectory");
+    for (const c of trajectoryInvocations(trajectory)) {
+      if (c.name !== tool) continue;
+      const v = jsonPointer(c.arguments, pointer);
+      if (v !== MISSING && jsonEq(v, expected)) {
+        return makeScore(name, 1, true, `${tool} called with ${pointer} == ${JSON.stringify(expected)}`);
+      }
+    }
+    return makeScore(name, 0, false, `no ${tool} call with ${pointer} == ${JSON.stringify(expected)}`);
+  });
+}
+
+/** Passes when some invocation of `tool` has a **string** argument at
+ * `pointer` matching the regex `pattern` — the regex variant of
+ * `toolCalledWith`. A non-string value at the pointer fails with a reason.
+ * Requires the ATIF trajectory; a transcript without one fails. */
+export function toolArgMatches(tool: string, pointer: string, pattern: string): Scorer {
+  const name = `tool_arg_matches(${tool}, ${pointer}, ${JSON.stringify(pattern)})`;
+  const re = new RegExp(pattern);
+  return named(name, (_s, t) => {
+    const trajectory = t.trajectory;
+    if (trajectory == null) return makeScore(name, 0, false, "subject reported no trajectory");
+    let nonString = false;
+    for (const c of trajectoryInvocations(trajectory)) {
+      if (c.name !== tool) continue;
+      const v = jsonPointer(c.arguments, pointer);
+      if (v === MISSING) continue;
+      if (typeof v === "string") {
+        if (re.test(v)) {
+          return makeScore(name, 1, true, `${tool} called with ${pointer} matching ${JSON.stringify(pattern)}`);
+        }
+      } else {
+        nonString = true;
+      }
+    }
+    if (nonString) {
+      return makeScore(name, 0, false, `non-string value at ${pointer} in ${tool} arguments`);
+    }
+    return makeScore(name, 0, false, `no ${tool} call with ${pointer} matching ${JSON.stringify(pattern)}`);
+  });
+}
+
+/** Passes when the observation content correlated to some invocation of
+ * `tool` (joined via `source_call_id`) contains `needle` as a substring
+ * (multimodal content is graded on its text projection). Requires the ATIF
+ * trajectory; a transcript without one fails. */
+export function observationContains(tool: string, needle: string): Scorer {
+  const name = `observation_contains(${tool}, ${JSON.stringify(needle)})`;
+  return named(name, (_s, t) => {
+    const trajectory = t.trajectory;
+    if (trajectory == null) return makeScore(name, 0, false, "subject reported no trajectory");
+    const hit = trajectoryInvocations(trajectory).some(
+      (c) => c.name === tool && c.content != null && contentText(c.content).includes(needle),
+    );
+    return passfail(
+      name,
+      hit,
+      `${tool} observation contains ${JSON.stringify(needle)}`,
+      `no ${tool} observation contains ${JSON.stringify(needle)}`,
+    );
+  });
+}
+
+/** Passes when the trajectory has at most `max` steps — the ATIF step-count
+ * budget (distinct from `turnsWithin`, which counts subject-reported
+ * iterations). Requires the ATIF trajectory; a transcript without one fails. */
+export function stepsWithin(max: number): Scorer {
+  const name = `steps_within(${max})`;
+  return named(name, (_s, t) => {
+    const trajectory = t.trajectory;
+    if (trajectory == null) return makeScore(name, 0, false, "subject reported no trajectory");
+    const n = trajectory.steps?.length ?? 0;
+    return passfail(name, n <= max, `${n} <= ${max}`, `${n} > ${max}`);
   });
 }
 

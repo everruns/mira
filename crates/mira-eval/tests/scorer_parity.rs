@@ -51,6 +51,16 @@ fn build(spec: &Value) -> Box<dyn Scorer> {
                 .map(|t| t.as_str().unwrap().to_string()),
         ),
         "tool_called_before" => tool_called_before(s(spec, "first"), s(spec, "second")),
+        "tool_called_with" => tool_called_with(
+            s(spec, "tool"),
+            s(spec, "pointer"),
+            spec["expected"].clone(),
+        ),
+        "tool_arg_matches" => {
+            tool_arg_matches(s(spec, "tool"), s(spec, "pointer"), s(spec, "pattern"))
+        }
+        "observation_contains" => observation_contains(s(spec, "tool"), s(spec, "needle")),
+        "steps_within" => steps_within(u(spec, "max") as usize),
         "cost_within" => cost_within(f(spec, "max_usd")),
         "tokens_within" => tokens_within(u(spec, "max")),
         "output_tokens_within" => output_tokens_within(u(spec, "max")),
@@ -93,6 +103,10 @@ const KINDS: &[&str] = &[
     "turns_within",
     "tools_used_exactly",
     "tool_called_before",
+    "tool_called_with",
+    "tool_arg_matches",
+    "observation_contains",
+    "steps_within",
     "cost_within",
     "tokens_within",
     "output_tokens_within",

@@ -48,7 +48,9 @@ Eval = Dataset(Sample…) + Subject + [Scorer…]  ×  model matrix × axes
   in-process closure, an external binary (`CliSubject`, the **polyglot** path),
   or a live runtime session (`mira-everruns`).
 - **`Scorer`** — deterministic built-ins (`contains`, `regex`, `tool_called`,
-  `file_contains`, …), operational budgets (`tokens_within`, `cost_within`,
+  `file_contains`, …), trajectory-structure scorers over the ATIF trajectory
+  (`tool_called_with`, `tool_arg_matches`, `observation_contains`,
+  `steps_within`), operational budgets (`tokens_within`, `cost_within`,
   `latency_within`, `ttft_within`, `tools_used_exactly`, …), combinators
   (`all_of`/`any_of`/`not`), an arbitrary-closure escape hatch, and LLM-as-judge
   (`model_graded`) — one open vocabulary, freely composed.
@@ -142,13 +144,18 @@ Teams run agents and tools against datasets in incompatible ways — a Python
 SWE-bench harness here, a bespoke Rust string-check bench there, an rstest matrix
 somewhere else. Mira is the one framework they can converge on:
 
-- **Agent-trajectory-native** — score tool calls (`tool_called`,
-  `tools_used_exactly`), multi-turn transcripts, and live runtime sessions;
-  saved runs resume long-running payloads that take minutes to play out.
+- **Agent-trajectory-native** — the structured trajectory contract is
+  [ATIF](https://github.com/harbor-framework/harbor/blob/main/rfcs/0001-trajectory-format.md)
+  (`Transcript.trajectory`): score tool calls with their arguments and
+  observations (`tool_called`, `tools_used_exactly`, `tool_called_with`,
+  `observation_contains`, `steps_within`), multi-turn transcripts, and live
+  runtime sessions; saved runs resume long-running payloads that take minutes
+  to play out.
 - **Code-first authoring** with `cargo test`-style discovery (`#[eval]`) and
   selection.
 - **Polyglot by design** — the `CliSubject` evaluates any binary in any language
-  that emits the canonical JSONL transcript, so non-Rust agents are first-class.
+  that writes an ATIF trajectory file (or, as the advanced path, emits the
+  canonical JSONL transcript), so non-Rust agents are first-class.
 - **Composable scoring** that generalizes string checks, operational budgets, and
   LLM-judge into one trait.
 - **Operational metrics first-class** — tokens (incl. cache/reasoning), cost,

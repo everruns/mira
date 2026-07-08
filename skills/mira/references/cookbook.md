@@ -69,6 +69,22 @@ let s = CliSubject::new("my-agent")
 a fresh temp workdir; `MIRA_TARGET` / `MIRA_PROVIDER` env vars are set. Example:
 <https://github.com/everruns/mira/tree/main/examples/cli_subject>.
 
+## Trajectory scoring (tool arguments / observations)
+
+With a trajectory-producing subject (`AtifFile`, everruns, or an SDK study),
+grade the structure — not just tool names. These fail when the subject reported
+no trajectory; don't fall back to scoring the raw `events` channel.
+
+```rust
+use mira::scorer::*;
+use serde_json::json;
+// arguments (JSON Pointer + expected value / regex), observations, step budget:
+.scorer(tool_called_with("financial_search", "/ticker", json!("GOOGL")))
+.scorer(tool_arg_matches("fetch", "/url", r"^https://"))
+.scorer(observation_contains("financial_search", "$"))
+.scorer(steps_within(12))
+```
+
 ## everruns runtime subject
 
 `mira_everruns::RuntimeSubject` drives a real `everruns-runtime` session (add

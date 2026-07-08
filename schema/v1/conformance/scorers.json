@@ -48,6 +48,36 @@
         { "kind": "text", "text": "here you go" },
         { "kind": "image", "media_type": "image/png", "source": { "uri": "u" } }
       ]
+    },
+    "with_trajectory": {
+      "final_response": "GOOGL is at $185.35.",
+      "iterations": 2,
+      "tool_calls_count": 2,
+      "tool_calls": ["financial_search", "fetch"],
+      "usage": { "input_tokens": 10, "output_tokens": 5, "cost_usd": 0.0 },
+      "trajectory": {
+        "schema_version": "ATIF-v1.7",
+        "agent": { "name": "demo-agent", "version": "1.0" },
+        "steps": [
+          { "step_id": 1, "source": "user", "message": "price of GOOGL?" },
+          {
+            "step_id": 2,
+            "source": "agent",
+            "message": "",
+            "tool_calls": [
+              { "tool_call_id": "c1", "function_name": "financial_search", "arguments": { "ticker": "GOOGL", "metric": "price", "count": 3 } },
+              { "tool_call_id": "c2", "function_name": "fetch", "arguments": { "url": "https://example.com/q" } }
+            ],
+            "observation": {
+              "results": [
+                { "source_call_id": "c1", "content": "GOOGL: $185.35" },
+                { "source_call_id": "c2", "content": [ { "type": "text", "text": "page body" } ] }
+              ]
+            }
+          },
+          { "step_id": 3, "source": "agent", "message": "GOOGL is at $185.35." }
+        ]
+      }
     }
   },
   "cases": [
@@ -85,6 +115,23 @@
     { "name": "tool_called_before ordered", "scorer": { "kind": "tool_called_before", "first": "read", "second": "calc" }, "transcript": "base", "expect": { "pass": true, "value": 1.0, "na": false } },
     { "name": "tool_called_before reversed", "scorer": { "kind": "tool_called_before", "first": "calc", "second": "read" }, "transcript": "base", "expect": { "pass": false, "value": 0.0, "na": false } },
     { "name": "tool_called_before missing", "scorer": { "kind": "tool_called_before", "first": "read", "second": "grep" }, "transcript": "base", "expect": { "pass": false, "value": 0.0, "na": false } },
+
+    { "name": "tool_called_with string match", "scorer": { "kind": "tool_called_with", "tool": "financial_search", "pointer": "/ticker", "expected": "GOOGL" }, "transcript": "with_trajectory", "expect": { "pass": true, "value": 1.0, "na": false } },
+    { "name": "tool_called_with number match", "scorer": { "kind": "tool_called_with", "tool": "financial_search", "pointer": "/count", "expected": 3 }, "transcript": "with_trajectory", "expect": { "pass": true, "value": 1.0, "na": false } },
+    { "name": "tool_called_with value mismatch", "scorer": { "kind": "tool_called_with", "tool": "financial_search", "pointer": "/ticker", "expected": "AAPL" }, "transcript": "with_trajectory", "expect": { "pass": false, "value": 0.0, "na": false } },
+    { "name": "tool_called_with missing pointer", "scorer": { "kind": "tool_called_with", "tool": "financial_search", "pointer": "/absent", "expected": "GOOGL" }, "transcript": "with_trajectory", "expect": { "pass": false, "value": 0.0, "na": false } },
+    { "name": "tool_called_with no trajectory", "scorer": { "kind": "tool_called_with", "tool": "calc", "pointer": "/x", "expected": 1 }, "transcript": "base", "expect": { "pass": false, "value": 0.0, "na": false } },
+    { "name": "tool_arg_matches match", "scorer": { "kind": "tool_arg_matches", "tool": "fetch", "pointer": "/url", "pattern": "^https://" }, "transcript": "with_trajectory", "expect": { "pass": true, "value": 1.0, "na": false } },
+    { "name": "tool_arg_matches no match", "scorer": { "kind": "tool_arg_matches", "tool": "fetch", "pointer": "/url", "pattern": "^ftp://" }, "transcript": "with_trajectory", "expect": { "pass": false, "value": 0.0, "na": false } },
+    { "name": "tool_arg_matches non-string value", "scorer": { "kind": "tool_arg_matches", "tool": "financial_search", "pointer": "/count", "pattern": "\\d+" }, "transcript": "with_trajectory", "expect": { "pass": false, "value": 0.0, "na": false } },
+    { "name": "tool_arg_matches no trajectory", "scorer": { "kind": "tool_arg_matches", "tool": "calc", "pointer": "/x", "pattern": "\\d+" }, "transcript": "base", "expect": { "pass": false, "value": 0.0, "na": false } },
+    { "name": "observation_contains text content", "scorer": { "kind": "observation_contains", "tool": "financial_search", "needle": "$185.35" }, "transcript": "with_trajectory", "expect": { "pass": true, "value": 1.0, "na": false } },
+    { "name": "observation_contains multimodal content", "scorer": { "kind": "observation_contains", "tool": "fetch", "needle": "page body" }, "transcript": "with_trajectory", "expect": { "pass": true, "value": 1.0, "na": false } },
+    { "name": "observation_contains missing", "scorer": { "kind": "observation_contains", "tool": "financial_search", "needle": "AAPL" }, "transcript": "with_trajectory", "expect": { "pass": false, "value": 0.0, "na": false } },
+    { "name": "observation_contains no trajectory", "scorer": { "kind": "observation_contains", "tool": "calc", "needle": "42" }, "transcript": "base", "expect": { "pass": false, "value": 0.0, "na": false } },
+    { "name": "steps_within ok", "scorer": { "kind": "steps_within", "max": 3 }, "transcript": "with_trajectory", "expect": { "pass": true, "value": 1.0, "na": false } },
+    { "name": "steps_within over", "scorer": { "kind": "steps_within", "max": 2 }, "transcript": "with_trajectory", "expect": { "pass": false, "value": 0.0, "na": false } },
+    { "name": "steps_within no trajectory", "scorer": { "kind": "steps_within", "max": 10 }, "transcript": "base", "expect": { "pass": false, "value": 0.0, "na": false } },
 
     { "name": "cost_within ok", "scorer": { "kind": "cost_within", "max_usd": 0.05 }, "transcript": "base", "expect": { "pass": true, "value": 1.0, "na": false } },
     { "name": "cost_within over", "scorer": { "kind": "cost_within", "max_usd": 0.001 }, "transcript": "base", "expect": { "pass": false, "value": 0.0, "na": false } },

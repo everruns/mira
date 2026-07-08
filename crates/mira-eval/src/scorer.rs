@@ -390,6 +390,155 @@ pub fn tool_called_before(first: impl Into<String>, second: impl Into<String>) -
     )
 }
 
+// ----- trajectory (ATIF) scorers ---------------------------------------------
+// These grade the structure of the ATIF trajectory — the protocol's primary
+// trajectory contract ([`crate::trajectory`]) — via
+// [`Transcript::tool_invocations`], which is how scorers see tool arguments and
+// correlated observations. A transcript without a trajectory FAILS with
+// "subject reported no trajectory" (the `ttft_within` precedent: an
+// unverifiable check fails, it isn't N/A — N/A is reserved for infra).
+
+/// Passes if some invocation of `tool` has arguments whose value at `pointer`
+/// (an RFC 6901 JSON Pointer, e.g. `"/ticker"`) equals `expected` (JSON value
+/// equality). Requires the ATIF trajectory
+/// ([`Transcript::trajectory`](crate::Transcript::trajectory)) — arguments
+/// only exist there; a transcript without one fails (the check can't be
+/// verified).
+pub fn tool_called_with(
+    tool: impl Into<String>,
+    pointer: impl Into<String>,
+    expected: serde_json::Value,
+) -> Box<dyn Scorer> {
+    let tool = tool.into();
+    let pointer = pointer.into();
+    scorer(
+        format!("tool_called_with({tool}, {pointer}, {expected})"),
+        move |_, t| {
+            if t.trajectory.is_none() {
+                return Score::fail("tool_called_with", "subject reported no trajectory");
+            }
+            let hit = t.tool_invocations().iter().any(|c| {
+                c.name == tool && c.arguments.and_then(|a| a.pointer(&pointer)) == Some(&expected)
+            });
+            if hit {
+                Score::pass(
+                    "tool_called_with",
+                    format!("{tool} called with {pointer} == {expected}"),
+                )
+            } else {
+                Score::fail(
+                    "tool_called_with",
+                    format!("no {tool} call with {pointer} == {expected}"),
+                )
+            }
+        },
+    )
+}
+
+/// Passes if some invocation of `tool` has a **string** argument at `pointer`
+/// (an RFC 6901 JSON Pointer) matching the regex `pattern` — the regex variant
+/// of [`tool_called_with`]. A non-string value at the pointer fails with a
+/// reason (grade non-strings with `tool_called_with` instead). Requires the
+/// ATIF trajectory; a transcript without one fails.
+pub fn tool_arg_matches(
+    tool: impl Into<String>,
+    pointer: impl Into<String>,
+    pattern: impl Into<String>,
+) -> Box<dyn Scorer> {
+    let tool = tool.into();
+    let pointer = pointer.into();
+    let pattern = pattern.into();
+    let compiled = regex::Regex::new(&pattern);
+    scorer(
+        format!("tool_arg_matches({tool}, {pointer}, {pattern:?})"),
+        move |_, t| {
+            let re = match &compiled {
+                Ok(re) => re,
+                Err(e) => return Score::fail("tool_arg_matches", format!("bad pattern: {e}")),
+            };
+            if t.trajectory.is_none() {
+                return Score::fail("tool_arg_matches", "subject reported no trajectory");
+            }
+            let mut non_string = false;
+            for c in t.tool_invocations() {
+                if c.name != tool {
+                    continue;
+                }
+                match c.arguments.and_then(|a| a.pointer(&pointer)) {
+                    Some(serde_json::Value::String(s)) if re.is_match(s) => {
+                        return Score::pass(
+                            "tool_arg_matches",
+                            format!("{tool} called with {pointer} matching {pattern:?}"),
+                        );
+                    }
+                    Some(serde_json::Value::String(_)) | None => {}
+                    Some(_) => non_string = true,
+                }
+            }
+            if non_string {
+                Score::fail(
+                    "tool_arg_matches",
+                    format!("non-string value at {pointer} in {tool} arguments"),
+                )
+            } else {
+                Score::fail(
+                    "tool_arg_matches",
+                    format!("no {tool} call with {pointer} matching {pattern:?}"),
+                )
+            }
+        },
+    )
+}
+
+/// Passes if the observation content correlated to some invocation of `tool`
+/// (joined via `source_call_id`) contains `needle` as a substring. Multimodal
+/// observation content is graded on its text projection
+/// ([`StepContent::text`](crate::trajectory::StepContent::text)). Requires the
+/// ATIF trajectory — observations only exist there; a transcript without one
+/// fails.
+pub fn observation_contains(tool: impl Into<String>, needle: impl Into<String>) -> Box<dyn Scorer> {
+    let tool = tool.into();
+    let needle = needle.into();
+    scorer(
+        format!("observation_contains({tool}, {needle:?})"),
+        move |_, t| {
+            if t.trajectory.is_none() {
+                return Score::fail("observation_contains", "subject reported no trajectory");
+            }
+            let hit = t
+                .tool_invocations()
+                .iter()
+                .any(|c| c.name == tool && c.result.is_some_and(|r| r.text().contains(&needle)));
+            if hit {
+                Score::pass(
+                    "observation_contains",
+                    format!("{tool} observation contains {needle:?}"),
+                )
+            } else {
+                Score::fail(
+                    "observation_contains",
+                    format!("no {tool} observation contains {needle:?}"),
+                )
+            }
+        },
+    )
+}
+
+/// Passes if the trajectory has at most `max` steps — the ATIF step-count
+/// budget (distinct from [`turns_within`], which counts subject-reported
+/// iterations). Requires the ATIF trajectory; a transcript without one fails.
+pub fn steps_within(max: usize) -> Box<dyn Scorer> {
+    scorer(format!("steps_within({max})"), move |_, t| {
+        match &t.trajectory {
+            Some(tr) if tr.steps.len() <= max => {
+                Score::pass("steps_within", format!("{} <= {max}", tr.steps.len()))
+            }
+            Some(tr) => Score::fail("steps_within", format!("{} > {max}", tr.steps.len())),
+            None => Score::fail("steps_within", "subject reported no trajectory"),
+        }
+    })
+}
+
 // ----- JSON output checks ---------------------------------------------------
 
 /// Passes if the final response parses as a JSON value.
@@ -684,6 +833,138 @@ mod tests {
         assert!(run(tool_called_before("read", "calc"), &s).await.pass);
         assert!(!run(tool_called_before("calc", "read"), &s).await.pass);
         assert!(!run(tool_called_before("read", "grep"), &s).await.pass);
+    }
+
+    /// A transcript whose trajectory carries structured tool calls with
+    /// arguments and correlated observations (plain and multimodal).
+    fn trajectory_transcript() -> Transcript {
+        use crate::trajectory::*;
+        let mut t = Trajectory::new(Agent::new("a", "1"));
+        t.steps
+            .push(Step::new(1, StepSource::User, "price of GOOGL?"));
+        let mut step = Step::new(2, StepSource::Agent, "");
+        step.tool_calls = vec![
+            ToolCall::new(
+                "c1",
+                "financial_search",
+                serde_json::json!({"ticker": "GOOGL", "metric": "price", "count": 3}),
+            ),
+            ToolCall::new(
+                "c2",
+                "fetch",
+                serde_json::json!({"url": "https://example.com/q"}),
+            ),
+        ];
+        step.observation = Some(Observation {
+            results: vec![
+                ObservationResult {
+                    source_call_id: Some("c1".into()),
+                    content: Some("GOOGL: $185.35".into()),
+                    ..Default::default()
+                },
+                ObservationResult {
+                    source_call_id: Some("c2".into()),
+                    content: Some(StepContent::Parts(vec![ContentPart::text("page body")])),
+                    ..Default::default()
+                },
+            ],
+        });
+        t.steps.push(step);
+        t.steps
+            .push(Step::new(3, StepSource::Agent, "GOOGL is at $185.35."));
+        Transcript::from_trajectory(t)
+    }
+
+    #[tokio::test]
+    async fn trajectory_scorers() {
+        use serde_json::json;
+        let s = Sample::new("a", "q");
+        let t = trajectory_transcript();
+
+        // Argument equality via JSON Pointer (string and non-string values).
+        let hit = tool_called_with("financial_search", "/ticker", json!("GOOGL"));
+        assert!(hit.score(&s, &t).await.pass);
+        let count = tool_called_with("financial_search", "/count", json!(3));
+        assert!(count.score(&s, &t).await.pass);
+        let miss = tool_called_with("financial_search", "/ticker", json!("AAPL"));
+        assert!(!miss.score(&s, &t).await.pass);
+        let bad_ptr = tool_called_with("financial_search", "/absent", json!("GOOGL"));
+        assert!(!bad_ptr.score(&s, &t).await.pass);
+
+        // Regex over string arguments; non-string at pointer fails with reason.
+        assert!(
+            tool_arg_matches("fetch", "/url", "^https://")
+                .score(&s, &t)
+                .await
+                .pass
+        );
+        assert!(
+            !tool_arg_matches("fetch", "/url", "^ftp://")
+                .score(&s, &t)
+                .await
+                .pass
+        );
+        let non_string = tool_arg_matches("financial_search", "/count", r"\d+")
+            .score(&s, &t)
+            .await;
+        assert!(!non_string.pass);
+        assert!(
+            non_string.reason.contains("non-string"),
+            "{}",
+            non_string.reason
+        );
+        assert!(
+            !tool_arg_matches("fetch", "/url", "(")
+                .score(&s, &t)
+                .await
+                .pass
+        ); // bad pattern
+
+        // Observation join via source_call_id (plain text and parts).
+        assert!(
+            observation_contains("financial_search", "$185.35")
+                .score(&s, &t)
+                .await
+                .pass
+        );
+        assert!(
+            observation_contains("fetch", "page body")
+                .score(&s, &t)
+                .await
+                .pass
+        );
+        assert!(
+            !observation_contains("financial_search", "AAPL")
+                .score(&s, &t)
+                .await
+                .pass
+        );
+
+        // Step-count budget.
+        assert!(steps_within(3).score(&s, &t).await.pass);
+        assert!(!steps_within(2).score(&s, &t).await.pass);
+    }
+
+    #[tokio::test]
+    async fn trajectory_scorers_fail_without_trajectory() {
+        // The ttft_within precedent: an unverifiable check fails (not N/A).
+        let s = Sample::new("a", "q");
+        let t = transcript(); // legacy transcript: names only, no trajectory
+        for scorer in [
+            tool_called_with("calc", "/x", serde_json::json!(1)),
+            tool_arg_matches("calc", "/x", r"\d+"),
+            observation_contains("calc", "42"),
+            steps_within(10),
+        ] {
+            let score = scorer.score(&s, &t).await;
+            assert!(
+                !score.pass && !score.na,
+                "{}: {}",
+                score.scorer,
+                score.reason
+            );
+            assert_eq!(score.reason, "subject reported no trajectory");
+        }
     }
 
     #[tokio::test]
