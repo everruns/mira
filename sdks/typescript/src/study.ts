@@ -9,6 +9,7 @@ import type { Readable, Writable } from "node:stream";
 import { toWire } from "./codec.js";
 import { PROTOCOL_VERSION } from "./meta.js";
 import { makeScore, type Scorer } from "./scorers.js";
+import { ATIF_FORMAT, ATIF_VERSION, normalizeTrajectory } from "./trajectory.js";
 import type {
   AxisInfo,
   EvalInfo,
@@ -218,11 +219,11 @@ export function aggregate(scores: Score[]): number {
 
 function summary(t: Transcript): TranscriptSummary {
   return {
-    final_response: t.final_response,
-    iterations: t.iterations,
-    tool_calls_count: t.tool_calls_count,
+    final_response: t.final_response ?? "",
+    iterations: t.iterations ?? 0,
+    tool_calls_count: t.tool_calls_count ?? 0,
     tool_calls: [...(t.tool_calls ?? [])],
-    usage: t.usage,
+    usage: t.usage ?? { input_tokens: 0, output_tokens: 0, cost_usd: 0 },
     timing: t.timing,
     metrics: { ...(t.metrics ?? {}) },
     metadata: { ...(t.metadata ?? {}) },
@@ -265,7 +266,7 @@ export class Study {
   }
 
   private capabilities(): string[] {
-    const caps = ["usage", "execute", "score", "paginate"];
+    const caps = ["usage", "execute", "score", "paginate", "trajectory"];
     if ([...this.evals.values()].some((e) => e.axes.length)) caps.unshift("axes");
     return caps;
   }
@@ -327,7 +328,10 @@ export class Study {
       ev.maxTurns,
       (params.params as Record<string, string>) ?? {},
     );
-    return [await ev.subject(s, cx), false];
+    // Zero-burden trajectory contract: a subject may set only
+    // `transcript.trajectory`; the flat fields are projected here
+    // (fill-if-default — explicitly set fields win).
+    return [normalizeTrajectory(await ev.subject(s, cx)), false];
   }
 
   /** Dispatch one protocol request, returning the JSON-ready result. */
@@ -340,6 +344,11 @@ export class Study {
           evals: this.evals.size,
           study_version: this.version,
           capabilities: this.capabilities(),
+          capability_params: {
+            // The trajectory representation this study emits (readers are
+            // more lenient — any ATIF-v1.x parses).
+            trajectory: { format: ATIF_FORMAT, version: ATIF_VERSION.replace(/^ATIF-v/, "") },
+          },
         });
       case "list":
         return toWire("ListResult", {
@@ -371,7 +380,9 @@ export class Study {
         let transcript: Transcript;
         let skipped: boolean;
         if (method === "score") {
-          transcript = params.transcript as Transcript;
+          // Normalize on receipt: a replayed transcript may be
+          // trajectory-only; name-based scorers then see the projections.
+          transcript = normalizeTrajectory(params.transcript as Transcript);
           skipped = false;
         } else {
           [transcript, skipped] = await this.execute(params);

@@ -30,6 +30,13 @@ def _is_empty(v: Any) -> bool:
     return v is None or v == "" or v == [] or v == {}
 
 
+def _is_default_instance(v: Any) -> bool:
+    """A nested dataclass still equal to its default construction (e.g. an
+    untouched `Usage()`/`Timing()`). Optional fields holding one are dropped on
+    encode, mirroring the Rust `skip_serializing_if` for such fields."""
+    return dataclasses.is_dataclass(v) and not isinstance(v, type) and v == type(v)()
+
+
 def to_dict(obj: Any) -> Any:
     """Dataclass -> JSON-able dict, dropping empty non-required fields."""
     if dataclasses.is_dataclass(obj) and not isinstance(obj, type):
@@ -38,7 +45,7 @@ def to_dict(obj: Any) -> Any:
         for f in dataclasses.fields(obj):
             wire = _wire_name(f)
             v = getattr(obj, f.name)
-            if wire in required or not _is_empty(v):
+            if wire in required or not (_is_empty(v) or _is_default_instance(v)):
                 out[wire] = to_dict(v)
         return out
     if isinstance(obj, list):

@@ -27,6 +27,7 @@ import type {
   ErrorKind,
   Part,
   Timing,
+  Trajectory,
   Transcript,
   Usage,
 } from "./wire.js";
@@ -91,20 +92,38 @@ export type { Scorer } from "./scorers.js";
 
 export { toWire } from "./codec.js";
 
+export {
+  ATIF_FORMAT,
+  ATIF_VERSION,
+  fromTrajectory,
+  isSupportedSchemaVersion,
+  parseTrajectory,
+  projectInto,
+  trajectoryUsage,
+} from "./trajectory.js";
+
 export type {
   AxisInfo,
+  ContentPart,
   ErrorKind,
   EvalInfo,
   ExecuteResult,
   InitializeResult,
   ListResult,
   ListSamplesResult,
+  Observation,
+  ObservationResult,
   Part,
   RunResult,
   SampleInfo,
   Score,
+  Step,
+  StepContent,
+  StepMetrics,
   TargetInfo,
   Timing,
+  ToolCall,
+  Trajectory,
   Transcript,
   TranscriptSummary,
   Usage,
@@ -149,6 +168,10 @@ export interface TranscriptOptions {
   errorKind?: ErrorKind;
   files?: Record<string, string>;
   output?: Part[];
+  /** Structured ATIF trajectory — the primary structured trajectory contract.
+   * Flat fields left unset here are projected from it automatically by the
+   * serve loop (see `fromTrajectory` for the trajectory-only shortcut). */
+  trajectory?: Trajectory;
 }
 
 /** Convenience builder for a `Transcript` (a subject's return value). */
@@ -167,6 +190,7 @@ export function transcript(finalResponse = "", opts: TranscriptOptions = {}): Tr
     error_kind: opts.errorKind,
     files: opts.files ?? {},
     output: opts.output ?? [],
+    trajectory: opts.trajectory,
   };
 }
 

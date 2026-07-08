@@ -184,7 +184,15 @@ impl HostHandle {
         let value = self
             .request("execute", serde_json::to_value(params).unwrap(), true)
             .await?;
-        serde_json::from_value(value).map_err(|e| RpcError::new(e.to_string()))
+        let mut result: ExecuteResult =
+            serde_json::from_value(value).map_err(|e| RpcError::new(e.to_string()))?;
+        // Normalize on receipt: a foreign study may return a trajectory-only
+        // transcript (only `transcript.trajectory` set). Fill any flat fields
+        // still at their defaults from the trajectory — never overwriting one
+        // the study set — so persisted artifacts and deferred scoring see the
+        // projections without any study-side cooperation.
+        result.transcript.project_trajectory();
+        Ok(result)
     }
 
     /// Score a previously-captured transcript without re-executing the subject

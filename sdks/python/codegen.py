@@ -37,9 +37,11 @@ def ref_name(schema: dict) -> str | None:
 
 
 def is_object_def(defs: dict, name: str) -> bool:
-    """A $def we emit as a dataclass (vs. a `oneOf` union: a const enum like
-    ErrorKind -> Literal, or an object union like Part/Source -> dict alias)."""
-    return "oneOf" not in defs.get(name, {})
+    """A $def we emit as a dataclass (vs. a union: a `oneOf` const enum like
+    ErrorKind -> Literal, a `oneOf` object union like Part/Source -> dict alias,
+    or an `anyOf` untagged union like StepContent -> permissive alias)."""
+    d = defs.get(name, {})
+    return "oneOf" not in d and "anyOf" not in d
 
 
 def is_const_enum(schema: dict) -> bool:
@@ -62,9 +64,12 @@ def py_type(defs: dict, schema) -> str:
         inner = py_type(defs, subs[0]) if subs else "Any"
         return f"Optional[{inner}]" if nullable else inner
     t = schema.get("type")
-    if isinstance(t, list):  # e.g. ["string", "null"]
+    if isinstance(t, list):  # e.g. ["string", "null"] or ["array", "null"]
         non_null = [x for x in t if x != "null"]
-        inner = SCALAR.get(non_null[0], "Any") if non_null else "Any"
+        if non_null == ["array"]:
+            inner = f"List[{py_type(defs, schema.get('items', True))}]"
+        else:
+            inner = SCALAR.get(non_null[0], "Any") if non_null else "Any"
         return f"Optional[{inner}]" if "null" in t else inner
     if t == "array":
         return f"List[{py_type(defs, schema.get('items', True))}]"
@@ -89,10 +94,13 @@ def field_default(defs: dict, schema, required: bool) -> str | None:
         return "field(default_factory=dict)"
     refn = ref_name(schema) if isinstance(schema, dict) else None
     if refn and is_object_def(defs, refn):
-        # A nested message: required ones get a real instance so e.g.
-        # Transcript() carries a Usage(). A lambda defers name resolution so a
+        # A nested message object (a bare, non-nullable $ref): default to a
+        # real instance so e.g. Transcript() always carries a Usage(), even
+        # where the wire leaves the field optional (the codec drops
+        # still-default instances of optional fields on encode, mirroring the
+        # Rust skip_serializing_if). A lambda defers name resolution so a
         # forward reference (def emitted later) still works.
-        return f"field(default_factory=lambda: {refn}())" if required else "None"
+        return f"field(default_factory=lambda: {refn}())"
     if refn:  # Literal alias (ErrorKind): optional, omitted when None.
         return "None"
     return SCALAR_DEFAULT.get(ann, "None")
@@ -101,6 +109,15 @@ def field_default(defs: dict, schema, required: bool) -> str | None:
 def emit_literal(name: str, schema: dict) -> str:
     vals = ", ".join(json.dumps(c["const"]) for c in schema["oneOf"])
     return f"{name} = Literal[{vals}]\n"
+
+
+def emit_untagged_union(name: str, schema: dict) -> str:
+    """A top-level `anyOf` def — an *untagged* union of shapes (e.g. ATIF's
+    StepContent: a plain string OR a ContentPart array). Carried permissively as
+    `Any`: the codec passes the raw JSON value through unchanged, and the member
+    shapes stay documented in schema/v1/schema.json."""
+    members = " | ".join(py_type({}, m) for m in schema["anyOf"] if m.get("type") != "null")
+    return f"{name} = Any  # untagged union: {members}\n"
 
 
 def emit_object_union(name: str, schema: dict) -> str:
@@ -158,6 +175,8 @@ def render_wire(schema_doc: dict) -> str:
         schema = defs[name]
         if is_object_def(defs, name):
             out.append(emit_dataclass(defs, name, schema))
+        elif "anyOf" in schema:
+            out.append(emit_untagged_union(name, schema))
         elif is_const_enum(schema):
             out.append(emit_literal(name, schema))
         else:

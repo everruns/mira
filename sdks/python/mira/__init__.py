@@ -36,7 +36,8 @@ from ._serve import (
     target,
     serve,
 )
-from ._wire import AxisInfo, Score, Timing, Transcript, Usage
+from ._wire import AxisInfo, Score, Timing, Trajectory, Transcript, Usage
+from .trajectory import ATIF_VERSION, from_trajectory, parse_trajectory
 from .scorers import (
     Scorer,
     all_of,
@@ -83,6 +84,7 @@ def axis(name: str, values) -> AxisInfo:
 
 
 __all__ = [
+    "ATIF_VERSION",
     "PROTOCOL_VERSION",
     "AxisInfo",
     "Eval",
@@ -93,6 +95,7 @@ __all__ = [
     "Scorer",
     "Study",
     "Timing",
+    "Trajectory",
     "Transcript",
     "Usage",
     "axis",
@@ -103,6 +106,7 @@ __all__ = [
     "equals",
     "file_contains",
     "file_exists",
+    "from_trajectory",
     "json_field_equals",
     "json_valid",
     "latency_within",
@@ -115,6 +119,7 @@ __all__ = [
     "not_",
     "not_contains",
     "output_tokens_within",
+    "parse_trajectory",
     "produced_modality",
     "target",
     "regex",

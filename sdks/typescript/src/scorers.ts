@@ -165,7 +165,7 @@ export function toolNotCalled(tool: string): Scorer {
 export function toolCallsWithin(max: number): Scorer {
   const name = `tool_calls_within(${max})`;
   return named(name, (_s, t) => {
-    const n = t.tool_calls_count;
+    const n = t.tool_calls_count ?? 0;
     return passfail(name, n <= max, `${n} <= ${max}`, `${n} > ${max}`);
   });
 }
@@ -174,7 +174,7 @@ export function toolCallsWithin(max: number): Scorer {
 export function turnsWithin(max: number): Scorer {
   const name = `turns_within(${max})`;
   return named(name, (_s, t) => {
-    const n = t.iterations;
+    const n = t.iterations ?? 0;
     return passfail(name, n <= max, `${n} <= ${max}`, `${n} > ${max}`);
   });
 }
@@ -211,7 +211,7 @@ export function toolCalledBefore(first: string, second: string): Scorer {
 export function costWithin(maxUsd: number): Scorer {
   const name = `cost_within($${maxUsd})`;
   return named(name, (_s, t) => {
-    const c = t.usage.cost_usd;
+    const c = t.usage?.cost_usd ?? 0;
     return passfail(name, c <= maxUsd, `$${c.toFixed(4)} <= $${maxUsd}`, `$${c.toFixed(4)} > $${maxUsd}`);
   });
 }
@@ -220,7 +220,7 @@ export function costWithin(maxUsd: number): Scorer {
 export function tokensWithin(max: number): Scorer {
   const name = `tokens_within(${max})`;
   return named(name, (_s, t) => {
-    const total = t.usage.input_tokens + t.usage.output_tokens;
+    const total = (t.usage?.input_tokens ?? 0) + (t.usage?.output_tokens ?? 0);
     return passfail(name, total <= max, `${total} <= ${max} tokens`, `${total} > ${max} tokens`);
   });
 }
@@ -229,7 +229,7 @@ export function tokensWithin(max: number): Scorer {
 export function outputTokensWithin(max: number): Scorer {
   const name = `output_tokens_within(${max})`;
   return named(name, (_s, t) => {
-    const out = t.usage.output_tokens;
+    const out = t.usage?.output_tokens ?? 0;
     return passfail(name, out <= max, `${out} <= ${max}`, `${out} > ${max}`);
   });
 }

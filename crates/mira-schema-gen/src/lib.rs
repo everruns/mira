@@ -91,6 +91,7 @@ pub fn build_meta() -> serde_json::Value {
             protocol::capabilities::TRIALS,
             protocol::capabilities::CANCEL,
             protocol::capabilities::PAGINATE,
+            protocol::capabilities::TRAJECTORY,
         ],
         "event_kinds": protocol::event::ALL,
     })

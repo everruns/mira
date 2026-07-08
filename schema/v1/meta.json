@@ -7,7 +7,8 @@
     "score",
     "trials",
     "cancel",
-    "paginate"
+    "paginate",
+    "trajectory"
   ],
   "event_kinds": [
     "started",
@@ -27,5 +28,5 @@
   ],
   "min_version": "1.0",
   "schema": "schema.json",
-  "version": "1.0"
+  "version": "1.1"
 }

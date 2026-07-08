@@ -1,5 +1,40 @@
 {
   "$defs": {
+    "Agent": {
+      "description": "The agent system a [`Trajectory`] was produced by (ATIF _AgentSchema_).",
+      "properties": {
+        "extra": {
+          "additionalProperties": true,
+          "description": "Custom agent configuration not covered by the core schema.",
+          "type": "object"
+        },
+        "model_name": {
+          "description": "Default LLM for the trajectory; a step-level `model_name` overrides it.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "name": {
+          "description": "Agent system name (e.g. `\"claude-code\"`, `\"mini-swe-agent\"`).",
+          "type": "string"
+        },
+        "tool_definitions": {
+          "description": "Tool/function definitions available to the agent (OpenAI function\nschema). Opaque to Mira — carried, never introspected.",
+          "items": true,
+          "type": "array"
+        },
+        "version": {
+          "description": "Agent system version (e.g. `\"1.0.0\"`).",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "version"
+      ],
+      "type": "object"
+    },
     "AxisInfo": {
       "description": "One extra matrix axis advertised by `list`, so the host can plan the full\ncross-product without running anything.",
       "properties": {
@@ -42,6 +77,42 @@
       },
       "required": [
         "cancelled"
+      ],
+      "type": "object"
+    },
+    "ContentPart": {
+      "description": "One multimodal content piece (ATIF _ContentPartSchema_, v1.6+): `type` is\n`\"text\"` (with `text` set) or `\"image\"` (with `source` set). Kept an open\nstruct — not a tagged enum — so a future ATIF content type parses instead\nof failing.",
+      "properties": {
+        "extra": {
+          "additionalProperties": true,
+          "description": "Custom part-level metadata.",
+          "type": "object"
+        },
+        "source": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ImageSource"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The image reference, when `type == \"image\"`."
+        },
+        "text": {
+          "description": "The text content, when `type == \"text\"`.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "type": {
+          "description": "`\"text\"` or `\"image\"` (open vocabulary).",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type"
       ],
       "type": "object"
     },
@@ -257,6 +328,79 @@
       ],
       "type": "object"
     },
+    "FinalMetrics": {
+      "description": "Aggregate trajectory metrics (ATIF _FinalMetricsSchema_). All optional.",
+      "properties": {
+        "extra": {
+          "additionalProperties": true,
+          "description": "Custom aggregate metrics (`reasoning_tokens` is read from here by the\nusage projection when present).",
+          "type": "object"
+        },
+        "total_cached_tokens": {
+          "description": "Sum of `cached_tokens` across all steps.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "total_completion_tokens": {
+          "description": "Sum of `completion_tokens` across all steps.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "total_cost_usd": {
+          "description": "Total cost for the whole trajectory, in USD.",
+          "format": "double",
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "total_prompt_tokens": {
+          "description": "Sum of `prompt_tokens` across all steps.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "total_steps": {
+          "description": "Total steps (may differ from `steps.len()` when explained in `notes`).",
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        }
+      },
+      "type": "object"
+    },
+    "ImageSource": {
+      "description": "An image stored alongside the trajectory and referenced by path/URL (ATIF\n_ImageSourceSchema_) — never embedded bytes.",
+      "properties": {
+        "media_type": {
+          "description": "MIME type (`image/png`, `image/jpeg`, …).",
+          "type": "string"
+        },
+        "path": {
+          "description": "Relative or absolute file path, or a URL (conventionally an `images/`\nsidecar next to the trajectory file).",
+          "type": "string"
+        }
+      },
+      "required": [
+        "media_type",
+        "path"
+      ],
+      "type": "object"
+    },
     "InitializeResult": {
       "description": "`initialize` result.",
       "properties": {
@@ -383,6 +527,58 @@
       "required": [
         "method"
       ],
+      "type": "object"
+    },
+    "Observation": {
+      "description": "Environment feedback for one step (ATIF _ObservationSchema_).",
+      "properties": {
+        "results": {
+          "description": "One result per tool call or action.",
+          "items": {
+            "$ref": "#/$defs/ObservationResult"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "results"
+      ],
+      "type": "object"
+    },
+    "ObservationResult": {
+      "description": "One observation result (ATIF _ObservationResultSchema_).",
+      "properties": {
+        "content": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/StepContent"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The tool/action output (text or multimodal parts). May be omitted when\n`subagent_trajectory_ref` carries the full detail."
+        },
+        "extra": {
+          "additionalProperties": true,
+          "description": "Custom result-level metadata (retrieval score, source doc id, …).",
+          "type": "object"
+        },
+        "source_call_id": {
+          "description": "The [`ToolCall::tool_call_id`] this result answers; absent for actions\noutside the standard tool-calling format.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "subagent_trajectory_ref": {
+          "description": "References to delegated subagent trajectories (embedded via\n`trajectory_id` or external via `trajectory_path`).",
+          "items": {
+            "$ref": "#/$defs/SubagentTrajectoryRef"
+          },
+          "type": "array"
+        }
+      },
       "type": "object"
     },
     "Part": {
@@ -825,6 +1021,234 @@
         }
       ]
     },
+    "Step": {
+      "description": "One interaction turn (ATIF _StepObject_): a system prompt, a user message,\nor a complete agent turn (inference, tool calls, observation).",
+      "properties": {
+        "extra": {
+          "additionalProperties": true,
+          "description": "Custom step-level metadata (e.g. the `context_management` convention).",
+          "type": "object"
+        },
+        "is_copied_context": {
+          "description": "True when this step was copied from a prior trajectory for context\n(e.g. retained across a compaction boundary) — not a new interaction.",
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "llm_call_count": {
+          "description": "Number of LLM inferences this step represents. `Some(0)` on an agent\nstep marks a deterministic (non-LLM) dispatch; `None` means the\nproducer didn't track it.",
+          "format": "uint32",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "message": {
+          "$ref": "#/$defs/StepContent",
+          "default": "",
+          "description": "The dialogue message. Required by ATIF (it may be an empty string) and\nalways serialized; parsing is lenient — a step that omits it defaults\nto empty text instead of rejecting the whole document."
+        },
+        "metrics": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/StepMetrics"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "LLM operational metrics for this step."
+        },
+        "model_name": {
+          "description": "The LLM used for this turn, overriding [`Agent::model_name`].",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "observation": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Observation"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Environment feedback for this step's actions, correlated to\n`tool_calls` via `source_call_id`."
+        },
+        "reasoning_content": {
+          "description": "The agent's explicit internal reasoning, when surfaced.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "reasoning_effort": {
+          "description": "Qualitative or quantitative effort (`\"low\"` / `0.3` / …). Carried as\nopaque JSON — ATIF allows string or float."
+        },
+        "source": {
+          "description": "Who produced this step (open vocabulary — see [`StepSource`]).",
+          "type": "string"
+        },
+        "step_id": {
+          "description": "1-based ordinal of this step.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "timestamp": {
+          "description": "ISO 8601 timestamp, carried as an opaque string.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "tool_calls": {
+          "description": "Structured tool/function invocations made in this step.",
+          "items": {
+            "$ref": "#/$defs/ToolCall"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "step_id",
+        "source"
+      ],
+      "type": "object"
+    },
+    "StepContent": {
+      "anyOf": [
+        {
+          "description": "Plain text content.",
+          "type": "string"
+        },
+        {
+          "description": "Multimodal content (text and image parts).",
+          "items": {
+            "$ref": "#/$defs/ContentPart"
+          },
+          "type": "array"
+        }
+      ],
+      "description": "A step's `message` (or an observation's `content`): plain text, or — since\nATIF v1.6 — an ordered list of multimodal [`ContentPart`]s. Untagged on the\nwire: a JSON string or a JSON array."
+    },
+    "StepMetrics": {
+      "description": "Per-step LLM metrics (ATIF _MetricsSchema_). All optional. Token ids and\nlogprobs are parsed and round-tripped, never interpreted by Mira.",
+      "properties": {
+        "cached_tokens": {
+          "description": "The subset of `prompt_tokens` served from cache.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "completion_token_ids": {
+          "description": "Completion token ids (carried opaquely for RL pipelines).",
+          "items": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "completion_tokens": {
+          "description": "Tokens generated by the response (reasoning + tool calls included).",
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "cost_usd": {
+          "description": "Monetary cost of this step's API call, in USD.",
+          "format": "double",
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "extra": {
+          "additionalProperties": true,
+          "description": "Provider-specific extras. ATIF has no first-class reasoning-token\nfield; providers stash it here as `reasoning_tokens`, and the usage\nprojection reads that key when present.",
+          "type": "object"
+        },
+        "logprobs": {
+          "description": "Per-completion-token log probabilities (carried opaquely).",
+          "items": {
+            "format": "double",
+            "type": "number"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "prompt_token_ids": {
+          "description": "Prompt token ids (carried opaquely for RL pipelines).",
+          "items": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "prompt_tokens": {
+          "description": "Total input tokens for this turn, **including** cached tokens.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        }
+      },
+      "type": "object"
+    },
+    "SubagentTrajectoryRef": {
+      "description": "A reference to a delegated subagent trajectory (ATIF\n_SubagentTrajectoryRefSchema_). At least one of `trajectory_id` (embedded\nform) or `trajectory_path` (file-ref form) must be set to be resolvable.",
+      "properties": {
+        "extra": {
+          "additionalProperties": true,
+          "description": "Custom metadata about the subagent execution (summary, exit status, …).",
+          "type": "object"
+        },
+        "session_id": {
+          "description": "The subagent's run identity — informational only, never a resolution key.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "trajectory_id": {
+          "description": "Resolution key against the parent's `subagent_trajectories` array.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "trajectory_path": {
+          "description": "External location of the subagent trajectory (file path, URL, …).",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "type": "object"
+    },
     "TargetInfo": {
       "properties": {
         "available": {
@@ -871,8 +1295,112 @@
       },
       "type": "object"
     },
+    "ToolCall": {
+      "description": "One structured tool/function invocation (ATIF _ToolCallSchema_).",
+      "properties": {
+        "arguments": {
+          "description": "The invocation arguments — a JSON object per ATIF (may be `{}`)."
+        },
+        "extra": {
+          "additionalProperties": true,
+          "description": "Custom call-level metadata (timeout, retry count, …).",
+          "type": "object"
+        },
+        "function_name": {
+          "description": "The tool/function name (what `tool_called(...)` and friends grade).",
+          "type": "string"
+        },
+        "tool_call_id": {
+          "description": "Unique id, correlated with [`ObservationResult::source_call_id`].",
+          "type": "string"
+        }
+      },
+      "required": [
+        "tool_call_id",
+        "function_name",
+        "arguments"
+      ],
+      "type": "object"
+    },
+    "Trajectory": {
+      "description": "One ATIF trajectory document: the root object (RFC 0001, ATIF-v1.7).\n\nAttach it via [`Transcript::from_trajectory`] (or set\n[`Transcript::trajectory`] directly): the flat transcript fields are then\nderived automatically — see [`Trajectory::project_into`].",
+      "properties": {
+        "agent": {
+          "$ref": "#/$defs/Agent",
+          "description": "The agent system that produced this trajectory."
+        },
+        "continued_trajectory_ref": {
+          "description": "Reference to a continuation trajectory file, when context management\nsplit the run across documents.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "extra": {
+          "additionalProperties": true,
+          "description": "Custom root-level metadata. Mira never reads or writes `extra.reward`\non the wire (verdicts live in `Score`/`RunResult`).",
+          "type": "object"
+        },
+        "final_metrics": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/FinalMetrics"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Aggregate token/cost totals for the whole trajectory."
+        },
+        "notes": {
+          "description": "Free-form producer notes (design notes, format discrepancies).",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "schema_version": {
+          "description": "ATIF compatibility marker, e.g. `\"ATIF-v1.7\"`. Required by ATIF; Mira\nemits [`ATIF_VERSION`] and parses any `ATIF-v1.x`.",
+          "type": "string"
+        },
+        "session_id": {
+          "description": "Run-scoped identifier (may be shared by a parent and its subagents).",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "steps": {
+          "description": "The complete interaction history, ordered by `step_id` (1-based).",
+          "items": {
+            "$ref": "#/$defs/Step"
+          },
+          "type": "array"
+        },
+        "subagent_trajectories": {
+          "description": "Embedded subagent trajectories (each a complete, independently valid\nATIF document). Parsed and round-tripped; projections do **not**\nrecurse into them — subagents are opaque-but-preserved.",
+          "items": {
+            "$ref": "#/$defs/Trajectory"
+          },
+          "type": "array"
+        },
+        "trajectory_id": {
+          "description": "Per-document identifier; required on embedded subagent trajectories,\nwhere it is the resolution key for [`SubagentTrajectoryRef`]s.",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "schema_version",
+        "agent",
+        "steps"
+      ],
+      "type": "object"
+    },
     "Transcript": {
-      "description": "Normalized result of running a [`Subject`] on one\n[`Sample`].\n\nEvery subject — in-process, CLI, or a custom integration — produces this same\nshape, so scorers and reporting never depend on a subject's internals. The\n`events` field carries the raw transcript (e.g. everruns' canonical JSONL\n`Event`s) for structural scorers to search.",
+      "description": "Normalized result of running a [`Subject`] on one\n[`Sample`].\n\nEvery subject — in-process, CLI, or a custom integration — produces this same\nshape, so scorers and reporting never depend on a subject's internals.\n\nSubjects that can produce a structured record of *what the agent did* set\n[`trajectory`](Transcript::trajectory) — the primary structured trajectory\ncontract (ATIF; see [`crate::trajectory`]). **Provide `trajectory` and the\nrest is derived**: the flat fields (`final_response`, `tool_calls`,\n`iterations`, `usage`) are its projections, filled automatically by the\nframework wherever a transcript is produced or received (see\n[`Transcript::project_trajectory`]) — a trajectory-only transcript works\nwith every existing scorer, no extra calls required. `events` is optional\nand fully independent of `trajectory`: providing one, the other, both, or\nneither are all valid, with no consistency obligation on the producer.",
       "properties": {
         "error": {
           "description": "Set when the subject failed to complete the run.",
@@ -886,7 +1414,7 @@
           "description": "Classifies `error`: a [`Subject`](ErrorKind::Subject) failure (the model\nunder test got it wrong — scored as a failure) vs. an\n[`Infra`](ErrorKind::Infra) failure (budget, rate limit, provider outage,\ntimeout — not the model's fault). Defaulted/omitted for the common subject\ncase; meaningless when `error` is `None`."
         },
         "events": {
-          "description": "Raw serialized events (e.g. the everruns `Event` JSONL transcript).",
+          "description": "**Advanced / secondary**: raw, producer-shaped debug events (e.g. the\neverruns `Event` JSONL transcript). No cross-subject shape — scorers\nand consumers must prefer [`trajectory`](Transcript::trajectory) for\nanything it models (tool calls, arguments, observations, metrics);\n`events` is only for debugging and data the trajectory doesn't carry.\nOptional and independent of `trajectory` (either, both, or neither).",
           "items": true,
           "type": "array"
         },
@@ -898,10 +1426,12 @@
           "type": "object"
         },
         "final_response": {
+          "default": "",
           "description": "The subject's final response text.",
           "type": "string"
         },
         "iterations": {
+          "default": 0,
           "description": "Reasoning iterations / turns taken.",
           "format": "uint",
           "minimum": 0,
@@ -939,22 +1469,33 @@
           "type": "array"
         },
         "tool_calls_count": {
+          "default": 0,
           "description": "Number of tool calls made.",
           "format": "uint",
           "minimum": 0,
           "type": "integer"
         },
+        "trajectory": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Trajectory"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Structured ATIF trajectory of the run (steps with tool calls,\narguments, observations, per-step metrics) — the **primary structured\ntrajectory contract**. Optional: subjects that can produce it do;\ntext-only subjects omit it. When present, `final_response`,\n`tool_calls`, `iterations`, and `usage` are projections of it, derived\nautomatically ([`trajectory::Trajectory::project_into`], applied by the\nframework on produce/receive) — a producer sets this field alone and\nowes nothing else, `events` included. See [`crate::trajectory`]."
+        },
         "usage": {
           "$ref": "#/$defs/Usage",
+          "default": {
+            "cost_usd": 0.0,
+            "input_tokens": 0,
+            "output_tokens": 0
+          },
           "description": "Token / cost usage."
         }
       },
-      "required": [
-        "final_response",
-        "iterations",
-        "tool_calls_count",
-        "usage"
-      ],
       "type": "object"
     },
     "TranscriptSummary": {
@@ -1074,6 +1615,6 @@
       "$ref": "#/$defs/Notification"
     }
   ],
-  "description": "Wire schema for the Mira host<->study protocol (newline-delimited JSON over stdio). Protocol version 1.0. Generated from mira::protocol by `mira-schema-gen` (`just schema`); do not edit by hand.",
+  "description": "Wire schema for the Mira host<->study protocol (newline-delimited JSON over stdio). Protocol version 1.1. Generated from mira::protocol by `mira-schema-gen` (`just schema`); do not edit by hand.",
   "title": "Mira Eval Protocol"
 }

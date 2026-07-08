@@ -64,9 +64,12 @@ Eval = Dataset(Sample…) + Subject + [Scorer…]  ×  target matrix
     files).
   - `mira_everruns::RuntimeSubject` — drives a live `everruns-runtime` session.
 - **`Transcript`** — normalized run result: final response, iteration/tool
-  counts, token+cost `Usage`, tool names, captured files, raw events, metadata,
-  optional error. All subjects produce the same shape, so scorers and reporting
-  are shared.
+  counts, token+cost `Usage`, tool names, captured files, metadata, optional
+  error — plus an optional structured **`trajectory`** (ATIF; the primary
+  structured trajectory contract, see §16) whose projections the flat fields
+  are, and a raw `events` debug channel (advanced/secondary — prefer
+  `trajectory` wherever it models the data). All subjects produce the same
+  shape, so scorers and reporting are shared.
 - **`Scorer`** (trait) — `async fn score(&Sample, &Transcript) -> Score` (`value`
   `0..1`, `pass`, `reason`). Deterministic built-ins, the `scorer(name, closure)`
   escape hatch, and `model_graded(rubric, judge)`. One open vocabulary, not a
@@ -176,8 +179,8 @@ global cap.
 bump is additive. Every payload tolerates unknown fields (no
 `deny_unknown_fields`) and adds new fields as `#[serde(default)]`, so a newer
 study and an older host interoperate. Hosts feature-detect additively via
-`capabilities` (`axes`, `events`, `usage`, `execute`, `score`, `paginate`)
-rather than version sniffing.
+`capabilities` (`axes`, `events`, `usage`, `execute`, `score`, `paginate`,
+`trajectory`) rather than version sniffing.
 
 ## 5. Crate architecture
 
@@ -617,3 +620,54 @@ the model and pick with `--axis agent=yolop,codex` — with no masquerade either
 way. Both are pre-1.0 internal renames/additions: no protocol change (selection
 is host-side; `Target` serializes onto the same wire fields the schema already
 publishes).
+
+## 16. Structured trajectories (ATIF) — the primary trajectory contract
+
+- Status: **implemented** (protocol `1.1`; the contract landed first, adapters
+  and trajectory-aware scorers follow).
+
+### 16.1 Problem
+
+The structured record of *what the agent did* existed only as
+`Transcript.events` — raw, producer-shaped JSON with no cross-subject shape.
+The normalized layer scorers see topped out at tool *names*
+(`Transcript.tool_calls`); no scorer could grade tool arguments, observations,
+per-step reasoning, or per-step metrics without adapter-specific grubbing in
+`events`, and polyglot subjects had no sanctioned way to emit structured
+calls + observations at all.
+
+### 16.2 Decision
+
+Adopt **ATIF** (Agent Trajectory Interchange Format, harbor RFC 0001,
+ATIF-v1.7) as the **primary structured trajectory contract**, carried as
+`Transcript.trajectory` (`mira::trajectory`, pure-serde types in the core — no
+new deps). Key rules, enforced by code + the conformance fixture
+(`schema/v1/conformance/trajectory.json`, three runners like `scorers.json`):
+
+- **Projections, zero client burden.** The flat fields (`final_response`,
+  `tool_calls`, `iterations`, `usage`) are projections of the trajectory
+  (`Trajectory::project_into`, fill-if-default). The framework projects at
+  every produce/receive choke point (`runner::execute_case`, `Study::score`,
+  `HostHandle::execute`, and each SDK serve loop), so a trajectory-only
+  transcript works with every existing scorer and no producer-side calls.
+- **`events` is demoted to advanced/secondary** — a raw debug channel,
+  independent of and never required alongside the trajectory; consumers prefer
+  `trajectory` wherever it models the data.
+- **Interchange fidelity beats internal uniformity.** ATIF shapes are carried
+  verbatim (no `ContentPart` ↔ `Part` unification), so a trajectory is a valid
+  ATIF document for external tooling.
+- **Lenient reader, pinned writer.** Emit `ATIF-v1.7`; parse any `ATIF-v1.x`;
+  reject other prefixes with an error (untrusted study output never panics).
+  Advertised via the `trajectory` capability with
+  `capability_params.trajectory = {format, version}` naming what is *emitted*.
+- **Reward stays Mira-side.** Verdicts live in `Score`/`RunResult`; Mira never
+  reads or writes `trajectory.extra.reward` on the wire (a future
+  `mira export --atif` may stamp it on export).
+- **Wire scope.** One optional `Transcript` field: rides `execute` results and
+  `score` params; deliberately absent from `TranscriptSummary` (results and
+  checkpoints stay small). Landed as the `1.0 → 1.1` additive minor bump.
+
+Follow-ups (separate changes): `CliSubject` `AtifFile` transcript source and
+the everruns events→ATIF fold in `mira-everruns`; trajectory-aware scorers
+(`tool_called_with`, `steps_within`, …) with SDK mirrors; HTML report step
+viewer; `mira export --atif`.
