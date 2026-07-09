@@ -65,6 +65,10 @@ diagrams are hand-authored SVG, committed to the repo** under `docs/assets/`.
 - **Named by subject.** `docs/assets/<topic>.svg`
   (e.g. `mira-overview.svg`); the canonical reference is
   [`docs/assets/mira-overview.svg`](../docs/assets/mira-overview.svg).
+- **Registry-safe README embeds.** The repository `README.md` is rendered by
+  off-repo surfaces such as crates.io, so SVG embeds there use absolute raw
+  GitHub URLs instead of repo-relative `docs/assets/...` paths. Docs pages keep
+  relative paths.
 
 **Inline monospace sketches** (fenced ```` ```text ````) remain fine for small
 wire/sequence diagrams whose value is alignment with surrounding JSON — e.g. the

@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- README overview diagram now renders on off-repo surfaces such as crates.io by
+  using a registry-safe absolute SVG URL.
+
 ### Added
 
 - **Trajectory scorers.** Four deterministic scorers grade the structure of
