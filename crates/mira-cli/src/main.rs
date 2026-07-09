@@ -2008,6 +2008,15 @@ mod tests {
     }
 
     #[test]
+    fn root_readme_diagram_urls_render_off_repo() {
+        let readme = include_str!("../../../README.md");
+        assert!(
+            !readme.contains("src=\"docs/assets/"),
+            "root README diagrams need absolute URLs so crates.io and other off-repo renderers can load them"
+        );
+    }
+
+    #[test]
     fn timeout_precedence_cli_then_per_target_then_preset() {
         let per_target = BTreeMap::from([("anthropic/opus".to_string(), 300u64)]);
         // CLI wins over everything, for every target.

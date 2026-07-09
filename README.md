@@ -29,7 +29,7 @@ Three pieces and how they relate:
 
 <div align="center">
 
-<img src="docs/assets/mira-overview.svg" alt="The host runs a study; the study owns subjects and scorers; subjects evaluate models" width="640" />
+<img src="https://raw.githubusercontent.com/everruns/mira/main/docs/assets/mira-overview.svg" alt="The host runs a study; the study owns subjects and scorers; subjects evaluate models" width="640" />
 
 </div>
 
