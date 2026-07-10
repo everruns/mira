@@ -219,10 +219,26 @@ feature.
 `--provider-concurrency`, `--no-adaptive`, `--max-retries`. Non-zero exit on
 failure, so it drops into CI. In-process `Runner` for evals as `#[tokio::test]`s.
 
+**CLI shape (verb first)** — the CLI reads verb first: `mira run --study
+study.rs`, never `mira --study study.rs run`. Study-launch flags are
+**subcommand-scoped**, carried only by the subcommands that spawn a study
+(`list`/`run`/`score`/`doctor`); `report` and `publish` operate on saved runs
+and take no launch flags. `--study PATH` resolves the runner by extension
+(`.rs` → the cargo-script shim, `.py` → `uv run`; anything else errors with a
+pointer at the specific flags); the specific runners are the `--study-*`
+family (`--study-script`/`--study-uv`/`--study-python`/`--study-bin`/
+`--study-example`/`--study-cmd`), mutually exclusive. The pre-rename spellings
+(`--script`/`--bin`/`--example`/`--cmd`/`--uv`/`--python`/`--python3`) remain
+top-level **deprecated aliases**: still parsed (before or after the verb) but
+hidden from help and warned on use, and they must not appear in docs, examples,
+or the skill. Drop them at 1.0. Every example anywhere in the repo uses the
+verb-first form.
+
 **Study packaging** — a study is any program the host can spawn, so it takes
-whatever shape fits: a crate `[[bin]]`/`examples/*.rs` (`--bin`/`--example`), a
-non-Rust program (`--cmd`/`--python3`/`--uv`), or — the lightest Rust form — a
-**single file** with cargo-script frontmatter (`--script study.rs`), no
+whatever shape fits: a crate `[[bin]]`/`examples/*.rs`
+(`--study-bin`/`--study-example`), a non-Rust program
+(`--study-cmd`/`--study-python`/`--study-uv`), or — the lightest Rust form — a
+**single file** with cargo-script frontmatter (`--study study.rs`), no
 `Cargo.toml`. cargo-script (`cargo -Zscript`, RFC 3502) is nightly-only, so the
 host **shims it onto stable**: it parses the `---` TOML frontmatter, materializes
 a content-hashed throwaway crate under the temp dir (re-anchoring relative

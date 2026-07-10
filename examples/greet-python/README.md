@@ -6,12 +6,12 @@ has **no Rust dependency** — the SDK is a native Python library over the
 whose wire types are generated from the protocol JSON Schema. It mirrors the Rust
 [`greet`](../greet) example so you can compare them side by side.
 
-The host drives it with the `--python3` launcher (or `--python` / `--uv`, or an
-explicit `--cmd "..."`):
+The host drives it with the `--study-python` launcher (or `--study study.py` /
+`--study-uv` for uv, or an explicit `--study-cmd "..."`):
 
 ```bash
-mira --python3 examples/greet-python/study.py list
-mira --python3 examples/greet-python/study.py run
+mira list --study-python examples/greet-python/study.py
+mira run --study-python examples/greet-python/study.py
 ```
 
 `study.py` declares one eval with `@study.eval(...)` and a subject that returns a

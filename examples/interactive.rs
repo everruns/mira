@@ -3,7 +3,7 @@
 # Single-file Mira study (cargo-script frontmatter, RFC 3502). Run it with
 # the host CLI — no per-study crate:
 #
-#   mira --script examples/interactive.rs run
+#   mira run --study examples/interactive.rs
 #
 # The host shims cargo-script on **stable** (it's otherwise nightly-only
 # `cargo -Zscript`); set MIRA_SCRIPT_NATIVE=1 to run it natively on nightly.
@@ -21,7 +21,7 @@ tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
 //! the user. Runs offline against `sim`:
 //!
 //! ```bash
-//! mira --script examples/interactive.rs run
+//! mira run --study examples/interactive.rs
 //! ```
 //!
 //! Here the subject asks a clarifying question; the simulated user answers it;

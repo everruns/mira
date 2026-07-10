@@ -71,13 +71,13 @@ async fn main() -> std::io::Result<()> {
 the frontmatter, materializes a throwaway crate, and builds it — no nightly
 toolchain required. (Set `MIRA_SCRIPT_NATIVE=1` to run it natively once
 cargo-script stabilizes.) Prefer a real crate? The same `#[eval]`/`main` works as
-a `[[bin]]` or an `examples/*.rs` target — run it with `--bin NAME` /
-`--example NAME` instead of `--script`.
+a `[[bin]]` or an `examples/*.rs` target — run it with `--study-bin NAME` /
+`--study-example NAME` instead of `--study`.
 
 ## 3. Run it
 
 ```bash
-mira --script study.rs list
+mira list --study study.rs
 ```
 
 ```text
@@ -91,7 +91,7 @@ The cloud case is **unavailable** because `ANTHROPIC_API_KEY` isn't set — it w
 be skipped, not failed. Run the matrix:
 
 ```bash
-mira --script study.rs run
+mira run --study study.rs
 ```
 
 ```text
@@ -112,21 +112,21 @@ Set `ANTHROPIC_API_KEY` and the cloud column lights up too.
 ## 4. Select, report, resume
 
 ```bash
-mira --script study.rs run france                 # substring grep on the case key
-mira --script study.rs run --samples 'geo/*'      # glob on sample ids
-mira --script study.rs run --tag smoke            # by sample tag
-mira --script study.rs run --targets 'anthropic/*' # glob on target labels
-mira --script study.rs run --format junit --out results.xml   # CI artifact
-mira --script study.rs run --format html  --out report.html   # self-contained viewer
-mira --script study.rs run --format csv   --out runs.csv      # long-format, for analysis
-mira --script study.rs run --format jsonl --out runs.jsonl    # one RunResult per line
-mira --script study.rs run                        # saves a run folder by default
-mira --script study.rs run --dry-run              # ephemeral; don't save a run folder
-mira --script study.rs run --resume <run_id>      # reopen a run; run only the missing cases
-mira report <run_id>                               # re-render a saved run's reports
+mira run --study study.rs france                 # substring grep on the case key
+mira run --study study.rs --samples 'geo/*'      # glob on sample ids
+mira run --study study.rs --tag smoke            # by sample tag
+mira run --study study.rs --targets 'anthropic/*' # glob on target labels
+mira run --study study.rs --format junit --out results.xml   # CI artifact
+mira run --study study.rs --format html  --out report.html   # self-contained viewer
+mira run --study study.rs --format csv   --out runs.csv      # long-format, for analysis
+mira run --study study.rs --format jsonl --out runs.jsonl    # one RunResult per line
+mira run --study study.rs                        # saves a run folder by default
+mira run --study study.rs --dry-run              # ephemeral; don't save a run folder
+mira run --study study.rs --resume <run_id>      # reopen a run; run only the missing cases
+mira report <run_id>                             # re-render a saved run's reports
 ```
 
-Tired of retyping `--script study.rs`? Save it as a **named launcher** in
+Tired of retyping `--study study.rs`? Save it as a **named launcher** in
 `mira.toml` and select it with `--launcher`, or set a `default_launcher` so a
 bare `mira run` just works:
 
@@ -139,13 +139,13 @@ default_launcher = "evals"
 
 ```bash
 mira run               # uses default_launcher
-mira --launcher evals run
+mira run --launcher evals
 ```
 
 Explicit launch flags still override the named launcher (handy for a one-off
-`--bin other`).
+`--study-bin other`).
 
-The exit code is non-zero if any case failed, so `mira ... run` drops straight
+The exit code is non-zero if any case failed, so `mira run …` drops straight
 into CI. The HTML report is a single dependency-free file (summary, matrix, and
 per-case scores/usage/timing) you can open straight from a CI artifact.
 
@@ -215,7 +215,7 @@ shouldn't have to run the eval themselves.
 
 ```bash
 everruns login                 # one-time: mira reuses these credentials
-mira --script study.rs run --publish everruns
+mira run --study study.rs --publish everruns
 mira publish <run_id>          # or publish a previously saved run
 ```
 

@@ -116,13 +116,13 @@ async fn main() -> std::io::Result<()> {
 Run it with the host CLI:
 
 ```bash
-mira --example my_evals list                 # what the study advertises
-mira --example my_evals run                  # run the whole matrix
-mira --example my_evals run greet            # selective (substring), like cargo test
-mira --example my_evals run --tag smoke
-mira --example my_evals run --format html --out report.html   # self-contained viewer
-mira --example my_evals run                                   # saves a run folder by default
-mira --example my_evals run --resume <run_id>                 # resume; run only the missing cases
+mira list --study-example my_evals                 # what the study advertises
+mira run --study-example my_evals                  # run the whole matrix
+mira run --study-example my_evals greet            # selective (substring), like cargo test
+mira run --study-example my_evals --tag smoke
+mira run --study-example my_evals --format html --out report.html   # self-contained viewer
+mira run --study-example my_evals                                   # saves a run folder by default
+mira run --study-example my_evals --resume <run_id>                 # resume; run only the missing cases
 mira report <run_id>                                          # re-render a saved run's reports
 ```
 
@@ -135,7 +135,7 @@ and [`examples/`](examples) for runnable servers (`greet`, `coding`,
 `greet-python` and `greet-typescript`):
 
 ```bash
-cargo run -p mira-cli -- --bin metrics run
+cargo run -p mira-cli -- run --study-bin metrics
 ```
 
 ## Why Mira

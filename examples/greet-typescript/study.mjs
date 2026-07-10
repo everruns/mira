@@ -5,8 +5,8 @@
 // stdio to a child process, so an eval study can be written in any language.
 // This one mirrors the Rust `greet` example. Drive it with the host CLI:
 //
-//     mira --cmd "node examples/greet-typescript/study.mjs" list
-//     mira --cmd "node examples/greet-typescript/study.mjs" run
+//     mira list --study-cmd "node examples/greet-typescript/study.mjs"
+//     mira run --study-cmd "node examples/greet-typescript/study.mjs"
 //
 // The SDK has no Rust dependency — its wire types are generated from the
 // protocol JSON Schema (schema/v1/). stdout carries ONLY protocol JSON; logs go

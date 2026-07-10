@@ -5,8 +5,8 @@ This is the polyglot seam: Mira's host speaks newline-delimited JSON over stdio
 to a child process, so an eval study can be written in any language. This one
 mirrors the Rust `greet` example. Drive it with the host CLI:
 
-    mira --cmd "python3 examples/greet-python/study.py" list
-    mira --cmd "python3 examples/greet-python/study.py" run
+    mira list --study-cmd "python3 examples/greet-python/study.py"
+    mira run --study-cmd "python3 examples/greet-python/study.py"
 
 The SDK has no Rust dependency — its wire types are generated from the protocol
 JSON Schema (schema/v1/). stdout carries ONLY protocol JSON; logs go to stderr.

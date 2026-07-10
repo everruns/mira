@@ -8,30 +8,35 @@
 //! opts out.
 //!
 //! ```bash
-//! mira --script study.rs list
-//! mira --script study.rs run                    # all cases (sim runs; keyed cases skip)
-//! mira --script study.rs run greet              # substring filter
-//! mira --script study.rs run --tag smoke
-//! mira --script study.rs run --targets sim --format junit --out results.xml
-//! mira --script study.rs run --dry-run          # don't save a run folder
-//! mira --script study.rs run --resume <run_id>  # finish an interrupted run
-//! mira --script study.rs report <run_id>        # re-render a saved run
-//! mira --script study.rs run --execute-only --artifacts art/  # capture transcripts
-//! mira --script study.rs score --artifacts art/  # score (or re-score) them
-//! mira --script study.rs doctor --fix           # diagnose the setup; apply safe fixes
+//! mira list --study study.rs
+//! mira run --study study.rs                     # all cases (sim runs; keyed cases skip)
+//! mira run --study study.rs greet               # substring filter
+//! mira run --study study.rs --tag smoke
+//! mira run --study study.rs --targets sim --format junit --out results.xml
+//! mira run --study study.rs --dry-run           # don't save a run folder
+//! mira run --study study.rs --resume <run_id>   # finish an interrupted run
+//! mira report <run_id>                          # re-render a saved run (no study)
+//! mira run --study study.rs --execute-only --artifacts art/  # capture transcripts
+//! mira score --study study.rs --artifacts art/  # score (or re-score) them
+//! mira doctor --study study.rs --fix            # diagnose the setup; apply safe fixes
 //! ```
 //!
 //! Execution and scoring can be split: `run --execute-only` captures one
 //! full-transcript artifact per case (for long-running subjects), and `score`
 //! (re-)scores those artifacts without re-executing the subject.
 //!
-//! Point it at any study: a single-file Rust study via `--script study.rs`
-//! (cargo-script frontmatter, shimmed onto stable), a crate via `--bin NAME` /
-//! `--example NAME`, an arbitrary `--cmd "..."`, a non-Rust study via
-//! `--uv` / `--python` / `--python3 SCRIPT`, or another package with
-//! `--package` / `--manifest-path`. Save a repo's invocation as
+//! The CLI reads **verb first**: the study flags live on the subcommands that
+//! spawn a study (`list`/`run`/`score`/`doctor`), never before the verb.
+//! `--study PATH` resolves the runner by extension — `.rs` is a single-file
+//! Rust study (cargo-script frontmatter, shimmed onto stable), `.py` runs via
+//! `uv run`. Specific runners: `--study-script` / `--study-uv` /
+//! `--study-python SCRIPT`, a crate via `--study-bin NAME` /
+//! `--study-example NAME` (with `--package` / `--manifest-path`), or an
+//! arbitrary `--study-cmd "..."`. Save a repo's invocation as
 //! `[launchers.NAME]` in `mira.toml` and select it with `--launcher NAME` (or a
-//! `default_launcher`) instead of retyping the flags.
+//! `default_launcher`) instead of retyping the flags. The pre-rename spellings
+//! (`--script`, `--bin`, `--example`, `--cmd`, `--uv`, `--python`, `--python3`)
+//! still parse as hidden deprecated aliases that warn on use.
 
 use std::collections::BTreeMap;
 use std::io::IsTerminal;
@@ -114,58 +119,166 @@ the doc guides, the agent skill, and links.";
 )]
 struct Cli {
     #[command(flatten)]
-    launcher: Launcher,
+    deprecated: DeprecatedLaunch,
     #[command(subcommand)]
     cmd: Option<Cmd>,
 }
 
-/// How to launch the eval study process (not to be confused with a
-/// [`mira::Target`] — the model/harness under evaluation).
-#[derive(Args)]
-struct Launcher {
-    /// Use a named launcher from `mira.toml` (`[launchers.NAME]`): a saved
-    /// bin/example/cmd (+ package/manifest). The explicit launch flags below
-    /// override its fields; `default_launcher` is used when neither a flag nor
-    /// `--launcher` selects one.
-    #[arg(long, global = true, value_name = "NAME")]
-    launcher: Option<String>,
-    /// Run `cargo run -q --bin <NAME>` (defaults to `greet`).
-    #[arg(long, global = true)]
-    bin: Option<String>,
-    /// Run `cargo run -q --example <NAME>`.
-    #[arg(long, global = true)]
-    example: Option<String>,
-    /// Launch an arbitrary command (split on whitespace).
-    #[arg(long, global = true)]
-    cmd: Option<String>,
-    /// Run a single-file Rust study (`study.rs` with cargo-script frontmatter).
-    /// Compiled on stable via a built-in shim; set MIRA_SCRIPT_NATIVE=1 to use
-    /// `cargo -Zscript` on nightly instead.
-    #[arg(long, global = true, value_name = "SCRIPT")]
-    script: Option<String>,
+/// The study-launch flags, shared by every subcommand that spawns a study
+/// (`list`/`run`/`score`/`doctor`). Subcommand-scoped on purpose: the CLI
+/// reads verb first (`mira run --study study.rs`), so no launch flag parses
+/// before the verb, and subcommands that never spawn a study
+/// (`report`/`publish`) don't carry them. Not to be confused with a
+/// [`mira::Target`] — the model/harness under evaluation.
+#[derive(Args, Default)]
+struct StudyArgs {
+    /// The study to run, resolved by extension: `.rs` is a single-file Rust
+    /// study (cargo-script frontmatter, shimmed onto stable; set
+    /// MIRA_SCRIPT_NATIVE=1 for nightly `cargo -Zscript`), `.py` runs via
+    /// `uv run` (PEP 723 inline metadata). Anything else needs a specific
+    /// --study-* flag.
+    #[arg(long, value_name = "PATH", group = "study_mode")]
+    study: Option<String>,
+    /// Run PATH as a single-file Rust study (cargo-script frontmatter),
+    /// whatever its extension. See --study.
+    #[arg(long, value_name = "PATH", group = "study_mode")]
+    study_script: Option<String>,
     /// Run `uv run <SCRIPT...>` (e.g. a Python study; split on whitespace).
-    #[arg(long, global = true, value_name = "SCRIPT")]
-    uv: Option<String>,
-    /// Run `python <SCRIPT...>` (split on whitespace).
-    #[arg(long, global = true, value_name = "SCRIPT")]
-    python: Option<String>,
+    #[arg(long, value_name = "SCRIPT", group = "study_mode")]
+    study_uv: Option<String>,
     /// Run `python3 <SCRIPT...>` (split on whitespace).
-    #[arg(long, global = true, value_name = "SCRIPT")]
-    python3: Option<String>,
+    #[arg(long, value_name = "SCRIPT", group = "study_mode")]
+    study_python: Option<String>,
+    /// Run `cargo run -q --bin <NAME>`.
+    #[arg(long, value_name = "NAME", group = "study_mode")]
+    study_bin: Option<String>,
+    /// Run `cargo run -q --example <NAME>`.
+    #[arg(long, value_name = "NAME", group = "study_mode")]
+    study_example: Option<String>,
+    /// Launch an arbitrary command (split on whitespace).
+    #[arg(long, value_name = "CMD", group = "study_mode")]
+    study_cmd: Option<String>,
+    /// Use a named launcher from `mira.toml` (`[launchers.NAME]`): a saved
+    /// study invocation (+ package/manifest). An explicit --study* flag
+    /// overrides its launch mode; `default_launcher` is used when neither a
+    /// flag nor --launcher selects one.
+    #[arg(long, value_name = "NAME")]
+    launcher: Option<String>,
     /// Cargo package to run the bin/example from (`-p`).
-    #[arg(long, global = true)]
+    #[arg(long)]
     package: Option<String>,
     /// Passed through to cargo.
-    #[arg(long, global = true)]
+    #[arg(long)]
     manifest_path: Option<String>,
+}
+
+/// The pre-rename launch flags, kept as top-level, global, hidden aliases so
+/// existing invocations keep working: each still parses (before or after the
+/// verb) but warns and points at its --study* replacement. Deliberately absent
+/// from help, docs, and examples; drop at 1.0. Design of record:
+/// specs/architecture.md ("Study packaging").
+#[derive(Args, Default)]
+struct DeprecatedLaunch {
+    #[arg(long, global = true, hide = true)]
+    bin: Option<String>,
+    #[arg(long, global = true, hide = true)]
+    example: Option<String>,
+    #[arg(long, global = true, hide = true)]
+    cmd: Option<String>,
+    #[arg(long, global = true, hide = true, value_name = "SCRIPT")]
+    script: Option<String>,
+    #[arg(long, global = true, hide = true, value_name = "SCRIPT")]
+    uv: Option<String>,
+    #[arg(long, global = true, hide = true, value_name = "SCRIPT")]
+    python: Option<String>,
+    #[arg(long, global = true, hide = true, value_name = "SCRIPT")]
+    python3: Option<String>,
+}
+
+/// The resolved launch request: [`StudyArgs`] (+ any [`DeprecatedLaunch`]
+/// aliases) normalized onto the same shape as a `mira.toml`
+/// [`config::LauncherConfig`], via [`merge_launch`].
+#[derive(Debug, Default)]
+struct Launcher {
+    launcher: Option<String>,
+    bin: Option<String>,
+    example: Option<String>,
+    cmd: Option<String>,
+    script: Option<String>,
+    uv: Option<String>,
+    python: Option<String>,
+    python3: Option<String>,
+    package: Option<String>,
+    manifest_path: Option<String>,
+}
+
+/// Normalize the CLI launch flags onto [`Launcher`]. New-style `--study*`
+/// flags are mutually exclusive (clap group) and beat the deprecated aliases;
+/// each deprecated alias used warns once with its replacement. `--study PATH`
+/// resolves the runner by extension.
+fn merge_launch(study: &StudyArgs, dep: &DeprecatedLaunch) -> Result<Launcher, String> {
+    let mut l = Launcher {
+        launcher: study.launcher.clone(),
+        script: study.study_script.clone(),
+        uv: study.study_uv.clone(),
+        python3: study.study_python.clone(),
+        bin: study.study_bin.clone(),
+        example: study.study_example.clone(),
+        cmd: study.study_cmd.clone(),
+        package: study.package.clone(),
+        manifest_path: study.manifest_path.clone(),
+        ..Launcher::default()
+    };
+    if let Some(path) = &study.study {
+        match Path::new(path).extension().and_then(|e| e.to_str()) {
+            Some("rs") => l.script = Some(path.clone()),
+            Some("py") => l.uv = Some(path.clone()),
+            _ => {
+                return Err(format!(
+                    "cannot infer a runner for --study {path:?} (expected .rs or .py); \
+                     use --study-script, --study-uv, --study-python, or --study-cmd"
+                ));
+            }
+        }
+    }
+
+    // Deprecated aliases: warn on every use; apply only when no new-style
+    // mode was given (new flags win).
+    for (flag, value, instead) in [
+        ("--script", &dep.script, "--study PATH (or --study-script)"),
+        ("--uv", &dep.uv, "--study PATH (or --study-uv)"),
+        ("--python", &dep.python, "--study-python SCRIPT"),
+        ("--python3", &dep.python3, "--study-python SCRIPT"),
+        ("--bin", &dep.bin, "--study-bin NAME"),
+        ("--example", &dep.example, "--study-example NAME"),
+        ("--cmd", &dep.cmd, "--study-cmd \"...\""),
+    ] {
+        if value.is_some() {
+            eprintln!(
+                "warning: {flag} is deprecated; use {instead} after the subcommand, \
+                 e.g. `mira run --study study.rs`"
+            );
+        }
+    }
+    if !cli_sets_mode(&l) {
+        l.script = dep.script.clone();
+        l.uv = dep.uv.clone();
+        l.python = dep.python.clone();
+        l.python3 = dep.python3.clone();
+        l.bin = dep.bin.clone();
+        l.example = dep.example.clone();
+        l.cmd = dep.cmd.clone();
+    }
+    Ok(l)
 }
 
 #[derive(Subcommand)]
 enum Cmd {
     /// List the evals, samples, scorers, and targets the study advertises.
-    List,
-    /// Run selected cases and report. Boxed: `RunArgs` is much larger than the
-    /// other variants, so boxing keeps the enum small (clippy large_enum_variant).
+    List(ListArgs),
+    /// Run selected cases and report.
+    // Boxed: `RunArgs` is much larger than the other variants, so boxing keeps
+    // the enum small (clippy large_enum_variant).
     Run(Box<RunArgs>),
     /// Score (or re-score) previously captured execution artifacts.
     Score(ScoreArgs),
@@ -179,6 +292,13 @@ enum Cmd {
     Doctor(DoctorArgs),
     /// Show help. Add `--full` for an overview, every flag, examples, and links.
     Help(HelpArgs),
+}
+
+/// `mira list`: no selection of its own — just the study to enumerate.
+#[derive(Args)]
+struct ListArgs {
+    #[command(flatten)]
+    study: StudyArgs,
 }
 
 /// everruns connection flags, shared by `run --publish` and `publish`. Each
@@ -234,6 +354,8 @@ struct DoctorArgs {
     /// it, fixable findings are only listed.
     #[arg(long)]
     fix: bool,
+    #[command(flatten)]
+    study: StudyArgs,
 }
 
 #[derive(Args)]
@@ -246,6 +368,8 @@ struct HelpArgs {
 
 #[derive(Args)]
 struct RunArgs {
+    #[command(flatten)]
+    study: StudyArgs,
     /// Substring filter on the case key `eval/sample@target` (the `cargo test
     /// PAT` convenience). For precise, per-dimension selection use the glob
     /// flags `--targets` / `--samples` / `--evals`.
@@ -345,6 +469,8 @@ struct RunArgs {
 
 #[derive(Args)]
 struct ScoreArgs {
+    #[command(flatten)]
+    study: StudyArgs,
     /// Substring filter on the case key `eval/sample@target`.
     filter: Option<String>,
     /// Directory of execution artifacts written by `run --execute-only`.
@@ -414,10 +540,18 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         // `doctor` spawns (and tolerates a failing) study itself, so a broken
         // launcher or study is a finding rather than a hard error here.
         Some(Cmd::Doctor(args)) => {
-            doctor::doctor(build_launch_command(&cli.launcher), args.fix).await
+            doctor::doctor(build_launch_command(&args.study, &cli.deprecated), args.fix).await
         }
         _ => {}
     }
+
+    // The remaining subcommands all spawn the study; pull their launch flags.
+    let study = match &cli.cmd {
+        Some(Cmd::List(a)) => &a.study,
+        Some(Cmd::Run(a)) => &a.study,
+        Some(Cmd::Score(a)) => &a.study,
+        _ => unreachable!("handled above"),
+    };
 
     // One progress bar, shared with the event handler so study `log` lines print
     // cleanly above the bar (via `suspend`) instead of corrupting it. It starts
@@ -425,7 +559,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let progress = Arc::new(ProgressBar::hidden());
     let progress_evt = progress.clone();
     let command =
-        build_launch_command(&cli.launcher).map_err(Box::<dyn std::error::Error>::from)?;
+        build_launch_command(study, &cli.deprecated).map_err(Box::<dyn std::error::Error>::from)?;
     let host = Host::spawn(command).await?.on_event(move |n| {
         // Per-case `event` notifications correlate to their `run` by
         // `request_id`; here only study `log`s are surfaced, so they no
@@ -446,7 +580,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let listing = host.list_complete().await?;
 
     match cli.cmd {
-        Some(Cmd::List) => {
+        Some(Cmd::List(_)) => {
             print_listing(&listing);
             host.shutdown().await?;
             Ok(())
@@ -486,30 +620,33 @@ OVERVIEW
   (`report <run_id>`); `--dry-run` opts out. Execution and scoring can be split
   for long runs (`run --execute-only` then `score`).
 
-  Point it at any study: a single-file Rust study via `--script study.rs`
-  (cargo-script frontmatter, shimmed onto stable), a crate via `--bin NAME` /
-  `--example NAME`, an arbitrary `--cmd \"...\"`, a non-Rust study via
-  `--uv` / `--python` / `--python3 SCRIPT`, or `--package` / `--manifest-path`.
-  Save a repo's invocation as `[launchers.NAME]` in mira.toml and select it with
+  Point it at any study, verb first: `mira run --study study.rs` resolves the
+  runner by extension — `.rs` is a single-file Rust study (cargo-script
+  frontmatter, shimmed onto stable), `.py` runs via `uv run`. Specific runners:
+  `--study-script` / `--study-uv` / `--study-python SCRIPT`, a crate via
+  `--study-bin NAME` / `--study-example NAME` (plus `--package` /
+  `--manifest-path`), or an arbitrary `--study-cmd \"...\"`. Save a repo's
+  invocation as `[launchers.NAME]` in mira.toml and select it with
   `--launcher NAME` (or a `default_launcher`).";
 
     let examples = "\
 EXAMPLES
-  mira --script study.rs list           # what the study advertises
-  mira --script study.rs run            # run the whole matrix
-  mira --script study.rs run greet      # selective (substring), like cargo test
-  mira --script study.rs run --tag smoke  # only samples carrying a tag
-  mira --script study.rs run --targets sim --format junit --out results.xml
-  mira --script study.rs run --format html --out report.html  # standalone viewer file
-  mira --script study.rs run --dry-run                    # don't save a run folder
-  mira --script study.rs run --resume <run_id>            # finish an interrupted run
-  mira --script study.rs report <run_id>                  # re-render a saved run
-  mira --script study.rs run --execute-only --artifacts art/  # capture transcripts
-  mira --script study.rs score --artifacts art/           # score (or re-score) them
-  mira --script study.rs doctor         # check config/study/saved runs (--fix repairs)
-  mira --bin NAME run                   # drive a crate study (workspace bin)
-  mira --python3 study.py run           # drive a non-Rust (polyglot) study
-  mira --launcher greet run             # use [launchers.greet] from mira.toml
+  mira list --study study.rs            # what the study advertises
+  mira run --study study.rs             # run the whole matrix
+  mira run --study study.rs greet       # selective (substring), like cargo test
+  mira run --study study.rs --tag smoke # only samples carrying a tag
+  mira run --study study.rs --targets sim --format junit --out results.xml
+  mira run --study study.rs --format html --out report.html  # standalone viewer file
+  mira run --study study.rs --dry-run                     # don't save a run folder
+  mira run --study study.rs --resume <run_id>             # finish an interrupted run
+  mira report <run_id>                                    # re-render a saved run
+  mira run --study study.rs --execute-only --artifacts art/  # capture transcripts
+  mira score --study study.rs --artifacts art/            # score (or re-score) them
+  mira doctor --study study.rs          # check config/study/saved runs (--fix repairs)
+  mira run --study-bin NAME             # drive a crate study (workspace bin)
+  mira run --study study.py             # drive a non-Rust study via uv (PEP 723)
+  mira run --study-python study.py      # …or with a bare python3
+  mira run --launcher greet             # use [launchers.greet] from mira.toml
   mira run                              # use mira.toml's default_launcher";
 
     // Progressive disclosure of the docs: name + one-line scope per guide, so an
@@ -532,16 +669,25 @@ LINKS
     );
 
     // The full flag set, straight from the parser so it never drifts. Strip the
-    // about header and after_help footer — we frame those ourselves here.
-    let flags = Cli::command()
-        .about(None)
-        .after_help(None)
-        .render_long_help();
+    // about header and after_help footer — we frame those ourselves here. The
+    // study flags live on the subcommands (verb first), so render each
+    // subcommand's help after the top level.
+    let mut root = Cli::command().about(None).after_help(None);
+    let flags = root.render_long_help();
+    let sub_help: Vec<(String, clap::builder::StyledStr)> = root
+        .get_subcommands_mut()
+        .filter(|c| c.get_name() != "help")
+        .map(|c| (c.get_name().to_string(), c.render_long_help()))
+        .collect();
 
     let mut out = std::io::stdout().lock();
     writeln!(out, "{ABOUT}\n")?;
     writeln!(out, "{overview}\n")?;
     write!(out, "{flags}")?;
+    for (name, help) in sub_help {
+        writeln!(out, "\nmira {name}")?;
+        write!(out, "{help}")?;
+    }
     writeln!(out, "\n{examples}\n")?;
     writeln!(out, "{guides}\n")?;
     writeln!(out, "{links}")?;
@@ -551,9 +697,10 @@ LINKS
 /// Resolve the effective launcher from the CLI flags overlaid on `mira.toml`,
 /// then build the study launch command. Loads `mira.toml` only when it could
 /// matter — `--launcher` is given, or no explicit launch mode is set (so a
-/// `default_launcher` might apply) — so a plain `mira --script study.rs run` does
+/// `default_launcher` might apply) — so a plain `mira run --study study.rs` does
 /// no config I/O.
-fn build_launch_command(cli: &Launcher) -> Result<Command, String> {
+fn build_launch_command(study: &StudyArgs, dep: &DeprecatedLaunch) -> Result<Command, String> {
+    let cli = &merge_launch(study, dep)?;
     let needs_config = cli.launcher.is_some() || !cli_sets_mode(cli);
     let cfg = if needs_config {
         config::Config::load()
@@ -563,8 +710,8 @@ fn build_launch_command(cli: &Launcher) -> Result<Command, String> {
     build_command(&resolve_launcher(cli, &cfg)?)
 }
 
-/// True when the CLI picked an explicit launch **mode** of its own — any of the
-/// mutually-exclusive `cmd`/`script`/`bin`/`example`/`uv`/`python`/`python3` flags.
+/// True when the CLI picked an explicit launch **mode** of its own — any
+/// `--study*` flag (or a deprecated alias) that names a study to spawn.
 fn cli_sets_mode(cli: &Launcher) -> bool {
     cli.cmd.is_some()
         || cli.script.is_some()
@@ -577,8 +724,8 @@ fn cli_sets_mode(cli: &Launcher) -> bool {
 
 /// Merge a named launcher (`--launcher`, else `default_launcher`) with the
 /// explicit launch flags. Flags win, mirroring `--preset`: an explicit launch
-/// **mode** (`--cmd`/`--script`/`--bin`/`--example`/`--uv`/`--python`/`--python3`) replaces
-/// the named launcher's mode entirely (the modes are mutually exclusive), and
+/// **mode** (any `--study*` flag or deprecated alias) replaces the named
+/// launcher's mode entirely (the modes are mutually exclusive), and
 /// `--package`/`--manifest-path` overlay on top.
 fn resolve_launcher(
     cli: &Launcher,
@@ -610,7 +757,7 @@ fn resolve_launcher(
 }
 
 /// Build the study launch command from a resolved launcher. Fallible because the
-/// single-file `--script` mode materializes a crate on disk before it can run.
+/// single-file script mode materializes a crate on disk before it can run.
 fn build_command(launcher: &config::LauncherConfig) -> Result<Command, String> {
     if let Some(raw) = &launcher.cmd {
         let mut parts = raw.split_whitespace();
@@ -620,7 +767,7 @@ fn build_command(launcher: &config::LauncherConfig) -> Result<Command, String> {
         return Ok(command);
     }
 
-    // Single-file Rust study: `--script study.rs`. cargo-script (`cargo -Zscript`)
+    // Single-file Rust study: `--study study.rs`. cargo-script (`cargo -Zscript`)
     // is nightly-only, so by default we shim it on stable — materialize a crate
     // from the file's frontmatter and `cargo run --manifest-path` it. The same
     // file runs natively under `cargo -Zscript` once it stabilizes; opt in early
@@ -644,9 +791,10 @@ fn build_command(launcher: &config::LauncherConfig) -> Result<Command, String> {
         return Ok(command);
     }
 
-    // Convenience launchers for non-Rust studies: `--uv`/`--python`/`--python3
-    // study.py` instead of the verbose `--cmd "python3 study.py"`. `uv` gets a
-    // `run` subcommand; the rest take the script (and any args) directly.
+    // Convenience launchers for non-Rust studies: `--study-uv` /
+    // `--study-python study.py` instead of the verbose
+    // `--study-cmd "python3 study.py"`. `uv` gets a `run` subcommand; the rest
+    // take the script (and any args) directly.
     if let Some(script) = &launcher.uv {
         let mut command = Command::new("uv");
         command.arg("run").args(script.split_whitespace());
@@ -1868,6 +2016,7 @@ mod tests {
     /// A default `RunArgs` (no selection); tests tweak the fields they exercise.
     fn run_args() -> RunArgs {
         RunArgs {
+            study: StudyArgs::default(),
             filter: None,
             tag: None,
             targets: None,
@@ -2199,6 +2348,124 @@ mod tests {
             .map(|a| a.to_string_lossy().into_owned())
             .collect();
         assert_eq!(argv, vec!["run", "-q", "--bin", "greet"]);
+    }
+
+    #[test]
+    fn study_flag_infers_runner_by_extension() {
+        let study = |p: &str| StudyArgs {
+            study: Some(p.into()),
+            ..Default::default()
+        };
+        let l = merge_launch(&study("examples/greet.rs"), &Default::default()).unwrap();
+        assert_eq!(l.script.as_deref(), Some("examples/greet.rs"));
+        let l = merge_launch(&study("study.py"), &Default::default()).unwrap();
+        assert_eq!(l.uv.as_deref(), Some("study.py"));
+        // No known extension → a hint at the specific runners, not a guess.
+        let err = merge_launch(&study("study.sh"), &Default::default()).unwrap_err();
+        assert!(err.contains("--study-cmd"), "{err}");
+    }
+
+    #[test]
+    fn study_flags_are_verb_scoped() {
+        // Verb first parses; the pre-verb position does not.
+        assert!(Cli::try_parse_from(["mira", "run", "--study", "s.rs"]).is_ok());
+        assert!(Cli::try_parse_from(["mira", "--study", "s.rs", "run"]).is_err());
+        assert!(Cli::try_parse_from(["mira", "list", "--study-bin", "greet"]).is_ok());
+        assert!(Cli::try_parse_from(["mira", "doctor", "--study", "s.rs", "--fix"]).is_ok());
+        // Subcommands that never spawn a study don't carry the flags.
+        assert!(Cli::try_parse_from(["mira", "report", "id", "--study", "s.rs"]).is_err());
+        // The --study* modes are mutually exclusive.
+        assert!(
+            Cli::try_parse_from(["mira", "run", "--study", "s.rs", "--study-bin", "x"]).is_err()
+        );
+    }
+
+    #[test]
+    fn deprecated_aliases_parse_in_both_positions() {
+        for argv in [
+            ["mira", "--script", "s.rs", "run"],
+            ["mira", "run", "--script", "s.rs"],
+        ] {
+            let cli = Cli::try_parse_from(argv).unwrap();
+            assert_eq!(cli.deprecated.script.as_deref(), Some("s.rs"));
+        }
+        // …and still resolve to the same launch mode (with a warning).
+        let cli = Cli::try_parse_from(["mira", "run", "--python3", "s.py"]).unwrap();
+        let l = merge_launch(&StudyArgs::default(), &cli.deprecated).unwrap();
+        assert_eq!(l.python3.as_deref(), Some("s.py"));
+    }
+
+    #[test]
+    fn merge_launch_passes_launcher_name_through() {
+        // --launcher itself isn't a launch "mode", so it must survive merge_launch
+        // untouched regardless of whether a --study* mode is also set.
+        let study = StudyArgs {
+            launcher: Some("greet".into()),
+            ..Default::default()
+        };
+        let l = merge_launch(&study, &Default::default()).unwrap();
+        assert_eq!(l.launcher.as_deref(), Some("greet"));
+        assert!(l.script.is_none() && l.bin.is_none());
+    }
+
+    #[test]
+    fn build_launch_command_end_to_end_from_study_flag() {
+        // The full StudyArgs → merge_launch → resolve_launcher → build_command
+        // path, exercised the way main() actually calls it. Absolute path: the
+        // test's cwd is the crate dir, not the repo root.
+        let script = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .unwrap() // crates/
+            .parent()
+            .unwrap() // repo root
+            .join("examples/greet.rs");
+        let study = StudyArgs {
+            study: Some(script.to_string_lossy().into_owned()),
+            ..Default::default()
+        };
+        let cmd = build_launch_command(&study, &Default::default()).unwrap();
+        let (program, args) = parts(&cmd);
+        assert_eq!(program, "cargo");
+        assert!(args.contains(&"run".to_string()));
+        assert!(args.iter().any(|a| a.ends_with("Cargo.toml")));
+    }
+
+    #[test]
+    fn new_flags_beat_deprecated_aliases() {
+        let study = StudyArgs {
+            study_bin: Some("new".into()),
+            ..Default::default()
+        };
+        let dep = DeprecatedLaunch {
+            script: Some("old.rs".into()),
+            ..Default::default()
+        };
+        let l = merge_launch(&study, &dep).unwrap();
+        assert_eq!(l.bin.as_deref(), Some("new"));
+        assert!(
+            l.script.is_none(),
+            "deprecated --script must lose to --study-bin"
+        );
+    }
+
+    #[test]
+    fn deprecated_aliases_hidden_from_help() {
+        let mut root = Cli::command();
+        let run_help = root
+            .find_subcommand_mut("run")
+            .unwrap()
+            .render_long_help()
+            .to_string();
+        assert!(run_help.contains("--study"), "{run_help}");
+        assert!(run_help.contains("--study-python"), "{run_help}");
+        // The old spellings never render ("--study-script" doesn't contain
+        // "--script", so these catch exactly the deprecated forms).
+        for old in ["--script", "--python", "--python3", "--uv"] {
+            assert!(
+                !run_help.contains(&format!("{old} ")) && !run_help.contains(&format!("{old}\n")),
+                "deprecated {old} leaked into help:\n{run_help}"
+            );
+        }
     }
 
     #[test]

@@ -3,7 +3,7 @@
 //! including an everruns coding CLI that emits the canonical JSONL transcript.
 //!
 //! ```bash
-//! mira --bin cli_subject run
+//! mira run --study-bin cli_subject
 //! ```
 
 use mira::scorer::{contains, succeeded};

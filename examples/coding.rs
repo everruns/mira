@@ -3,7 +3,7 @@
 # Single-file Mira study (cargo-script frontmatter, RFC 3502). Run it with
 # the host CLI — no per-study crate:
 #
-#   mira --script examples/coding.rs run
+#   mira run --study examples/coding.rs
 #
 # The host shims cargo-script on **stable** (it's otherwise nightly-only
 # `cargo -Zscript`); set MIRA_SCRIPT_NATIVE=1 to run it natively on nightly.
@@ -19,8 +19,8 @@ tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
 //! file-based scorers — the shape that replaces a bespoke bench harness.
 //!
 //! ```bash
-//! mira --script examples/coding.rs list
-//! mira --script examples/coding.rs run --tag smoke
+//! mira list --study examples/coding.rs
+//! mira run --study examples/coding.rs --tag smoke
 //! ```
 //!
 //! The subject is an in-process closure that "edits" the seeded file; swap it
