@@ -2396,6 +2396,41 @@ mod tests {
     }
 
     #[test]
+    fn merge_launch_passes_launcher_name_through() {
+        // --launcher itself isn't a launch "mode", so it must survive merge_launch
+        // untouched regardless of whether a --study* mode is also set.
+        let study = StudyArgs {
+            launcher: Some("greet".into()),
+            ..Default::default()
+        };
+        let l = merge_launch(&study, &Default::default()).unwrap();
+        assert_eq!(l.launcher.as_deref(), Some("greet"));
+        assert!(l.script.is_none() && l.bin.is_none());
+    }
+
+    #[test]
+    fn build_launch_command_end_to_end_from_study_flag() {
+        // The full StudyArgs → merge_launch → resolve_launcher → build_command
+        // path, exercised the way main() actually calls it. Absolute path: the
+        // test's cwd is the crate dir, not the repo root.
+        let script = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .unwrap() // crates/
+            .parent()
+            .unwrap() // repo root
+            .join("examples/greet.rs");
+        let study = StudyArgs {
+            study: Some(script.to_string_lossy().into_owned()),
+            ..Default::default()
+        };
+        let cmd = build_launch_command(&study, &Default::default()).unwrap();
+        let (program, args) = parts(&cmd);
+        assert_eq!(program, "cargo");
+        assert!(args.contains(&"run".to_string()));
+        assert!(args.iter().any(|a| a.ends_with("Cargo.toml")));
+    }
+
+    #[test]
     fn new_flags_beat_deprecated_aliases() {
         let study = StudyArgs {
             study_bin: Some("new".into()),
