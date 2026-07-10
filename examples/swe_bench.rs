@@ -3,7 +3,7 @@
 # Single-file Mira study (cargo-script frontmatter, RFC 3502). Run it with
 # the host CLI — no per-study crate:
 #
-#   mira --script examples/swe_bench.rs run
+#   mira run --study examples/swe_bench.rs
 #
 # The host shims cargo-script on **stable** (it's otherwise nightly-only
 # `cargo -Zscript`); set MIRA_SCRIPT_NATIVE=1 to run it natively on nightly.
@@ -19,9 +19,9 @@ tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
 //! passes. This is the canonical "harness as a Mira eval" shape.
 //!
 //! ```bash
-//! mira --script examples/swe_bench.rs list
-//! mira --script examples/swe_bench.rs run
-//! mira --script examples/swe_bench.rs run --group-by difficulty   # resolve rate per difficulty
+//! mira list --study examples/swe_bench.rs
+//! mira run --study examples/swe_bench.rs
+//! mira run --study examples/swe_bench.rs --group-by difficulty   # resolve rate per difficulty
 //! ```
 //!
 //! Each [`Sample`] seeds a buggy source file (and records the `FAIL_TO_PASS`
@@ -61,7 +61,7 @@ struct Instance {
     fixed: &'static str,
     fail_to_pass: &'static str,
     /// SWE-bench-style provenance, carried as sample metadata so the host can
-    /// break resolve-rate down by it: `mira --script examples/swe_bench.rs run --group-by difficulty`.
+    /// break resolve-rate down by it: `mira run --study examples/swe_bench.rs --group-by difficulty`.
     difficulty: &'static str,
 }
 

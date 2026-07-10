@@ -225,8 +225,8 @@ The host can break resolve-rate down by any metadata (or axis) key with
 `--group-by`:
 
 ```bash
-mira --script examples/swe_bench.rs run --group-by difficulty   # one resolve-rate row per difficulty
-mira --script examples/swe_bench.rs run --group-by agent         # …or per model-level config key
+mira run --study examples/swe_bench.rs --group-by difficulty   # one resolve-rate row per difficulty
+mira run --study examples/swe_bench.rs --group-by agent         # …or per model-level config key
 ```
 
 Each case's group value is resolved in order: axis `params`, then sample

@@ -6,11 +6,11 @@ the [Mira eval protocol](../../docs/protocol.md) (newline-delimited JSON over
 stdio), whose wire types are generated from the protocol JSON Schema. It mirrors
 the Rust [`greet`](../greet) example so you can compare them side by side.
 
-The host drives it with `--cmd`:
+The host drives it with `--study-cmd`:
 
 ```bash
-mira --cmd "node examples/greet-typescript/study.mjs" list
-mira --cmd "node examples/greet-typescript/study.mjs" run
+mira list --study-cmd "node examples/greet-typescript/study.mjs"
+mira run --study-cmd "node examples/greet-typescript/study.mjs"
 ```
 
 `study.mjs` declares one eval with `study.eval({...})` and a subject that returns

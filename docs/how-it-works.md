@@ -113,13 +113,16 @@ cases.
 
 ## Launching the study
 
-The host has to *start* your study before it can enumerate or run it. Point it at
-any study with `--script study.rs` (a single-file Rust study — cargo-script
-frontmatter, shimmed onto stable; see below), `--bin NAME` / `--example NAME` (a
-cargo crate), a non-Rust study via `--uv` / `--python` / `--python3 SCRIPT` (or
-an arbitrary `--cmd "…"`), plus `--package` / `--manifest-path`. To avoid
-retyping a repo's invocation on every call, save it as a **named launcher** in
-`mira.toml`:
+The host has to *start* your study before it can enumerate or run it. The study
+flags live on the subcommands that spawn one (`list` / `run` / `score` /
+`doctor`), verb first: `mira run --study study.rs` resolves the runner by
+extension — `.rs` is a single-file Rust study (cargo-script frontmatter, shimmed
+onto stable; see below), `.py` runs via `uv run`. When the extension isn't
+enough, name the runner: `--study-script` / `--study-uv` /
+`--study-python SCRIPT`, a cargo crate via `--study-bin NAME` /
+`--study-example NAME` (plus `--package` / `--manifest-path`), or an arbitrary
+`--study-cmd "…"`. To avoid retyping a repo's invocation on every call, save it
+as a **named launcher** in `mira.toml`:
 
 ```toml
 [launchers.single]
@@ -138,15 +141,13 @@ default_launcher = "single"
 - `default_launcher` is used when neither a launch flag nor `--launcher` picks
   one, so a bare `mira run` just works.
 - Explicit launch flags override the named launcher, mirroring `--preset`: an
-  explicit **mode**
-  (`--cmd`/`--script`/`--bin`/`--example`/`--uv`/`--python`/`--python3`)
-  replaces the named mode (the modes are mutually exclusive), and
-  `--package`/`--manifest-path` overlay on top.
+  explicit **mode** (any `--study*` flag) replaces the named mode (the modes
+  are mutually exclusive), and `--package`/`--manifest-path` overlay on top.
 
-### Single-file studies (`--script`)
+### Single-file studies
 
-A study needn't be a crate. `--script study.rs` runs a **single file** whose
-dependencies live in cargo-script frontmatter (RFC 3502):
+A study needn't be a crate. `mira run --study study.rs` runs a **single file**
+whose dependencies live in cargo-script frontmatter (RFC 3502):
 
 ```rust
 #!/usr/bin/env -S cargo +nightly -Zscript

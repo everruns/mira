@@ -7,6 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **Verb-first CLI: `--study` replaces the pre-verb launch flags.** The study
+  flags now live on the subcommands that spawn a study
+  (`list`/`run`/`score`/`doctor`), so an invocation reads verb first:
+  `mira run --study study.rs` instead of `mira --script study.rs run`.
+  `--study PATH` resolves the runner by extension (`.rs` → the cargo-script
+  shim, `.py` → `uv run`); the specific runners are `--study-script`,
+  `--study-uv`, `--study-python` (runs `python3`; replaces both `--python` and
+  `--python3`), `--study-bin`, `--study-example`, and `--study-cmd`, mutually
+  exclusive. `report` and `publish` no longer carry launch flags (they only
+  read saved runs). The old spellings (`--script`/`--bin`/`--example`/`--cmd`/
+  `--uv`/`--python`/`--python3`) still parse — before or after the verb — as
+  hidden deprecated aliases that warn and point at the replacement; they
+  disappear from help, docs, and examples, and will be removed at 1.0.
+  `--launcher`/`--package`/`--manifest-path` keep their names but are now
+  subcommand-scoped too (write `mira run --launcher NAME`, not
+  `mira --launcher NAME run`). `mira.toml` launcher keys are unchanged.
+
 ### Fixed
 
 - README overview diagram now renders on off-repo surfaces such as crates.io by

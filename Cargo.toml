@@ -5,7 +5,7 @@
 [workspace]
 resolver = "2"
 # Most examples are single-file studies (examples/<name>.rs, cargo-script
-# frontmatter) run via `mira --script`; they aren't workspace members. Only
+# frontmatter) run via `mira run --study`; they aren't workspace members. Only
 # examples that need a real crate stay here: multi-file ones (matrix, metrics),
 # the one driving an external sibling script (cli_subject), and the one pulling
 # the heavy everruns runtime (llmsim). Polyglot examples (e.g.

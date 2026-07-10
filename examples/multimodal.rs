@@ -3,7 +3,7 @@
 # Single-file Mira study (cargo-script frontmatter, RFC 3502). Run it with
 # the host CLI — no per-study crate:
 #
-#   mira --script examples/multimodal.rs run
+#   mira run --study examples/multimodal.rs
 #
 # The host shims cargo-script on **stable** (it's otherwise nightly-only
 # `cargo -Zscript`); set MIRA_SCRIPT_NATIVE=1 to run it natively on nightly.
@@ -20,8 +20,8 @@ tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
 //! [`Sample::prompt_parts`]. Runs offline against `sim` (no API key):
 //!
 //! ```bash
-//! mira --script examples/multimodal.rs list
-//! mira --script examples/multimodal.rs run
+//! mira list --study examples/multimodal.rs
+//! mira run --study examples/multimodal.rs
 //! ```
 //!
 //! Multimodal *input* is study-side and needs no protocol feature. The subject

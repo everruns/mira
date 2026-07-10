@@ -23,13 +23,13 @@ enabled = true
 # team = "search"
 # region = "us-east-1"
 
-# Named launchers, selected with `mira --launcher NAME`. A launcher is a saved
+# Named launchers, selected with `mira run --launcher NAME`. A launcher is a saved
 # way to start the study process (script / bin / example / cmd, plus package /
 # manifest), so a repo's invocation lives here instead of being retyped on every
 # call. Explicit launch flags override the named fields; `default_launcher` (top
 # of this file) is used when neither a flag nor `--launcher` picks one.
 [launchers.greet]
-# The bundled single-file example study (mira --script examples/greet.rs).
+# The bundled single-file example study (mira run --study examples/greet.rs).
 script = "examples/greet.rs"
 
 # A polyglot (non-Rust) study:

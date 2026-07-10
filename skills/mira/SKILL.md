@@ -53,8 +53,9 @@ Cross-language studies need no Rust framework at all — see [SDKs](#cross-langu
 A study is a program that defines evals and calls
 `mira::Study::registered().serve()`; register factories with `#[eval]`. The
 lightest form is a **single file** (`study.rs`) with cargo-script frontmatter for
-its deps — run with `--script study.rs`, no `Cargo.toml`. The same code also
-works as a crate `[[bin]]` (`--bin NAME`) or `examples/*.rs` (`--example NAME`).
+its deps — run with `mira run --study study.rs`, no `Cargo.toml`. The same code
+also works as a crate `[[bin]]` (`--study-bin NAME`) or `examples/*.rs`
+(`--study-example NAME`).
 
 ```rust
 #!/usr/bin/env -S cargo +nightly -Zscript
@@ -98,26 +99,27 @@ the frontmatter); `MIRA_SCRIPT_NATIVE=1` uses `cargo -Zscript` on nightly.
 Full example (tools + budget scorers + main), the polyglot `CliSubject`, the
 everruns runtime subject, in-process `Runner` tests, and custom scorers:
 [`references/cookbook.md`](references/cookbook.md). A non-Rust study runs via
-`--cmd "..."` — see [`examples/greet-python/`](https://github.com/everruns/mira/tree/main/examples/greet-python).
+`--study-cmd "..."` (or `--study study.py` / `--study-python`) — see
+[`examples/greet-python/`](https://github.com/everruns/mira/tree/main/examples/greet-python).
 
 ## Running
 
 ```bash
-mira --script study.rs list                 # advertised evals/samples/scorers/targets
-mira --script study.rs run                  # whole matrix
-mira --script study.rs run add-fn           # substring filter on eval/sample@target
-mira --script study.rs run --tag smoke
-mira --script study.rs run --targets sim                      # restrict the target axis
-mira --script study.rs run --axis effort=low                  # restrict any declared axis
-mira --script study.rs run --preset smoke                     # saved selection from mira.toml
-mira --script study.rs run --format junit --out results.xml   # CI artifact
-mira --script study.rs run --format html  --out report.html   # transcript viewer
-mira --script study.rs run                                    # saves a run folder by default
-mira --script study.rs run --resume <run_id>                  # resume; run only the missing cases
+mira list --study study.rs                 # advertised evals/samples/scorers/targets
+mira run --study study.rs                  # whole matrix
+mira run --study study.rs add-fn           # substring filter on eval/sample@target
+mira run --study study.rs --tag smoke
+mira run --study study.rs --targets sim                      # restrict the target axis
+mira run --study study.rs --axis effort=low                  # restrict any declared axis
+mira run --study study.rs --preset smoke                     # saved selection from mira.toml
+mira run --study study.rs --format junit --out results.xml   # CI artifact
+mira run --study study.rs --format html  --out report.html   # transcript viewer
+mira run --study study.rs                                    # saves a run folder by default
+mira run --study study.rs --resume <run_id>                  # resume; run only the missing cases
 mira report <run_id>                                          # re-render a saved run's reports
-mira --bin NAME run                    # a crate study (workspace bin)
-mira --cmd "python3 study.py" run      # a study written in another language
-mira --bin coding doctor               # diagnose config/study/saved runs; --fix repairs
+mira run --study-bin NAME                    # a crate study (workspace bin)
+mira run --study-cmd "python3 study.py"      # a study written in another language
+mira doctor --study-bin coding               # diagnose config/study/saved runs; --fix repairs
 ```
 
 Exit code is non-zero if any case failed — drops straight into CI. Run
@@ -171,23 +173,23 @@ from the canonical schema, so they never drift from the wire format.
 - Python SDK — <https://github.com/everruns/mira/blob/main/sdks/python/README.md>
 - Wire protocol (write your own, any language) — <https://github.com/everruns/mira/blob/main/docs/protocol.md>
 - Worked example — <https://github.com/everruns/mira/tree/main/examples/greet-python>
-- Run it: `mira --cmd "python3 study.py" run`
+- Run it: `mira run --study-cmd "python3 study.py"`
 
 ## Examples (runnable, offline)
 
 All run against the `sim` model with no API keys, so they stay green in CI and
 cost nothing. Browse: <https://github.com/everruns/mira/tree/main/examples>
 
-- `greet` — smallest eval, single-file (`--script`): `#[eval]`, a closure subject, text + LLM-judge scorers — <https://github.com/everruns/mira/blob/main/examples/greet.rs>
-- `coding` — single-file (`--script`): seeded files, a model matrix, structural + file scorers — <https://github.com/everruns/mira/blob/main/examples/coding.rs>
-- `cli_subject` — crate (`--bin`): the polyglot path, driving an external program — <https://github.com/everruns/mira/tree/main/examples/cli_subject>
-- `matrix` — crate (`--bin`): a multi-axis matrix (targets × a custom `effort` axis) — <https://github.com/everruns/mira/tree/main/examples/matrix>
+- `greet` — smallest eval, single-file (`--study`): `#[eval]`, a closure subject, text + LLM-judge scorers — <https://github.com/everruns/mira/blob/main/examples/greet.rs>
+- `coding` — single-file (`--study`): seeded files, a model matrix, structural + file scorers — <https://github.com/everruns/mira/blob/main/examples/coding.rs>
+- `cli_subject` — crate (`--study-bin`): the polyglot path, driving an external program — <https://github.com/everruns/mira/tree/main/examples/cli_subject>
+- `matrix` — crate (`--study-bin`): a multi-axis matrix (targets × a custom `effort` axis) — <https://github.com/everruns/mira/tree/main/examples/matrix>
 - `greet-python` — a whole study in Python via the SDK — <https://github.com/everruns/mira/tree/main/examples/greet-python>
 
 ```bash
-cargo run -p mira-cli -- --script examples/greet.rs run                   # a single-file Rust example
-cargo run -p mira-cli -- --bin matrix run                                 # a crate example
-cargo run -p mira-cli -- --cmd "python3 examples/greet-python/study.py" run  # polyglot
+cargo run -p mira-cli -- run --study examples/greet.rs                             # a single-file Rust example
+cargo run -p mira-cli -- run --study-bin matrix                                    # a crate example
+cargo run -p mira-cli -- run --study-cmd "python3 examples/greet-python/study.py"  # polyglot
 ```
 
 ## Learn more (read on demand)

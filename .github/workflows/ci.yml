@@ -100,24 +100,24 @@ jobs:
       # This is also the host↔study protocol's end-to-end coverage.
       #
       # Single-file studies (examples/<name>.rs) go through the cargo-script shim
-      # (`--script`), which runs on stable — no nightly toolchain needed.
+      # (`--study`), which runs on stable — no nightly toolchain needed.
       - name: Run single-file example studies via the host CLI
         run: |
           for ex in greet coding swe_bench llm_judge; do
             echo "=== $ex (script) ==="
-            cargo run -q -p mira-cli -- --script "examples/$ex.rs" run
+            cargo run -q -p mira-cli -- run --study "examples/$ex.rs"
           done
 
       - name: Run crate example studies via the host CLI
         run: |
           for ex in cli_subject metrics matrix llmsim; do
             echo "=== $ex (bin) ==="
-            cargo run -q -p mira-cli -- --bin "$ex" run
+            cargo run -q -p mira-cli -- run --study-bin "$ex"
           done
 
       - name: Run the polyglot (Python) eval study via the host CLI
         run: |
-          cargo run -q -p mira-cli -- --cmd "python3 examples/greet-python/study.py" run
+          cargo run -q -p mira-cli -- run --study-cmd "python3 examples/greet-python/study.py"
 
       - name: Set up Node
         uses: actions/setup-node@v4
@@ -130,11 +130,11 @@ jobs:
 
       - name: Run the polyglot (TypeScript) eval study via the host CLI
         run: |
-          cargo run -q -p mira-cli -- --cmd "node examples/greet-typescript/study.mjs" run
+          cargo run -q -p mira-cli -- run --study-cmd "node examples/greet-typescript/study.mjs"
 
       - name: Render an HTML report (smoke)
         run: |
-          cargo run -q -p mira-cli -- --bin metrics run --format html --out report.html
+          cargo run -q -p mira-cli -- run --study-bin metrics --format html --out report.html
           test -s report.html && grep -q "Mira eval report" report.html
 
   sdks:

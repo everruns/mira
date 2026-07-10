@@ -3,7 +3,7 @@
 # A single-file Mira study (cargo-script frontmatter, RFC 3502). Run it with the
 # host CLI — no per-study crate, no Cargo.toml:
 #
-#   mira --script examples/greet.rs run
+#   mira run --study examples/greet.rs
 #
 # The host shims cargo-script on **stable** (it's otherwise `cargo -Zscript`,
 # nightly-only); set MIRA_SCRIPT_NATIVE=1 to run it natively on nightly.
