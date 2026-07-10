@@ -3,7 +3,7 @@
 # Single-file Mira study (cargo-script frontmatter, RFC 3502). Run it with
 # the host CLI — no per-study crate:
 #
-#   mira --script examples/llm_judge.rs run
+#   mira run --script examples/llm_judge.rs
 #
 # The host shims cargo-script on **stable** (it's otherwise nightly-only
 # `cargo -Zscript`); set MIRA_SCRIPT_NATIVE=1 to run it natively on nightly.
@@ -19,9 +19,9 @@ tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
 //! Provider-backed **LLM-as-judge** scoring via `mira-judge`.
 //!
 //! ```bash
-//! mira --script examples/llm_judge.rs run
+//! mira run --script examples/llm_judge.rs
 //! # With a key, the judge case grades for real; without one it is N/A:
-//! OPENAI_API_KEY=sk-... mira --script examples/llm_judge.rs run
+//! OPENAI_API_KEY=sk-... mira run --script examples/llm_judge.rs
 //! ```
 //!
 //! The subject is a deterministic in-process stand-in, so the run is stable.

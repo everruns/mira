@@ -3,7 +3,7 @@
 # Single-file Mira study (cargo-script frontmatter, RFC 3502). Run it with
 # the host CLI — no per-study crate:
 #
-#   mira --script examples/trials.rs run
+#   mira run --script examples/trials.rs
 #
 # The host shims cargo-script on **stable** (it's otherwise nightly-only
 # `cargo -Zscript`); set MIRA_SCRIPT_NATIVE=1 to run it natively on nightly.
@@ -19,11 +19,11 @@ tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
 //! report pass@k, pass-rate, and score variance over a stochastic subject.
 //!
 //! ```bash
-//! mira --script examples/trials.rs list                 # shows `trials=8, seed=…`
-//! mira --script examples/trials.rs run                   # 8 trials per case, aggregated
-//! mira --script examples/trials.rs run --trials 20       # override the count
-//! mira --script examples/trials.rs run --seed 1          # different seed base, reproducible
-//! mira --script examples/trials.rs run --format json --out report.json   # `trials` array in the record
+//! mira list --script examples/trials.rs                 # shows `trials=8, seed=…`
+//! mira run --script examples/trials.rs                   # 8 trials per case, aggregated
+//! mira run --script examples/trials.rs --trials 20       # override the count
+//! mira run --script examples/trials.rs --seed 1          # different seed base, reproducible
+//! mira run --script examples/trials.rs --format json --out report.json   # `trials` array in the record
 //! ```
 //!
 //! Unlike an `axis` (which forms *new* cases), trials are repetitions of one

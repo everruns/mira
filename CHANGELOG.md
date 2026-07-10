@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **CLI examples now lead with the subcommand.** Every documented `mira`
+  invocation is written `mira <subcommand> --script … [args]` (subcommand first,
+  launch flag after) instead of `mira --script … <subcommand>`. The launch flags
+  are global, so both orders still work — this is a docs/examples-and-help
+  consistency change, not a behaviour change. The convention is recorded in
+  `specs/docs.md`.
+
 ### Fixed
 
 - README overview diagram now renders on off-repo surfaces such as crates.io by

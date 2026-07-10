@@ -42,11 +42,11 @@ if __name__ == "__main__":
 Drive it with the host:
 
 ```bash
-mira --python3 study.py list
-mira --python3 study.py run
+mira list --python3 study.py
+mira run --python3 study.py
 # run-now, score-later (split execute/score path):
-mira --python3 study.py run --execute-only --artifacts art/
-mira --python3 study.py score --artifacts art/
+mira run --python3 study.py --execute-only --artifacts art/
+mira score --python3 study.py --artifacts art/
 ```
 
 `--python3` is a convenience launcher; `--python` and `--uv` (`uv run …`) are

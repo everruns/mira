@@ -18,15 +18,15 @@ no API keys, so they stay green in CI and cost nothing.
 
 ```bash
 # Single-file study (deps in frontmatter, run via the cargo-script shim):
-cargo run -p mira-cli -- --script examples/greet.rs list
-cargo run -p mira-cli -- --script examples/greet.rs run
+cargo run -p mira-cli -- list --script examples/greet.rs
+cargo run -p mira-cli -- run --script examples/greet.rs
 
 # Crate example (a workspace bin):
-cargo run -p mira-cli -- --bin metrics run
+cargo run -p mira-cli -- run --bin metrics
 
 # Polyglot examples (studies in another language, no Mira dependency):
-cargo run -p mira-cli -- --cmd "python3 examples/greet-python/study.py" run
-cargo run -p mira-cli -- --cmd "node examples/greet-typescript/study.mjs" run
+cargo run -p mira-cli -- run --cmd "python3 examples/greet-python/study.py"
+cargo run -p mira-cli -- run --cmd "node examples/greet-typescript/study.mjs"
 ```
 
 | Example | Form | Shows |
@@ -49,5 +49,5 @@ cargo run -p mira-cli -- --cmd "node examples/greet-typescript/study.mjs" run
 Render a self-contained HTML report from any of them:
 
 ```bash
-cargo run -p mira-cli -- --script examples/greet.rs run --format html --out report.html
+cargo run -p mira-cli -- run --script examples/greet.rs --format html --out report.html
 ```

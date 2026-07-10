@@ -10,8 +10,8 @@ The host drives it with the `--python3` launcher (or `--python` / `--uv`, or an
 explicit `--cmd "..."`):
 
 ```bash
-mira --python3 examples/greet-python/study.py list
-mira --python3 examples/greet-python/study.py run
+mira list --python3 examples/greet-python/study.py
+mira run --python3 examples/greet-python/study.py
 ```
 
 `study.py` declares one eval with `@study.eval(...)` and a subject that returns a

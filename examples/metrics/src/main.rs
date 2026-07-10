@@ -8,8 +8,8 @@
 //! core doesn't model as a typed field.
 //!
 //! ```bash
-//! mira --bin metrics run
-//! mira --bin metrics run --format html --out report.html
+//! mira run --bin metrics
+//! mira run --bin metrics --format html --out report.html
 //! ```
 //!
 //! Runs offline against `sim` with a deterministic fake agent, so the numbers

@@ -46,7 +46,7 @@ and reporting.
         you author                       the `mira` CLI does the rest
   ┌────────────────────────┐
   │  study (mira-eval)     │
-  │  evals + subjects      │   mira --script study.rs run --targets … --axis … --tag …
+  │  evals + subjects      │   mira run --script study.rs --targets … --axis … --tag …
   │  + scorers             │                       │
   │  Rust · Python · TS    │                       ▼
   └───────────┬────────────┘   ┌───────────────────────────────────────────────┐
@@ -79,20 +79,20 @@ of these flows live in the docs:
 ## Usage
 
 ```bash
-mira --script study.rs list                          # what the study advertises
+mira list --script study.rs                          # what the study advertises
 
-mira --script study.rs run                           # whole matrix (sim runs; keyed cases skip)
-mira --script study.rs run greet                      # selective (substring), like cargo test
-mira --script study.rs run --tag smoke               # filter by tag
-mira --script study.rs run --targets sim             # subset the matrix by target
-mira --script study.rs run --axis effort=low         # subset an arbitrary axis
+mira run --script study.rs                           # whole matrix (sim runs; keyed cases skip)
+mira run --script study.rs greet                      # selective (substring), like cargo test
+mira run --script study.rs --tag smoke               # filter by tag
+mira run --script study.rs --targets sim             # subset the matrix by target
+mira run --script study.rs --axis effort=low         # subset an arbitrary axis
 
-mira --script study.rs run --format junit --out results.xml   # CI-friendly output
-mira --script study.rs run --format html  --out report.html   # self-contained viewer
+mira run --script study.rs --format junit --out results.xml   # CI-friendly output
+mira run --script study.rs --format html  --out report.html   # self-contained viewer
 
-mira --script study.rs run                           # saves ./results/<run_id>/ by default
-mira --script study.rs run --dry-run                 # ephemeral; don't save a run folder
-mira --script study.rs run --resume <run_id>         # finish an interrupted run (missing cases only)
+mira run --script study.rs                           # saves ./results/<run_id>/ by default
+mira run --script study.rs --dry-run                 # ephemeral; don't save a run folder
+mira run --script study.rs --resume <run_id>         # finish an interrupted run (missing cases only)
 mira report <run_id>                           # re-render a saved run's reports
 ```
 
@@ -100,8 +100,8 @@ Execution and scoring can be **split** — handy for long-running subjects whose
 transcripts take minutes to play out:
 
 ```bash
-mira --script study.rs run --execute-only --artifacts art/   # capture one transcript per case
-mira --script study.rs score --artifacts art/                # score (or re-score) without re-running
+mira run --script study.rs --execute-only --artifacts art/   # capture one transcript per case
+mira score --script study.rs --artifacts art/                # score (or re-score) without re-running
 ```
 
 ## Pointing it at a study

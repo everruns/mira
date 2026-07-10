@@ -68,11 +68,11 @@ Drive it with the host (writing the study to `study.mjs` after `tsc`, or running
 a `.ts` entry with your loader of choice):
 
 ```bash
-mira --cmd "node study.mjs" list
-mira --cmd "node study.mjs" run
+mira list --cmd "node study.mjs"
+mira run --cmd "node study.mjs"
 # run-now, score-later (split execute/score path):
-mira --cmd "node study.mjs" run --execute-only --artifacts art/
-mira --cmd "node study.mjs" score --artifacts art/
+mira run --cmd "node study.mjs" --execute-only --artifacts art/
+mira score --cmd "node study.mjs" --artifacts art/
 ```
 
 A complete, runnable example lives in

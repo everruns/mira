@@ -73,19 +73,19 @@ doc:
 # The TypeScript polyglot example needs the SDK built first (build-ts-sdk).
 run-examples: build-ts-sdk
     # Single-file studies (examples/<name>.rs) via the cargo-script shim.
-    cargo run -q -p mira-cli -- --script examples/greet.rs run
-    cargo run -q -p mira-cli -- --script examples/coding.rs run
-    cargo run -q -p mira-cli -- --script examples/swe_bench.rs run
-    cargo run -q -p mira-cli -- --script examples/multimodal.rs run
-    cargo run -q -p mira-cli -- --script examples/interactive.rs run
+    cargo run -q -p mira-cli -- run --script examples/greet.rs
+    cargo run -q -p mira-cli -- run --script examples/coding.rs
+    cargo run -q -p mira-cli -- run --script examples/swe_bench.rs
+    cargo run -q -p mira-cli -- run --script examples/multimodal.rs
+    cargo run -q -p mira-cli -- run --script examples/interactive.rs
     # Crate examples (multi-file / heavy deps) via --bin.
-    cargo run -q -p mira-cli -- --bin cli_subject run
-    cargo run -q -p mira-cli -- --bin metrics run
-    cargo run -q -p mira-cli -- --bin matrix run
-    cargo run -q -p mira-cli -- --bin llmsim run
+    cargo run -q -p mira-cli -- run --bin cli_subject
+    cargo run -q -p mira-cli -- run --bin metrics
+    cargo run -q -p mira-cli -- run --bin matrix
+    cargo run -q -p mira-cli -- run --bin llmsim
     # Polyglot studies via the SDKs.
-    cargo run -q -p mira-cli -- --python3 examples/greet-python/study.py run
-    cargo run -q -p mira-cli -- --cmd "node examples/greet-typescript/study.mjs" run
+    cargo run -q -p mira-cli -- run --python3 examples/greet-python/study.py
+    cargo run -q -p mira-cli -- run --cmd "node examples/greet-typescript/study.mjs"
 
 # === Release ===
 

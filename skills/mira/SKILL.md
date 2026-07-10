@@ -103,21 +103,21 @@ everruns runtime subject, in-process `Runner` tests, and custom scorers:
 ## Running
 
 ```bash
-mira --script study.rs list                 # advertised evals/samples/scorers/targets
-mira --script study.rs run                  # whole matrix
-mira --script study.rs run add-fn           # substring filter on eval/sample@target
-mira --script study.rs run --tag smoke
-mira --script study.rs run --targets sim                      # restrict the target axis
-mira --script study.rs run --axis effort=low                  # restrict any declared axis
-mira --script study.rs run --preset smoke                     # saved selection from mira.toml
-mira --script study.rs run --format junit --out results.xml   # CI artifact
-mira --script study.rs run --format html  --out report.html   # transcript viewer
-mira --script study.rs run                                    # saves a run folder by default
-mira --script study.rs run --resume <run_id>                  # resume; run only the missing cases
+mira list --script study.rs                 # advertised evals/samples/scorers/targets
+mira run --script study.rs                  # whole matrix
+mira run --script study.rs add-fn           # substring filter on eval/sample@target
+mira run --script study.rs --tag smoke
+mira run --script study.rs --targets sim                      # restrict the target axis
+mira run --script study.rs --axis effort=low                  # restrict any declared axis
+mira run --script study.rs --preset smoke                     # saved selection from mira.toml
+mira run --script study.rs --format junit --out results.xml   # CI artifact
+mira run --script study.rs --format html  --out report.html   # transcript viewer
+mira run --script study.rs                                    # saves a run folder by default
+mira run --script study.rs --resume <run_id>                  # resume; run only the missing cases
 mira report <run_id>                                          # re-render a saved run's reports
-mira --bin NAME run                    # a crate study (workspace bin)
-mira --cmd "python3 study.py" run      # a study written in another language
-mira --bin coding doctor               # diagnose config/study/saved runs; --fix repairs
+mira run --bin NAME                    # a crate study (workspace bin)
+mira run --cmd "python3 study.py"      # a study written in another language
+mira doctor --bin coding               # diagnose config/study/saved runs; --fix repairs
 ```
 
 Exit code is non-zero if any case failed — drops straight into CI. Run
@@ -171,7 +171,7 @@ from the canonical schema, so they never drift from the wire format.
 - Python SDK — <https://github.com/everruns/mira/blob/main/sdks/python/README.md>
 - Wire protocol (write your own, any language) — <https://github.com/everruns/mira/blob/main/docs/protocol.md>
 - Worked example — <https://github.com/everruns/mira/tree/main/examples/greet-python>
-- Run it: `mira --cmd "python3 study.py" run`
+- Run it: `mira run --cmd "python3 study.py"`
 
 ## Examples (runnable, offline)
 
@@ -185,9 +185,9 @@ cost nothing. Browse: <https://github.com/everruns/mira/tree/main/examples>
 - `greet-python` — a whole study in Python via the SDK — <https://github.com/everruns/mira/tree/main/examples/greet-python>
 
 ```bash
-cargo run -p mira-cli -- --script examples/greet.rs run                   # a single-file Rust example
-cargo run -p mira-cli -- --bin matrix run                                 # a crate example
-cargo run -p mira-cli -- --cmd "python3 examples/greet-python/study.py" run  # polyglot
+cargo run -p mira-cli -- run --script examples/greet.rs                   # a single-file Rust example
+cargo run -p mira-cli -- run --bin matrix                                 # a crate example
+cargo run -p mira-cli -- run --cmd "python3 examples/greet-python/study.py"  # polyglot
 ```
 
 ## Learn more (read on demand)

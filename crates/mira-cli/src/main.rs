@@ -8,17 +8,17 @@
 //! opts out.
 //!
 //! ```bash
-//! mira --script study.rs list
-//! mira --script study.rs run                    # all cases (sim runs; keyed cases skip)
-//! mira --script study.rs run greet              # substring filter
-//! mira --script study.rs run --tag smoke
-//! mira --script study.rs run --targets sim --format junit --out results.xml
-//! mira --script study.rs run --dry-run          # don't save a run folder
-//! mira --script study.rs run --resume <run_id>  # finish an interrupted run
-//! mira --script study.rs report <run_id>        # re-render a saved run
-//! mira --script study.rs run --execute-only --artifacts art/  # capture transcripts
-//! mira --script study.rs score --artifacts art/  # score (or re-score) them
-//! mira --script study.rs doctor --fix           # diagnose the setup; apply safe fixes
+//! mira list --script study.rs
+//! mira run --script study.rs                    # all cases (sim runs; keyed cases skip)
+//! mira run --script study.rs greet              # substring filter
+//! mira run --script study.rs --tag smoke
+//! mira run --script study.rs --targets sim --format junit --out results.xml
+//! mira run --script study.rs --dry-run          # don't save a run folder
+//! mira run --script study.rs --resume <run_id>  # finish an interrupted run
+//! mira report --script study.rs <run_id>        # re-render a saved run
+//! mira run --script study.rs --execute-only --artifacts art/  # capture transcripts
+//! mira score --script study.rs --artifacts art/  # score (or re-score) them
+//! mira doctor --script study.rs --fix           # diagnose the setup; apply safe fixes
 //! ```
 //!
 //! Execution and scoring can be split: `run --execute-only` captures one
@@ -495,21 +495,21 @@ OVERVIEW
 
     let examples = "\
 EXAMPLES
-  mira --script study.rs list           # what the study advertises
-  mira --script study.rs run            # run the whole matrix
-  mira --script study.rs run greet      # selective (substring), like cargo test
-  mira --script study.rs run --tag smoke  # only samples carrying a tag
-  mira --script study.rs run --targets sim --format junit --out results.xml
-  mira --script study.rs run --format html --out report.html  # standalone viewer file
-  mira --script study.rs run --dry-run                    # don't save a run folder
-  mira --script study.rs run --resume <run_id>            # finish an interrupted run
-  mira --script study.rs report <run_id>                  # re-render a saved run
-  mira --script study.rs run --execute-only --artifacts art/  # capture transcripts
-  mira --script study.rs score --artifacts art/           # score (or re-score) them
-  mira --script study.rs doctor         # check config/study/saved runs (--fix repairs)
-  mira --bin NAME run                   # drive a crate study (workspace bin)
-  mira --python3 study.py run           # drive a non-Rust (polyglot) study
-  mira --launcher greet run             # use [launchers.greet] from mira.toml
+  mira list --script study.rs           # what the study advertises
+  mira run --script study.rs            # run the whole matrix
+  mira run --script study.rs greet      # selective (substring), like cargo test
+  mira run --script study.rs --tag smoke  # only samples carrying a tag
+  mira run --script study.rs --targets sim --format junit --out results.xml
+  mira run --script study.rs --format html --out report.html  # standalone viewer file
+  mira run --script study.rs --dry-run                    # don't save a run folder
+  mira run --script study.rs --resume <run_id>            # finish an interrupted run
+  mira report --script study.rs <run_id>                  # re-render a saved run
+  mira run --script study.rs --execute-only --artifacts art/  # capture transcripts
+  mira score --script study.rs --artifacts art/           # score (or re-score) them
+  mira doctor --script study.rs         # check config/study/saved runs (--fix repairs)
+  mira run --bin NAME                   # drive a crate study (workspace bin)
+  mira run --python3 study.py           # drive a non-Rust (polyglot) study
+  mira run --launcher greet             # use [launchers.greet] from mira.toml
   mira run                              # use mira.toml's default_launcher";
 
     // Progressive disclosure of the docs: name + one-line scope per guide, so an
@@ -551,7 +551,7 @@ LINKS
 /// Resolve the effective launcher from the CLI flags overlaid on `mira.toml`,
 /// then build the study launch command. Loads `mira.toml` only when it could
 /// matter — `--launcher` is given, or no explicit launch mode is set (so a
-/// `default_launcher` might apply) — so a plain `mira --script study.rs run` does
+/// `default_launcher` might apply) — so a plain `mira run --script study.rs` does
 /// no config I/O.
 fn build_launch_command(cli: &Launcher) -> Result<Command, String> {
     let needs_config = cli.launcher.is_some() || !cli_sets_mode(cli);

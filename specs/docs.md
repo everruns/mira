@@ -89,6 +89,19 @@ layout.
 - **Code examples are real.** Examples compile against the current API (prefer
   lifting from `examples/`); elide bodies with `/* … */`, never with stale
   signatures. CI builds docs with `-D warnings`.
+- **CLI examples lead with the subcommand.** Every `mira` invocation is written
+  `mira <subcommand> <launch-flags> [args]` — the subcommand (`run`, `list`,
+  `score`, `report`, `doctor`, …) comes first, then the launch flag that selects
+  the study (`--script`/`--bin`/`--example`/`--cmd`/`--uv`/`--python`/`--python3`/
+  `--launcher`/`--package`/`--manifest-path`). Write `mira run --script study.rs`,
+  not `mira --script study.rs run`. The launch flags are global, so both orders
+  parse, but examples use the subcommand-first form consistently (it reads as the
+  verb acting on the study, mirrors `cargo run --example …`, and keeps the varying
+  flags in a predictable place). This holds everywhere examples appear — `docs/`,
+  `README.md`, the crate READMEs, `skills/`, example-file header comments, the
+  `justfile`, CI, and the CLI's own `--help`/`help --full` text. Prose that names
+  a flag on its own (`--script` runs a single file) is unaffected — the rule is
+  about full invocations.
 - **Relative links** between docs/specs (`scorers.md`, `../specs/docs.md`);
   absolute `https://` links only for external targets. Deep-link to a heading
   (`scorers.md#llm-as-judge`) when pointing at one section.

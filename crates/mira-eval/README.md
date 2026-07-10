@@ -73,8 +73,8 @@ as a single-file [cargo-script](https://github.com/everruns/mira/blob/main/docs/
 study with no `Cargo.toml` at all:
 
 ```bash
-mira --script study.rs run    # a single-file study (deps in frontmatter)
-mira --bin NAME run           # …or a crate bin/example study
+mira run --script study.rs    # a single-file study (deps in frontmatter)
+mira run --bin NAME           # …or a crate bin/example study
 ```
 
 ## Two processes, one protocol

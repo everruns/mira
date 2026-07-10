@@ -4,10 +4,10 @@
 //! stable key like `reasoning/puzzle@sim[effort=high]`.
 //!
 //! ```bash
-//! mira --bin matrix list
-//! mira --bin matrix run
-//! mira --bin matrix run 'effort=high'   # substring filter
-//! mira --bin matrix run -j 4 --provider-concurrency anthropic=2     # bounded, per-provider
+//! mira list --bin matrix
+//! mira run --bin matrix
+//! mira run --bin matrix 'effort=high'   # substring filter
+//! mira run --bin matrix -j 4 --provider-concurrency anthropic=2     # bounded, per-provider
 //! ```
 //!
 //! The host runs cases concurrently (bounded by `-j`, per-provider caps, and
