@@ -16,6 +16,7 @@
 //! mira run --study study.rs --dry-run           # don't save a run folder
 //! mira run --study study.rs --resume <run_id>   # finish an interrupted run
 //! mira report <run_id>                          # re-render a saved run (no study)
+//! mira export <run_id> --format atif            # emit ATIF trajectory docs (no study)
 //! mira run --study study.rs --execute-only --artifacts art/  # capture transcripts
 //! mira score --study study.rs --artifacts art/  # score (or re-score) them
 //! mira doctor --study study.rs --fix            # diagnose the setup; apply safe fixes
@@ -52,6 +53,7 @@ use tokio::process::Command;
 mod config;
 mod doctor;
 mod env;
+mod export;
 
 use mira::Host;
 use mira::Trial;
@@ -284,6 +286,8 @@ enum Cmd {
     Score(ScoreArgs),
     /// Re-render a saved run's reports from its stored results (no study needed).
     Report(ReportArgs),
+    /// Export a saved run's cases as standalone ATIF trajectory documents.
+    Export(ExportArgs),
     /// Publish a saved run's results to a hosted viewer (everruns).
     Publish(PublishArgs),
     /// Diagnose the setup: mira.toml (keys, launchers, presets), the study's
@@ -512,6 +516,34 @@ struct ReportArgs {
     format: String,
 }
 
+/// `mira export <run_id> --format atif`: emit one standalone ATIF-v1.7 document
+/// per case from a saved run — no study process, no re-execution (like
+/// `report`). The case's real `trajectory` is used when an execution artifact
+/// carries one (`--artifacts`); otherwise a trajectory is synthesized from the
+/// saved flat summary fields. Mira's verdict is stamped into each document's
+/// ATIF root `extra` (`reward` + `mira` provenance) — export only.
+#[derive(Args)]
+struct ExportArgs {
+    /// The `<run_id>` of a saved run under the results dir.
+    run_id: String,
+    /// Substring filter on the case key `eval/sample@target`.
+    filter: Option<String>,
+    /// Export format. Only `atif` (ATIF-v1.7) is supported.
+    #[arg(long, default_value = export::FORMAT_ATIF)]
+    format: String,
+    /// Where to write the documents. A directory receives one
+    /// `<case_key>.atif.json` per case; `-` streams all documents as NDJSON to
+    /// stdout. Default: the run's `export/` subdir.
+    #[arg(long)]
+    out: Option<String>,
+    /// Directory of execution artifacts (`run --execute-only --artifacts DIR`).
+    /// When a case's artifact carries a real `trajectory`, it is exported
+    /// verbatim; without this, every document is synthesized from the saved
+    /// summary.
+    #[arg(long)]
+    artifacts: Option<String>,
+}
+
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let cli = Cli::parse();
@@ -535,6 +567,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         // `report` re-renders a saved run from disk — no study process needed, so
         // handle it before spawning the host.
         Some(Cmd::Report(args)) => return report(args),
+        // `export` reads a saved run from disk and emits ATIF docs — no study.
+        Some(Cmd::Export(args)) => {
+            return export::run(
+                &args.run_id,
+                args.filter.as_deref(),
+                &args.format,
+                args.out.as_deref(),
+                args.artifacts.as_deref(),
+            );
+        }
         // `publish` reads a saved run from disk and POSTs it — no study either.
         Some(Cmd::Publish(args)) => return publish_cmd(args).await,
         // `doctor` spawns (and tolerates a failing) study itself, so a broken
@@ -592,6 +634,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         None
         | Some(Cmd::Help(_))
         | Some(Cmd::Report(_))
+        | Some(Cmd::Export(_))
         | Some(Cmd::Publish(_))
         | Some(Cmd::Doctor(_)) => {
             unreachable!("handled before host spawn")
@@ -640,6 +683,7 @@ EXAMPLES
   mira run --study study.rs --dry-run                     # don't save a run folder
   mira run --study study.rs --resume <run_id>             # finish an interrupted run
   mira report <run_id>                                    # re-render a saved run
+  mira export <run_id> --format atif                      # emit ATIF trajectory docs
   mira run --study study.rs --execute-only --artifacts art/  # capture transcripts
   mira score --study study.rs --artifacts art/            # score (or re-score) them
   mira doctor --study study.rs          # check config/study/saved runs (--fix repairs)
@@ -1554,7 +1598,7 @@ fn artifact_path(dir: &str, key: &str) -> std::path::PathBuf {
 /// Load every execution artifact in `dir`, sorted by case key for stable order.
 /// Unreadable or invalid files are skipped with a warning, so a corrupted or
 /// partially-written artifact is visible rather than silently dropped.
-fn load_artifacts(dir: &str) -> Vec<ExecuteResult> {
+pub(crate) fn load_artifacts(dir: &str) -> Vec<ExecuteResult> {
     let mut out = Vec::new();
     let entries = match std::fs::read_dir(dir) {
         Ok(entries) => entries,

@@ -124,6 +124,7 @@ mira run --study-example my_evals --format html --out report.html   # self-conta
 mira run --study-example my_evals                                   # saves a run folder by default
 mira run --study-example my_evals --resume <run_id>                 # resume; run only the missing cases
 mira report <run_id>                                          # re-render a saved run's reports
+mira export <run_id> --format atif                            # emit standalone ATIF trajectory docs
 ```
 
 Every `run` saves a run folder under `./results/<run_id>/` (configure via

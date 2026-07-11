@@ -33,6 +33,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **`mira export <run_id> --format atif`.** A new host subcommand that emits
+  one standalone ATIF-v1.7 trajectory document per case from a saved run, for
+  SFT / RL / trajectory-visualization tooling. Read-only over the run store (no
+  study process, no re-execution, like `report`). Each document's steps come
+  from the case's real `trajectory` when an execution artifact carries one
+  (`--artifacts DIR`); otherwise a trajectory is synthesized from the saved flat
+  summary fields via the new `Trajectory::from_transcript` (the lossy inverse of
+  `project_into`). Mira's verdict is stamped into the document's ATIF root
+  `extra` — `reward = { pass, score, scorers: [{ name, value, pass, reason }] }`
+  and `mira = { eval, sample, target, run_id }` provenance — on **export only**,
+  never on the study↔host wire. Output is one `<case_key>.atif.json` per case
+  under `results/<run_id>/export/` (or `--out DIR`); `--out -` streams all
+  documents as NDJSON to stdout. Skipped (unexecuted) cases are omitted. No wire
+  or schema change — export is CLI/host-only.
 - **Trajectory scorers.** Four deterministic scorers grade the structure of
   the ATIF trajectory — the data only `Transcript.trajectory` carries:
   `tool_called_with(tool, pointer, expected)` (some invocation of `tool` has
