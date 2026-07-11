@@ -74,7 +74,9 @@ jobs:
         env:
           CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
 
-  # Publish the CLI and the everruns adapter (both depend on mira-eval).
+  # Publish the crates that depend on mira-eval. mira-everruns, mira-judge, and
+  # mira-publish-everruns depend only on mira-eval; mira-cli additionally depends
+  # on mira-publish-everruns, so it publishes last, after a wait for the index.
   publish-dependents:
     name: Publish dependents
     runs-on: ubuntu-latest
@@ -91,11 +93,6 @@ jobs:
       - name: Wait for crates.io index update
         run: sleep 30
 
-      - name: Publish mira-cli to crates.io
-        run: scripts/cargo_publish_if_needed.sh mira-cli
-        env:
-          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
-
       - name: Publish mira-everruns to crates.io
         run: scripts/cargo_publish_if_needed.sh mira-everruns
         env:
@@ -103,6 +100,21 @@ jobs:
 
       - name: Publish mira-judge to crates.io
         run: scripts/cargo_publish_if_needed.sh mira-judge
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+
+      - name: Publish mira-publish-everruns to crates.io
+        run: scripts/cargo_publish_if_needed.sh mira-publish-everruns
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+
+      # mira-cli depends on mira-publish-everruns; wait for its index entry so
+      # cargo's verify build can resolve it from crates.io.
+      - name: Wait for crates.io index update
+        run: sleep 30
+
+      - name: Publish mira-cli to crates.io
+        run: scripts/cargo_publish_if_needed.sh mira-cli
         env:
           CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
 
@@ -120,7 +132,8 @@ jobs:
           EXPECTED=$(grep '^version' Cargo.toml | head -1 | sed 's/.*"\(.*\)".*/\1/')
           echo "Expected version: $EXPECTED"
           python3 scripts/verify_crates_publish.py --expected "$EXPECTED" \
-            mira-macros mira-eval mira-cli mira-everruns mira-judge
+            mira-macros mira-eval mira-cli mira-everruns mira-judge \
+            mira-publish-everruns
 
   # Publish the Python SDK (PyPI package `mira-eval`) via OIDC Trusted Publishing
   # — no token. The publisher must be registered on PyPI once: project

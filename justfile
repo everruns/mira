@@ -104,6 +104,7 @@ publish-dry-run:
     cargo publish --dry-run -p mira-cli --no-verify
     cargo publish --dry-run -p mira-everruns --no-verify
     cargo publish --dry-run -p mira-judge --no-verify
+    cargo publish --dry-run -p mira-publish-everruns --no-verify
 
 # Pre-PR gate: fmt, clippy, tests. The publish dry-run is a release-time
 # concern (it guards packaging, which only matters when cutting a release), so
