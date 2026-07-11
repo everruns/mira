@@ -25,11 +25,14 @@ new features, PATCH = bug fixes/docs. All workspace crates share one version
 | `mira-cli` | crates.io | binary `mira` |
 | `mira-everruns` | crates.io | library |
 | `mira-judge` | crates.io | library |
+| `mira-publish-everruns` | crates.io | library (pulled in by `mira-cli`) |
 | `mira-eval` (Python SDK, `sdks/python`) | PyPI | `pip install mira-eval` |
 | `mira-eval` (TypeScript SDK, `sdks/typescript`) | npm | `npm install mira-eval` |
 
 Publish order matters: `mira-macros` first, then `mira-eval` (re-exports it),
-then `mira-cli`, `mira-everruns`, and `mira-judge` (all depend on `mira-eval`).
+then `mira-everruns`, `mira-judge`, and `mira-publish-everruns` (all depend on
+`mira-eval`), and finally `mira-cli` (depends on `mira-eval` and
+`mira-publish-everruns`, so it publishes last).
 The `mira-examples` crate is `publish = false`. The Python and TypeScript SDKs are
 native libraries (not bindings), so they publish independently of the crate order;
 each shares the workspace version and CI verifies the match. `mira-eval` is the
@@ -97,7 +100,7 @@ action.
 2. **Update `CHANGELOG.md`** (Keep a Changelog format).
 3. **Bump the version** in workspace `Cargo.toml` (`workspace.package.version`)
    and refresh `Cargo.lock` (`cargo update -p mira-macros -p mira-eval -p
-   mira-cli -p mira-everruns -p mira-judge`). Path-dep pins reference the same
+   mira-cli -p mira-everruns -p mira-judge -p mira-publish-everruns`). Path-dep pins reference the same
    version. Bump `sdks/python/pyproject.toml` **and**
    `sdks/typescript/package.json` (+ its `package-lock.json`, via
    `npm version <X.Y.Z> --no-git-tag-version`) to match — CI fails each SDK
@@ -109,8 +112,8 @@ action.
    `node --test`).
 5. **Verify publish-readiness** — `just publish-dry-run`. Leaf crates
    (`mira-macros`, `mira-eval`) get a full `cargo publish --dry-run`; the
-   dependents (`mira-cli`, `mira-everruns`, `mira-judge`) are packaged with
-   `--no-verify`. This catches packaging problems local builds don't (missing
+   dependents (`mira-cli`, `mira-everruns`, `mira-judge`,
+   `mira-publish-everruns`) are packaged with `--no-verify`. This catches packaging problems local builds don't (missing
    `readme`, files outside the crate dir, version drift). Confirm the new version
    is greater than the latest on crates.io for each crate. Fix root cause and
    re-run before opening the PR. **Why `--no-verify` on dependents:** their
@@ -128,7 +131,7 @@ action.
 8. **Monitor post-merge** — watch `release.yml` create the Release + tag, then
    `publish.yml` publish each crate (each step verifies the published version) and,
    in parallel, both SDKs (`publish-python` → PyPI, `publish-typescript` → npm).
-   Declare "shipped" only when crates.io reports the new version for all five
+   Declare "shipped" only when crates.io reports the new version for all six
    crates, PyPI shows the Python SDK, and npm shows the TypeScript SDK
    (`npm view mira-eval version`). `publish.yml` is **idempotent**
    (each crate step skips a version already on crates.io via
@@ -144,8 +147,10 @@ action.
   commit, extracts notes from `CHANGELOG.md`, creates the GitHub Release + tag,
   and dispatches `publish.yml`.
 - On the release tag, `publish.yml` publishes `mira-macros` then `mira-eval`,
-  then `mira-cli`, `mira-everruns`, and `mira-judge`, waiting for the crates.io
-  index between dependent publishes, and verifies the published versions. Two
+  then `mira-everruns`, `mira-judge`, and `mira-publish-everruns`, and finally
+  `mira-cli` (which depends on `mira-publish-everruns`), waiting for the
+  crates.io index between dependent publishes, and verifies the published
+  versions. Two
   parallel SDK jobs publish via OIDC trusted publishing, independent of the crates
   and each other: `publish-python` (PyPI) and `publish-typescript` (npm,
   `--provenance`).
