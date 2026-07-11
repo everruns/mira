@@ -205,9 +205,12 @@ jobs:
           fi
           echo "SDK version verified: $SDK_VERSION"
 
+      # Node 24: current npm@latest (12.x) dropped Node 20 support (requires
+      # node ^22.22.2 || ^24.15.0 || >=26), so the npm upgrade below needs a
+      # newer runtime than the Node 20 the SDK CI job uses.
       - uses: actions/setup-node@v4
         with:
-          node-version: "20"
+          node-version: "24"
           registry-url: "https://registry.npmjs.org"
 
       # Trusted publishing (OIDC, no token) needs a recent npm; the runner ships
