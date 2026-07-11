@@ -671,7 +671,77 @@ impl Trajectory {
             t.usage = self.usage();
         }
     }
+
+    /// Synthesize a minimal ATIF trajectory from a transcript's flat projected
+    /// fields — the **lossy inverse** of [`project_into`](Self::project_into),
+    /// for a transcript that carries no real [`trajectory`] of its own (e.g. a
+    /// saved run's summary, which keeps only `final_response` / `tool_calls` /
+    /// `iterations` / `usage`).
+    ///
+    /// The reconstruction is deliberately faithful only in the projections it
+    /// can recover, and lossy everywhere else:
+    /// * one agent [`Step`] per recorded tool name, each carrying a single
+    ///   [`ToolCall`] with a synthesized id and **empty** arguments (`{}`) — a
+    ///   names-only summary has no arguments, observations, per-step reasoning,
+    ///   or timestamps to restore;
+    /// * a final agent step carrying `final_response`, so
+    ///   [`final_agent_text`](Self::final_agent_text) round-trips;
+    /// * [`usage`](Self::usage) is carried exactly on
+    ///   [`final_metrics`](Trajectory::final_metrics), so it reproduces 1:1;
+    /// * `iterations` is **not** reproduced — the synthesized step count reflects
+    ///   the tool calls, not the subject's reported turn count.
+    ///
+    /// A caller that has the real trajectory (e.g. from an `execute` artifact)
+    /// should emit that instead; this is the fallback path.
+    ///
+    /// [`trajectory`]: Transcript::trajectory
+    pub fn from_transcript(t: &Transcript) -> Trajectory {
+        let mut traj = Trajectory::new(Agent::new(SYNTH_AGENT_NAME, SYNTH_AGENT_VERSION));
+        let mut step_id = 1u64;
+        for name in &t.tool_calls {
+            let mut step = Step::new(step_id, StepSource::Agent, "");
+            step.tool_calls = vec![ToolCall::new(
+                format!("call-{step_id}"),
+                name.clone(),
+                serde_json::json!({}),
+            )];
+            traj.steps.push(step);
+            step_id += 1;
+        }
+        if !t.final_response.is_empty() {
+            traj.steps.push(Step::new(
+                step_id,
+                StepSource::Agent,
+                t.final_response.clone(),
+            ));
+        }
+        // Carry usage verbatim on final_metrics so `usage()` reproduces it.
+        let u = &t.usage;
+        if *u != Usage::default() {
+            let mut extra = Metadata::new();
+            if u.reasoning_tokens > 0 {
+                extra.insert("reasoning_tokens".into(), u.reasoning_tokens.into());
+            }
+            traj.final_metrics = Some(FinalMetrics {
+                total_prompt_tokens: (u.input_tokens != 0).then_some(u.input_tokens),
+                total_completion_tokens: (u.output_tokens != 0).then_some(u.output_tokens),
+                total_cached_tokens: (u.cache_read_tokens != 0).then_some(u.cache_read_tokens),
+                total_cost_usd: (u.cost_usd > 0.0).then_some(u.cost_usd),
+                total_steps: Some(traj.steps.len() as u64),
+                extra,
+            });
+        }
+        traj
+    }
 }
+
+/// Agent identity stamped on a trajectory synthesized by
+/// [`Trajectory::from_transcript`] from flat summary fields (there is no real
+/// producer to name).
+const SYNTH_AGENT_NAME: &str = "mira-export";
+/// Version marker for a [`from_transcript`](Trajectory::from_transcript)
+/// synthesis — `"0"` signals "reconstructed, not produced".
+const SYNTH_AGENT_VERSION: &str = "0";
 
 /// One structured tool invocation as seen by scorers: the name, the arguments
 /// (when a trajectory carries them), and the correlated observation content.
@@ -1004,6 +1074,61 @@ mod tests {
         assert_eq!(calls[0].name, "read");
         assert!(calls[0].arguments.is_none());
         assert!(calls[0].result.is_none());
+    }
+
+    #[test]
+    fn from_transcript_synthesizes_and_reprojects_recoverable_fields() {
+        // The lossy inverse of project_into: a names-only summary becomes a
+        // valid ATIF document whose recoverable projections round-trip.
+        let summary = Transcript {
+            final_response: "the answer is 42".into(),
+            tool_calls: vec!["search".into(), "calc".into()],
+            tool_calls_count: 2,
+            iterations: 3,
+            usage: Usage {
+                input_tokens: 100,
+                output_tokens: 20,
+                cache_read_tokens: 10,
+                reasoning_tokens: 5,
+                cost_usd: 0.001,
+            },
+            ..Default::default()
+        };
+        let traj = Trajectory::from_transcript(&summary);
+        assert_eq!(traj.schema_version, ATIF_VERSION);
+        assert_eq!(traj.agent.name, "mira-export");
+
+        // Valid ATIF: parses back losslessly.
+        let back = Trajectory::from_json(&serde_json::to_string(&traj).unwrap()).unwrap();
+        assert_eq!(back, traj);
+
+        // Recoverable projections reproduce the summary's fields.
+        let mut reprojected = Transcript::default();
+        traj.project_into(&mut reprojected);
+        assert_eq!(reprojected.final_response, "the answer is 42");
+        assert_eq!(reprojected.tool_calls, vec!["search", "calc"]);
+        assert_eq!(reprojected.usage, summary.usage); // carried exactly
+        // Tool-call arguments are unknown to a names-only summary.
+        assert_eq!(traj.tool_call_names(), vec!["search", "calc"]);
+        assert!(
+            traj.steps
+                .iter()
+                .all(|s| s.tool_calls.iter().all(|c| c.arguments == json!({})))
+        );
+    }
+
+    #[test]
+    fn from_transcript_handles_empty_summary() {
+        // A response-only summary (no tools, no usage) yields a one-step doc.
+        let traj = Trajectory::from_transcript(&Transcript::response("hi"));
+        assert_eq!(traj.steps.len(), 1);
+        assert_eq!(traj.final_agent_text().as_deref(), Some("hi"));
+        assert!(traj.final_metrics.is_none());
+
+        // A fully empty transcript yields a valid, empty-step document.
+        let empty = Trajectory::from_transcript(&Transcript::default());
+        assert!(empty.steps.is_empty());
+        assert!(empty.final_agent_text().is_none());
     }
 
     #[test]

@@ -245,6 +245,29 @@ The host owns all reporting; the study only returns per-case results.
   never silently reused. `mira report <run_id>` re-renders a saved run's reports
   from its stored cases without spawning the study or re-executing anything.
 
+## Exporting ATIF trajectories
+
+`mira export <run_id> --format atif` emits one standalone
+[ATIF-v1.7](protocol.md) trajectory document per case from a saved run — for
+SFT / RL / trajectory-visualization tooling in the wider ATIF ecosystem. Like
+`report`, it reads the run folder from disk: no study process, no re-execution.
+
+- **Steps source.** The case's real `trajectory` when an execution artifact
+  carries one (`--artifacts DIR`, from `run --execute-only`); otherwise a
+  trajectory is *synthesized* from the saved flat summary fields
+  (`final_response`, `tool_calls`, `usage`) — the lossy inverse of the
+  projection (tool arguments, observations, per-step metrics, and the reported
+  turn count aren't recoverable from a names-only summary).
+- **Mira verdict, export only.** Each document's ATIF root `extra` is stamped
+  with `reward = { pass, score, scorers: [{ name, value, pass, reason }] }` and
+  `mira = { eval, sample, target, run_id }` for provenance. These never travel
+  on the study↔host wire — verdicts live in `Score`/`RunResult` and are written
+  into ATIF only here.
+- **Output.** One `<case_key>.atif.json` per case under
+  `results/<run_id>/export/` (or an explicit `--out DIR`); `--out -` streams all
+  documents as NDJSON to stdout. Skipped (unexecuted) cases are omitted — they
+  have no transcript to represent.
+
 ## Crate layout
 
 The core is deliberately decoupled from any provider SDK: light and
