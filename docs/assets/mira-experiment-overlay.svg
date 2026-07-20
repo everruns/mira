@@ -1,0 +1,52 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 920 500" font-family="-apple-system, Segoe UI, Helvetica, Arial, sans-serif">
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0 0 L10 5 L0 10 z" fill="#64748b"/>
+    </marker>
+  </defs>
+
+  <text x="460" y="34" text-anchor="middle" font-size="22" font-weight="700" fill="#0f172a">Experiment plans overlay a durable study</text>
+
+  <rect x="36" y="76" width="330" height="190" rx="12" fill="#f0fdf4" stroke="#22c55e" stroke-width="2"/>
+  <text x="201" y="108" text-anchor="middle" font-size="18" font-weight="700" fill="#14532d">Study definition</text>
+  <text x="201" y="130" text-anchor="middle" font-size="12" fill="#475569">durable evaluation set</text>
+  <line x1="60" y1="143" x2="342" y2="143" stroke="#bbf7d0"/>
+  <text x="66" y="170" font-size="13" fill="#334155">• cases and sample tags</text>
+  <text x="66" y="194" font-size="13" fill="#334155">• scorers and targets</text>
+  <text x="66" y="218" font-size="13" fill="#334155">• meaningful behavioral axes</text>
+  <text x="66" y="242" font-size="13" fill="#334155">• optional durable presets</text>
+
+  <rect x="554" y="76" width="330" height="190" rx="12" fill="#faf5ff" stroke="#a855f7" stroke-width="2" stroke-dasharray="8 5"/>
+  <text x="719" y="108" text-anchor="middle" font-size="18" font-weight="700" fill="#581c87">Experiment plan</text>
+  <text x="719" y="130" text-anchor="middle" font-size="12" fill="#475569">disposable treatment overlay</text>
+  <line x1="578" y1="143" x2="860" y2="143" stroke="#e9d5ff"/>
+  <text x="584" y="170" font-size="13" fill="#334155">• selected samples and targets</text>
+  <text x="584" y="194" font-size="13" fill="#334155">• trial count</text>
+  <text x="584" y="218" font-size="13" fill="#334155">• treatment configuration</text>
+  <text x="584" y="242" font-size="13" fill="#334155">• baseline designation</text>
+
+  <line x1="366" y1="171" x2="445" y2="171" stroke="#64748b" stroke-width="2" marker-end="url(#arrow)"/>
+  <line x1="554" y1="171" x2="475" y2="171" stroke="#64748b" stroke-width="2" marker-end="url(#arrow)"/>
+  <circle cx="460" cy="171" r="25" fill="#eff6ff" stroke="#3b82f6" stroke-width="2"/>
+  <text x="460" y="177" text-anchor="middle" font-size="24" font-weight="700" fill="#1e3a8a">+</text>
+
+  <line x1="460" y1="196" x2="460" y2="304" stroke="#64748b" stroke-width="2" marker-end="url(#arrow)"/>
+  <text x="475" y="285" font-size="12" fill="#475569">mira run --experiment …</text>
+
+  <rect x="150" y="326" width="270" height="112" rx="12" fill="#eff6ff" stroke="#3b82f6" stroke-width="2"/>
+  <text x="285" y="357" text-anchor="middle" font-size="17" font-weight="700" fill="#1e3a8a">Run: baseline</text>
+  <text x="285" y="382" text-anchor="middle" font-size="12" fill="#475569">same selected eval matrix</text>
+  <text x="285" y="404" text-anchor="middle" font-size="12" fill="#475569">baseline treatment environment</text>
+  <text x="285" y="426" text-anchor="middle" font-size="11" fill="#64748b">immutable artifacts + archived plan</text>
+
+  <rect x="500" y="326" width="270" height="112" rx="12" fill="#fff7ed" stroke="#f97316" stroke-width="2"/>
+  <text x="635" y="357" text-anchor="middle" font-size="17" font-weight="700" fill="#7c2d12">Run: candidate</text>
+  <text x="635" y="382" text-anchor="middle" font-size="12" fill="#475569">same selected eval matrix</text>
+  <text x="635" y="404" text-anchor="middle" font-size="12" fill="#475569">candidate treatment environment</text>
+  <text x="635" y="426" text-anchor="middle" font-size="11" fill="#64748b">immutable artifacts + archived plan</text>
+
+  <line x1="460" y1="304" x2="285" y2="326" stroke="#64748b" stroke-width="2" marker-end="url(#arrow)"/>
+  <line x1="460" y1="304" x2="635" y2="326" stroke="#64748b" stroke-width="2" marker-end="url(#arrow)"/>
+
+  <text x="460" y="474" text-anchor="middle" font-size="12" fill="#64748b">The plan selects and configures runs; it does not add cases, scorers, or axes to the study.</text>
+</svg>

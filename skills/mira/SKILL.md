@@ -119,8 +119,17 @@ mira run --study study.rs --resume <run_id>                  # resume; run only 
 mira report <run_id>                                          # re-render a saved run's reports
 mira run --study-bin NAME                    # a crate study (workspace bin)
 mira run --study-cmd "python3 study.py"      # a study written in another language
+mira run --experiment prompt-experiment.toml # run temporary treatment overlays
 mira doctor --study-bin coding               # diagnose config/study/saved runs; --fix repairs
 ```
+
+Use an external experiment plan for temporary A/B work such as prompt candidates,
+binaries, tool descriptions, dependency upgrades, or feature flags. Keep cases,
+scorers, targets, and meaningful behavioral axes in the study; put treatment
+names, environment configuration, slices, trial counts, and the baseline in the
+TOML plan. Each treatment becomes a normal saved run with a shared experiment
+ID. Read [references/experiments.md](references/experiments.md) for an agent-ready
+template and decision rules, or see the public [experiment plan guide](https://github.com/everruns/mira/blob/main/docs/features/experiment-plans.md).
 
 Exit code is non-zero if any case failed — drops straight into CI. Run
 `mira help --full` for an overview, every flag, examples, and links.
