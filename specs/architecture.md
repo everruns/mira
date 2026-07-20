@@ -138,6 +138,13 @@ declared grid — independent of how evals are authored. See §15.3.
 
 ## 4. Execution model: two processes, one protocol
 
+Experiment composition is external to a study. A TOML experiment plan selects a
+launcher, optional durable preset, sample/target/trial slice, and named treatment
+environment overlays. Each treatment executes as an independent immutable run;
+treatment and experiment identity are run metadata, never durable study axes.
+The original and resolved plans are archived with every treatment run so saved
+results remain interpretable after the plan and treatment inputs are removed.
+
 Eval *definitions* and the *runner* are split across a process boundary, talking
 newline-delimited JSON over stdio, MCP-style. This is the core architectural
 decision. Full wire reference: [`docs/protocol.md`](../docs/protocol.md).

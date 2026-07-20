@@ -59,6 +59,15 @@ pub fn collect(extra_labels: &BTreeMap<String, String>) -> Option<Environment> {
     for (k, v) in extra_labels {
         env.labels.insert(k.clone(), v.clone());
     }
+    for (var, key) in [
+        ("MIRA_EXPERIMENT_ID", "experiment_id"),
+        ("MIRA_EXPERIMENT_TREATMENT", "treatment"),
+        ("MIRA_EXPERIMENT_BASELINE", "experiment_baseline"),
+    ] {
+        if let Ok(value) = std::env::var(var) {
+            env.labels.insert(key.to_owned(), value);
+        }
+    }
 
     if env.is_empty() { None } else { Some(env) }
 }

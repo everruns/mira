@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- External TOML experiment plans for running named treatment overlays as separate, reproducible runs without adding temporary study axes.
+
 ## [0.4.0] - 2026-07-11
 
 ### Changed
