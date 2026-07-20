@@ -4,6 +4,10 @@ Experiment plans let you compare short-lived treatments without adding temporary
 
 Use them for prompt candidates, tool descriptions, binaries, dependency upgrades, search strategies, feature flags, and other A/B investigations. Mira treats each candidate as a generic **treatment**; the study keeps ownership of cases and scorers.
 
+![A durable study definition and a disposable experiment plan combine into independent baseline and candidate runs.](../assets/mira-experiment-overlay.svg)
+
+The experiment coexists with the main eval set as an overlay: it selects a slice of the study and supplies run-level treatment configuration, but it does not create a second eval set or mutate the study catalog.
+
 ## Define an experiment
 
 Create a TOML file outside the study:
@@ -32,11 +36,13 @@ group_by = "treatment"
 baseline = "baseline"
 ```
 
-Run it with:
+Run it directly through the Mira CLI:
 
 ```bash
 mira run --experiment prompt-experiment.toml
 ```
+
+`--experiment` is a `mira run` mode, so no wrapper script or separate service is required. It cannot be combined with direct run-selection flags such as `--preset`, `--sample`, `--target`, or `--trials`; put those values in the plan instead.
 
 Mira launches one ordinary run per treatment. All treatments share an experiment ID, while each run records its treatment name and whether it is the baseline.
 
