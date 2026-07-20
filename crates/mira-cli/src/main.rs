@@ -44,7 +44,7 @@ use std::io::IsTerminal;
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use clap::{Args, CommandFactory, Parser, Subcommand};
 use indicatif::{ProgressBar, ProgressDrawTarget, ProgressStyle};
@@ -53,6 +53,7 @@ use tokio::process::Command;
 mod config;
 mod doctor;
 mod env;
+mod experiment;
 mod export;
 
 use mira::Host;
@@ -372,6 +373,9 @@ struct HelpArgs {
 
 #[derive(Args)]
 struct RunArgs {
+    /// Execute the treatments declared by an external TOML experiment plan.
+    #[arg(long, value_name = "PATH")]
+    experiment: Option<PathBuf>,
     #[command(flatten)]
     study: StudyArgs,
     /// Substring filter on the case key `eval/sample@target` (the `cargo test
@@ -552,6 +556,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Bare `mira` (no subcommand) prints help too, so an agent landing here sees
     // the `mira help --full` breadcrumb instead of an opaque error.
     match &cli.cmd {
+        Some(Cmd::Run(args)) if args.experiment.is_some() => {
+            return run_experiment(args.experiment.as_deref().unwrap()).await;
+        }
         None => {
             Cli::command().print_help()?;
             return Ok(());
@@ -612,6 +619,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     });
 
     let info = host.initialize("mira-cli").await?;
+    if let Ok(expected) = std::env::var("MIRA_EXPERIMENT_STUDY") {
+        if info.study != expected {
+            return Err(format!(
+                "experiment expected study `{expected}`, but launcher initialized `{}`",
+                info.study
+            )
+            .into());
+        }
+    }
     eprintln!(
         "study {} · protocol {} · {} evals",
         info.study, info.protocol_version, info.evals
@@ -1062,6 +1078,56 @@ fn write_if_changed(path: &Path, content: &str) -> Result<(), String> {
     std::fs::write(path, content).map_err(|e| format!("cannot write {}: {e}", path.display()))
 }
 
+async fn run_experiment(path: &Path) -> Result<(), Box<dyn std::error::Error>> {
+    let plan = experiment::ExperimentPlan::load(path)
+        .map_err(|e| -> Box<dyn std::error::Error> { e.into() })?;
+    let experiment_id = format!(
+        "exp-{}-{}",
+        SystemTime::now().duration_since(UNIX_EPOCH)?.as_secs(),
+        std::process::id()
+    );
+    let executable = std::env::current_exe()?;
+
+    for treatment in &plan.treatments {
+        eprintln!("experiment {experiment_id} · treatment {}", treatment.name);
+        let mut command = tokio::process::Command::new(&executable);
+        command.arg("run");
+        if let Some(launcher) = &plan.launcher {
+            command.args(["--launcher", launcher]);
+        }
+        if let Some(preset) = &plan.preset {
+            command.args(["--preset", preset]);
+        }
+        if !plan.slice.samples.is_empty() {
+            command.args(["--samples", &plan.slice.samples.join(",")]);
+        }
+        if !plan.slice.targets.is_empty() {
+            command.args(["--targets", &plan.slice.targets.join(",")]);
+        }
+        if let Some(trials) = plan.slice.trials {
+            command.args(["--trials", &trials.to_string()]);
+        }
+        command
+            .envs(&treatment.env)
+            .env("MIRA_EXPERIMENT_ID", &experiment_id)
+            .env("MIRA_EXPERIMENT_TREATMENT", &treatment.name)
+            .env("MIRA_EXPERIMENT_STUDY", &plan.study)
+            .env("MIRA_EXPERIMENT_PLAN", path);
+        if plan
+            .compare
+            .as_ref()
+            .is_some_and(|c| c.baseline == treatment.name)
+        {
+            command.env("MIRA_EXPERIMENT_BASELINE", "true");
+        }
+        let status = command.status().await?;
+        if !status.success() {
+            return Err(format!("treatment `{}` failed with {status}", treatment.name).into());
+        }
+    }
+    Ok(())
+}
+
 async fn run(
     host: Host,
     info: InitializeResult,
@@ -1142,6 +1208,10 @@ async fn run(
             summary: RunSummary::default(),
         };
         config::init_run(dir, &header)?;
+        if let Ok(path) = std::env::var("MIRA_EXPERIMENT_PLAN") {
+            experiment::ExperimentPlan::archive(Path::new(&path), dir)
+                .map_err(|e| -> Box<dyn std::error::Error> { e.into() })?;
+        }
     }
 
     // Configure the progress bar now the plan is known. Drawn only when stderr is
@@ -2060,6 +2130,7 @@ mod tests {
     /// A default `RunArgs` (no selection); tests tweak the fields they exercise.
     fn run_args() -> RunArgs {
         RunArgs {
+            experiment: None,
             study: StudyArgs::default(),
             filter: None,
             tag: None,

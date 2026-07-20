@@ -22,6 +22,12 @@ in [`specs/`](../specs). Conventions for this directory are in
 - [TypeScript SDK](../sdks/typescript) — author a study in TypeScript/Node
   (native, zero-dependency library, protocol over stdio, no Rust dependency).
 
+## Feature guides
+
+- [Feature guides](features/README.md) — higher-level Mira workflows.
+- [Experiment plans](features/experiment-plans.md) — define, run, and reproduce
+  treatment comparisons.
+
 ## Extending
 
 - [Extensibility](extensibility.md) — the map of every seam: subjects, scorers,
