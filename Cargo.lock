@@ -2091,7 +2091,6 @@ name = "mira-example-cli_subject"
 version = "0.4.0"
 dependencies = [
  "mira-eval",
- "tokio",
 ]
 
 [[package]]
@@ -2102,7 +2101,6 @@ dependencies = [
  "everruns-runtime",
  "mira-eval",
  "mira-everruns",
- "tokio",
 ]
 
 [[package]]
@@ -2110,7 +2108,6 @@ name = "mira-example-matrix"
 version = "0.4.0"
 dependencies = [
  "mira-eval",
- "tokio",
 ]
 
 [[package]]
@@ -2118,7 +2115,6 @@ name = "mira-example-metrics"
 version = "0.4.0"
 dependencies = [
  "mira-eval",
- "tokio",
 ]
 
 [[package]]

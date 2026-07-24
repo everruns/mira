@@ -55,7 +55,6 @@ fn llmsim() -> Eval {
         .build()
 }
 
-#[tokio::main]
-async fn main() -> std::io::Result<()> {
-    mira::Study::registered().serve().await
+fn main() -> std::io::Result<()> {
+    mira::Study::registered().serve_blocking()
 }

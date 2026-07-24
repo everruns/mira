@@ -150,8 +150,9 @@ newline-delimited JSON over stdio, MCP-style. This is the core architectural
 decision. Full wire reference: [`docs/protocol.md`](../docs/protocol.md).
 
 - **study** — *your* eval program. Defines evals and calls
-  `Study::new(…).serve()` / `Study::registered().serve()`. Owns subjects and
-  scoring; knows nothing about selection, matrices, aggregation, saved runs, or
+  `Study::new(…)` / `Study::registered()` then `serve_blocking()` (the library
+  owns the runtime, so a study depends on `mira-eval` alone) or `serve().await`
+  from a caller that already has one. Owns subjects and scoring; knows nothing about selection, matrices, aggregation, saved runs, or
   rendering. **Provider API keys live only here and never cross the wire.**
 - **host** — the `mira` CLI. Compiles + spawns the study, enumerates evals
   (`initialize` + `list`), plans the run (selection × matrix), drives execution
@@ -215,8 +216,11 @@ install mira-cli` and `cargo add mira-eval` cheap, and lets the polyglot
 ## 6. Developer experience
 
 **Authoring** — an explicit builder; the `#[eval]` attribute (or `register_eval!`)
-+ `Study::registered().serve()` for `cargo test`-style discovery across modules;
-or an explicit `Study::new().eval(…).serve()`. `#[eval]` ships in the proc-macro
++ `Study::registered().serve_blocking()` for `cargo test`-style discovery across
+modules; or an explicit `Study::new().eval(…).serve_blocking()`. `serve_blocking`
+is the default entry point precisely because `#[tokio::main]` would otherwise
+force every study into a direct tokio dependency; `serve().await` stays available
+for callers with their own runtime. `#[eval]` ships in the proc-macro
 crate `mira-macros`, re-exported as `mira::eval` behind the default `macros`
 feature.
 

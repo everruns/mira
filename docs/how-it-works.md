@@ -47,7 +47,8 @@ live on opposite sides of a process boundary, talking newline-delimited JSON
 over stdio (MCP-style).
 
 - **study** — *your* eval program. It defines evals and calls
-  `Study::registered().serve()` (or `Study::new(…).serve()`). It owns subjects
+  `Study::registered().serve_blocking()` (or `.serve().await` from an async
+  `main`). It owns subjects
   and scoring and knows nothing about selection, matrices, saved runs, or
   rendering. **Provider API keys live only here and never cross the wire.**
 - **host** — the `mira` CLI. It compiles and spawns the study, enumerates evals
@@ -157,9 +158,8 @@ edition = "2024"
 
 [dependencies]
 mira-eval = "0.3"
-tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
 ---
-// … #[eval] factories + a main() that calls Study::registered().serve() …
+// … #[eval] factories + a main() that calls Study::registered().serve_blocking() …
 ```
 
 `cargo -Zscript` is nightly-only, so by default the host **shims it onto

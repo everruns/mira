@@ -13,7 +13,6 @@ edition = "2024"
 
 [dependencies]
 mira-eval = { path = "../crates/mira-eval" }
-tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
 ---
 //! A SWE-bench-style eval: fix a bug in a seeded repository so its failing test
 //! passes. This is the canonical "harness as a Mira eval" shape.
@@ -143,12 +142,11 @@ fn swe_bench() -> Eval {
         .build()
 }
 
-#[tokio::main]
-async fn main() -> std::io::Result<()> {
+fn main() -> std::io::Result<()> {
     // A real SWE-bench dataset is thousands of instances — far too many to
     // enumerate in one `list` line. We force a tiny page size here so even this
     // two-instance demo paginates: `list` returns the first page plus a cursor,
     // and the host pages the rest via `list_samples`. Drop this call to send the
     // whole dataset inline (the default page size handles realistic studies).
-    mira::Study::registered().page_size(1).serve().await
+    mira::Study::registered().page_size(1).serve_blocking()
 }

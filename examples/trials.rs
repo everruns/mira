@@ -13,7 +13,6 @@ edition = "2024"
 
 [dependencies]
 mira-eval = { path = "../crates/mira-eval" }
-tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
 ---
 //! Trials / repetitions + seed: run the *same* case N times so the host can
 //! report pass@k, pass-rate, and score variance over a stochastic subject.
@@ -78,7 +77,6 @@ fn splitmix64(seed: u64) -> u64 {
     z ^ (z >> 31)
 }
 
-#[tokio::main]
-async fn main() -> std::io::Result<()> {
-    mira::Study::registered().serve().await
+fn main() -> std::io::Result<()> {
+    mira::Study::registered().serve_blocking()
 }

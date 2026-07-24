@@ -86,7 +86,6 @@ Add the framework and write an eval study:
 
 ```bash
 cargo add mira-eval
-cargo add tokio --features macros,rt-multi-thread
 ```
 
 ```rust
@@ -109,9 +108,9 @@ fn greet() -> Eval {
         .build()
 }
 
-#[tokio::main]
-async fn main() -> std::io::Result<()> {
-    mira::Study::registered().serve().await
+fn main() -> std::io::Result<()> {
+    // `serve_blocking()` owns the runtime — the study needs no tokio of its own.
+    mira::Study::registered().serve_blocking()
 }
 ```
 

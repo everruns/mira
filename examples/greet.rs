@@ -15,11 +15,14 @@ edition = "2024"
 
 [dependencies]
 mira-eval = { path = "../crates/mira-eval" }
-tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
 ---
 //! A minimal eval study, registered with the `#[eval]` attribute and served
-//! with `Study::registered().serve()`. The subject is a deterministic in-process
-//! closure, so the whole thing runs offline against the `sim` model with no key.
+//! with `Study::registered().serve_blocking()`. The subject is a deterministic
+//! in-process closure, so the whole thing runs offline against the `sim` model
+//! with no key.
+//!
+//! `serve_blocking()` owns the runtime, so the study's only dependency is
+//! `mira-eval` — no tokio, no async `main`.
 
 use mira::scorer::{contains, model_graded, succeeded};
 use mira::subject::subject_fn;
@@ -59,7 +62,6 @@ fn greet() -> Eval {
         .build()
 }
 
-#[tokio::main]
-async fn main() -> std::io::Result<()> {
-    mira::Study::registered().serve().await
+fn main() -> std::io::Result<()> {
+    mira::Study::registered().serve_blocking()
 }

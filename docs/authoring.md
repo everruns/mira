@@ -245,8 +245,7 @@ use mira::{eval, Eval};
 #[eval]
 fn greet() -> Eval { /* … */ }
 
-#[tokio::main]
-async fn main() -> std::io::Result<()> { mira::Study::registered().serve().await }
+fn main() -> std::io::Result<()> { mira::Study::registered().serve_blocking() }
 ```
 
 Prefer no proc-macros? `register_eval!(greet);` is equivalent, and disabling the
@@ -254,9 +253,8 @@ default `macros` feature drops the `#[eval]` attribute entirely. Or build a
 study from an explicit list:
 
 ```rust
-#[tokio::main]
-async fn main() -> std::io::Result<()> {
-    mira::Study::new().eval(greet()).eval(coding()).serve().await
+fn main() -> std::io::Result<()> {
+    mira::Study::new().eval(greet()).eval(coding()).serve_blocking()
 }
 ```
 

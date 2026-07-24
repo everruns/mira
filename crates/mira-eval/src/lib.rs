@@ -29,7 +29,8 @@
 //! * **In process** — build [`Eval`]s and drive them with a [`Runner`]. Best for
 //!   unit-style evals that live next to the code under test.
 //! * **Over the protocol** — your program is a [`Study`]: it bundles evals and
-//!   calls [`serve`](Study::serve) to expose them. The `mira` host CLI ([`Host`])
+//!   calls [`serve_blocking`](Study::serve_blocking) (or
+//!   [`serve`](Study::serve) from an async `main`) to expose them. The `mira` host CLI ([`Host`])
 //!   compiles/spawns it, plans the run, and owns selection, the matrix,
 //!   run storage, and reporting. Provider keys never cross the wire — models are
 //!   addressed by *label*. See [`protocol`].
