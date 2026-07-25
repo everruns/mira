@@ -7,13 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-07-25
+
 ### Added
 
 - `Study::serve_blocking()` — a study entry point that owns the async runtime,
   so a study's `main` is a plain `fn` and `mira-eval` is its only dependency
   (`#[tokio::main]` previously forced every study into a direct tokio
   dependency). `serve().await` is unchanged for callers with their own runtime.
-- External TOML experiment plans for running named treatment overlays as separate, reproducible runs without adding temporary study axes.
+- External TOML experiment plans for running named treatment overlays as
+  separate, reproducible runs without adding temporary study axes.
 
 ## [0.4.0] - 2026-07-11
 

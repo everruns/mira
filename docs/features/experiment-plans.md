@@ -103,4 +103,4 @@ For the complete manifest field reference, see [Experiment plan reference](../ex
 
 ---
 
-*Introduced in v0.4.0.*
+*Introduced in v0.5.0.*
