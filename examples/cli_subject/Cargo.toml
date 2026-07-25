@@ -16,4 +16,3 @@ path = "src/main.rs"
 
 [dependencies]
 mira-eval.workspace = true
-tokio.workspace = true

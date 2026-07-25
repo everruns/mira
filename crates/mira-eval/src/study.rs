@@ -1,23 +1,29 @@
 //! The **study** side of the eval protocol. A [`Study`] is your eval program:
-//! it bundles the evals you're investigating and, when you call
-//! [`serve`](Study::serve), runs the stdio loop that answers the host's
-//! `initialize` / `list` / `run` requests.
+//! it bundles the evals you're investigating and, when you serve it, runs the
+//! stdio loop that answers the host's `initialize` / `list` / `run` requests.
+//!
+//! [`serve_blocking`](Study::serve_blocking) is the usual entry point: it owns
+//! the async runtime, so a study's `main` is plain and its only dependency is
+//! this crate.
 //!
 //! ```no_run
-//! # async fn f() -> std::io::Result<()> {
+//! # fn f() -> std::io::Result<()> {
 //! // Every `#[eval]`-registered eval in the binary:
-//! mira::Study::registered().serve().await
+//! mira::Study::registered().serve_blocking()
 //! # }
 //! ```
 //!
 //! ```no_run
 //! # fn greet() -> mira::Eval { unimplemented!() }
 //! # fn coding() -> mira::Eval { unimplemented!() }
-//! # async fn f() -> std::io::Result<()> {
+//! # fn f() -> std::io::Result<()> {
 //! // …or an explicit set:
-//! mira::Study::new().eval(greet()).eval(coding()).serve().await
+//! mira::Study::new().eval(greet()).eval(coding()).serve_blocking()
 //! # }
 //! ```
+//!
+//! Already inside a runtime? [`serve`](Study::serve) is the same loop as a
+//! future: `mira::Study::registered().serve().await`.
 //!
 //! Keep stdout clean: only protocol JSON goes there. Logging belongs on stderr.
 
@@ -54,7 +60,8 @@ type Inflight = Arc<std::sync::Mutex<HashMap<u64, oneshot::Sender<()>>>>;
 pub const DEFAULT_PAGE_SIZE: usize = 500;
 
 /// Your eval program: a named bundle of [`Eval`]s exposed to the host over the
-/// protocol. Build one, then [`serve`](Study::serve) it.
+/// protocol. Build one, then [`serve_blocking`](Study::serve_blocking) it (or
+/// [`serve`](Study::serve) it from an async caller).
 pub struct Study {
     /// Name advertised to the host in `initialize` (defaults to the crate name).
     name: String,
@@ -118,6 +125,33 @@ impl Study {
     /// The host drives the loop; this returns when stdin closes.
     pub async fn serve(self) -> std::io::Result<()> {
         self.serve_io(tokio::io::stdin(), tokio::io::stdout()).await
+    }
+
+    /// Serve on a runtime this call owns — the study entry point for a plain,
+    /// synchronous `main`.
+    ///
+    /// ```no_run
+    /// fn main() -> std::io::Result<()> {
+    ///     mira::Study::registered().serve_blocking()
+    /// }
+    /// ```
+    ///
+    /// Why this exists: `#[tokio::main]` is *your* macro. Rust only lets you
+    /// name crates your own manifest depends on, so an async `main` forces every
+    /// study to take a **direct** tokio dependency purely to spawn a runtime the
+    /// library already needs. Owning the runtime here keeps a study's deps to
+    /// `mira-eval` alone. [`serve`](Study::serve) stays the entry point when the
+    /// caller already has a runtime (or wants to pick its shape).
+    ///
+    /// Builds a multi-threaded runtime with IO and time enabled, then blocks
+    /// until stdin closes. Panics if called from inside a runtime — nesting one
+    /// runtime in another can't work; `await` [`serve`](Study::serve) instead.
+    pub fn serve_blocking(self) -> std::io::Result<()> {
+        assert!(
+            tokio::runtime::Handle::try_current().is_err(),
+            "serve_blocking() called from inside a tokio runtime — use `serve().await` there",
+        );
+        block_on(self.serve())
     }
 
     /// Serve over arbitrary line-framed transports (e.g. in-memory pipes in
@@ -554,6 +588,19 @@ fn cancel(request: &Request, inflight: &Inflight) -> Response {
         .remove(&params.id)
         .is_some_and(|tx| tx.send(()).is_ok());
     Response::ok(request.id, json(&CancelResult { cancelled }))
+}
+
+/// Run `fut` to completion on a fresh multi-threaded runtime. Factored out of
+/// [`Study::serve_blocking`] so the blocking entry path is exercised over
+/// in-memory pipes in tests (stdin/stdout aren't testable).
+fn block_on<F>(fut: F) -> std::io::Result<()>
+where
+    F: std::future::Future<Output = std::io::Result<()>>,
+{
+    tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()?
+        .block_on(fut)
 }
 
 fn json<T: serde::Serialize>(value: &T) -> serde_json::Value {
@@ -1091,6 +1138,72 @@ mod tests {
 
         drop(host_w);
         let _ = server.await;
+    }
+
+    /// The blocking entry path owns its runtime: no `#[tokio::test]` here, a
+    /// plain sync test drives a whole `initialize` + `run` exchange.
+    #[test]
+    fn block_on_serves_a_study_without_an_ambient_runtime() {
+        let input = concat!(
+            "{\"id\":1,\"method\":\"initialize\",\"params\":{}}\n",
+            "{\"id\":2,\"method\":\"run\",\"params\":\
+             {\"eval\":\"greet\",\"sample\":\"hi\",\"target\":\"sim\"}}\n",
+        );
+        // A shared buffer, so the served bytes survive the moved writer.
+        let sink = SharedBuf::default();
+        block_on(study().serve_io(input.as_bytes(), sink.clone())).unwrap();
+
+        let lines = sink.lines();
+        let init = lines.iter().find(|v| v["id"] == json!(1)).unwrap();
+        assert_eq!(init["result"]["study"], json!("mira-eval"));
+        let run = lines.iter().find(|v| v["id"] == json!(2)).unwrap();
+        assert_eq!(run["result"]["passed"], json!(true));
+    }
+
+    /// Nesting a runtime inside a runtime can't work; the panic names the fix.
+    #[tokio::test]
+    #[should_panic(expected = "use `serve().await`")]
+    async fn serve_blocking_inside_a_runtime_panics_with_guidance() {
+        let _ = study().serve_blocking();
+    }
+
+    /// An in-memory `AsyncWrite` whose bytes are readable after the writer is
+    /// moved into `serve_io`.
+    #[derive(Clone, Default)]
+    struct SharedBuf(Arc<std::sync::Mutex<Vec<u8>>>);
+
+    impl SharedBuf {
+        fn lines(&self) -> Vec<serde_json::Value> {
+            let buf = self.0.lock().unwrap();
+            String::from_utf8_lossy(&buf)
+                .lines()
+                .filter(|l| !l.trim().is_empty())
+                .map(|l| serde_json::from_str(l).unwrap())
+                .collect()
+        }
+    }
+
+    impl AsyncWrite for SharedBuf {
+        fn poll_write(
+            self: std::pin::Pin<&mut Self>,
+            _cx: &mut std::task::Context<'_>,
+            buf: &[u8],
+        ) -> std::task::Poll<std::io::Result<usize>> {
+            self.0.lock().unwrap().extend_from_slice(buf);
+            std::task::Poll::Ready(Ok(buf.len()))
+        }
+        fn poll_flush(
+            self: std::pin::Pin<&mut Self>,
+            _cx: &mut std::task::Context<'_>,
+        ) -> std::task::Poll<std::io::Result<()>> {
+            std::task::Poll::Ready(Ok(()))
+        }
+        fn poll_shutdown(
+            self: std::pin::Pin<&mut Self>,
+            _cx: &mut std::task::Context<'_>,
+        ) -> std::task::Poll<std::io::Result<()>> {
+            std::task::Poll::Ready(Ok(()))
+        }
     }
 
     /// Cancelling an `id` that isn't in flight (already done, or never sent) is a

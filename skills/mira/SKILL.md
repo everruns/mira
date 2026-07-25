@@ -51,7 +51,8 @@ Cross-language studies need no Rust framework at all — see [SDKs](#cross-langu
 ## Authoring an eval study
 
 A study is a program that defines evals and calls
-`mira::Study::registered().serve()`; register factories with `#[eval]`. The
+`mira::Study::registered().serve_blocking()` (it owns the runtime, so the study
+needs no tokio dependency); register factories with `#[eval]`. The
 lightest form is a **single file** (`study.rs`) with cargo-script frontmatter for
 its deps — run with `mira run --study study.rs`, no `Cargo.toml`. The same code
 also works as a crate `[[bin]]` (`--study-bin NAME`) or `examples/*.rs`
@@ -65,7 +66,6 @@ edition = "2024"
 
 [dependencies]
 mira-eval = "0.3"
-tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
 ---
 use mira::scorer::{file_contains, succeeded};
 use mira::subject::subject_fn;
@@ -89,8 +89,7 @@ fn coding() -> Eval {
         .build()
 }
 
-#[tokio::main]
-async fn main() -> std::io::Result<()> { mira::Study::registered().serve().await }
+fn main() -> std::io::Result<()> { mira::Study::registered().serve_blocking() }
 ```
 
 The host shims cargo-script onto **stable** (materializes a throwaway crate from

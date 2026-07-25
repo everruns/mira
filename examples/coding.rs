@@ -13,7 +13,6 @@ edition = "2024"
 
 [dependencies]
 mira-eval = { path = "../crates/mira-eval" }
-tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
 ---
 //! A coding-style eval with seeded files, a model matrix, and structural +
 //! file-based scorers — the shape that replaces a bespoke bench harness.
@@ -79,7 +78,6 @@ fn coding() -> Eval {
         .build()
 }
 
-#[tokio::main]
-async fn main() -> std::io::Result<()> {
-    mira::Study::registered().serve().await
+fn main() -> std::io::Result<()> {
+    mira::Study::registered().serve_blocking()
 }

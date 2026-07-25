@@ -7,8 +7,9 @@ when-to-invoke live in [`../SKILL.md`](../SKILL.md); canonical prose is in
 ## Authoring a Rust study
 
 A study is a program that defines evals and calls
-`mira::Study::registered().serve()`. Register factories with `#[eval]` (or
-`register_eval!`). Ship it as a single-file `study.rs` (cargo-script frontmatter,
+`mira::Study::registered().serve_blocking()` (it owns the runtime; `mira-eval` is
+the only dependency needed; from an async `main`, `.serve().await` instead).
+Register factories with `#[eval]` (or `register_eval!`). Ship it as a single-file `study.rs` (cargo-script frontmatter,
 run with `mira run --study study.rs`) or as a crate `[[bin]]` / `examples/*.rs`
 (run with `--study-bin NAME` / `--study-example NAME`) — the body below is
 identical either way.
@@ -47,8 +48,7 @@ fn coding() -> Eval {
         .build()
 }
 
-#[tokio::main]
-async fn main() -> std::io::Result<()> { mira::Study::registered().serve().await }
+fn main() -> std::io::Result<()> { mira::Study::registered().serve_blocking() }
 ```
 
 More: <https://github.com/everruns/mira/blob/main/docs/authoring.md>.

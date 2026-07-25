@@ -13,7 +13,6 @@ edition = "2024"
 
 [dependencies]
 mira-eval = { path = "../crates/mira-eval" }
-tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
 ---
 //! A multimodal eval study: the sample carries an **image attachment** next to
 //! its text prompt, and the subject reads the full multimodal prompt via
@@ -66,7 +65,6 @@ fn multimodal() -> Eval {
         .build()
 }
 
-#[tokio::main]
-async fn main() -> std::io::Result<()> {
-    mira::Study::registered().serve().await
+fn main() -> std::io::Result<()> {
+    mira::Study::registered().serve_blocking()
 }

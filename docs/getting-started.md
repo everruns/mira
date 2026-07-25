@@ -22,9 +22,10 @@ cargo binstall mira-cli             # prebuilt binary, no compile (installs `mir
 ## 2. Write an eval study
 
 An eval **study** is just a program that defines evals and calls
-`mira::Study::registered().serve()`. The lightest way to write one is a **single
-file** — no crate, no `Cargo.toml` — using cargo-script frontmatter for its
-deps. Save this as `study.rs`:
+`mira::Study::registered().serve_blocking()` — which owns the async runtime, so
+`mira-eval` is the only dependency you need. The lightest way to write one is a
+**single file** — no crate, no `Cargo.toml` — using cargo-script frontmatter for
+its deps. Save this as `study.rs`:
 
 ```rust
 #!/usr/bin/env -S cargo +nightly -Zscript
@@ -34,7 +35,6 @@ edition = "2024"
 
 [dependencies]
 mira-eval = "0.3"
-tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
 ---
 use mira::scorer::{contains, succeeded, tool_called};
 use mira::subject::subject_fn;
@@ -61,9 +61,8 @@ fn capital() -> Eval {
         .build()
 }
 
-#[tokio::main]
-async fn main() -> std::io::Result<()> {
-    mira::Study::registered().serve().await
+fn main() -> std::io::Result<()> {
+    mira::Study::registered().serve_blocking()
 }
 ```
 

@@ -30,10 +30,9 @@ fn greet() -> Eval {
         .build()
 }
 
-#[tokio::main]
-async fn main() -> std::io::Result<()> {
+fn main() -> std::io::Result<()> {
     // `Study::registered()` collects every `#[eval]`-annotated factory.
-    mira::Study::registered().serve().await
+    mira::Study::registered().serve_blocking()
 }
 ```
 

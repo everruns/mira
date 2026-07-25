@@ -13,7 +13,6 @@ edition = "2024"
 
 [dependencies]
 mira-eval = { path = "../crates/mira-eval" }
-tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
 ---
 //! An **interactive** (multi-turn) eval: the subject and a *simulated user*
 //! exchange turns until the conversation resolves. The subject answers from the
@@ -68,7 +67,6 @@ fn interactive() -> Eval {
         .build()
 }
 
-#[tokio::main]
-async fn main() -> std::io::Result<()> {
-    mira::Study::registered().serve().await
+fn main() -> std::io::Result<()> {
+    mira::Study::registered().serve_blocking()
 }
