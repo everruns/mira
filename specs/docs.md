@@ -70,6 +70,13 @@ diagrams are hand-authored SVG, committed to the repo** under `docs/assets/`.
   GitHub URLs instead of repo-relative `docs/assets/...` paths. Docs pages keep
   relative paths.
 
+**The brand mark** (`docs/assets/mira-logo.svg`) lives alongside the diagrams and
+follows the same SVG/self-contained/responsive rules, with two deliberate
+exceptions: it uses the Everruns brand colours (navy `#0A1636` converging to gold
+`#D4A43A`) rather than the diagram palette, and its README embed carries
+`alt=""` because the adjacent `# Mira` heading already names it. It is a gauge —
+*міра* means measure.
+
 **Inline monospace sketches** (fenced ```` ```text ````) remain fine for small
 wire/sequence diagrams whose value is alignment with surrounding JSON — e.g. the
 framing and run-lifecycle sketches in `protocol.md`. Reach for an SVG when a
