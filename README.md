@@ -1,5 +1,7 @@
 <div align="center">
 
+<img src="https://raw.githubusercontent.com/everruns/mira/main/docs/assets/mira-logo.svg" alt="" width="104" />
+
 # Mira
 
 **A Rust-first, code-first evaluation framework for agents and tools — built
