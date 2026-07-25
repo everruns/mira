@@ -110,18 +110,19 @@ action.
    suites, which `check` does not run: `just test-py` (Python codegen drift +
    pytest) and `just test-ts` (TypeScript codegen drift + `tsc` build +
    `node --test`).
-5. **Verify publish-readiness** — `just publish-dry-run`. Leaf crates
-   (`mira-macros`, `mira-eval`) get a full `cargo publish --dry-run`; the
-   dependents (`mira-cli`, `mira-everruns`, `mira-judge`,
-   `mira-publish-everruns`) are packaged with `--no-verify`. This catches packaging problems local builds don't (missing
-   `readme`, files outside the crate dir, version drift). Confirm the new version
-   is greater than the latest on crates.io for each crate. Fix root cause and
-   re-run before opening the PR. **Why `--no-verify` on dependents:** their
-   verification build resolves `mira-eval` from crates.io (the `path` is stripped
-   on publish), so it compiles against the stale published version and fails
-   whenever they use unpublished `mira-eval` APIs. CI publishes for real in
-   dependency order (`mira-eval` first, with index waits), which is the only
-   place that compile can succeed.
+5. **Verify publish-readiness** — `just publish-dry-run`, a single
+   `cargo publish --dry-run --workspace`. This catches packaging problems local
+   builds don't (missing `readme`, files outside the crate dir, version drift).
+   Confirm the new version is greater than the latest on crates.io for each
+   crate. Fix root cause and re-run before opening the PR. **Why `--workspace`
+   and not six per-crate dry-runs:** publishing strips the `path` from internal
+   deps, so `cargo publish -p mira-eval` resolves `mira-macros = "^X.Y.Z"`
+   against the crates.io index — where the bumped version does not exist yet —
+   and fails while *packaging*, before any build, so `--no-verify` cannot rescue
+   it either. `--workspace` resolves the sibling crates being published together
+   against the workspace, so all six package **and** fully verify locally. CI
+   still publishes for real one crate at a time in dependency order with index
+   waits.
    Also confirm both SDKs package cleanly: the Python sdist + wheel
    (`python -m build sdks/python`) and the npm tarball
    (`cd sdks/typescript && npm run build && npm pack --dry-run` — it must ship only
@@ -162,7 +163,6 @@ action.
 
 CI green on `main`; `CHANGELOG.md` has entries since the last release; the version
 is consistent across the workspace, `Cargo.lock`, the Python SDK
-`pyproject.toml`, and the TypeScript SDK `package.json`; all five `cargo publish
---dry-run`s succeed (or, on a first release, dependents' `cargo package --list` is
-clean); both SDKs build (Python wheel + npm `npm pack`); the new version > latest
-on crates.io / PyPI / npm.
+`pyproject.toml`, and the TypeScript SDK `package.json`; `cargo publish
+--dry-run --workspace` succeeds for all six crates; both SDKs build (Python
+wheel + npm `npm pack`); the new version > latest on crates.io / PyPI / npm.

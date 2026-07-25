@@ -90,21 +90,18 @@ run-examples: build-ts-sdk
 # === Release ===
 
 # Verify every publishable crate can be packaged (files, version drift).
-# Leaf crates (no internal deps) get a full verify — that's where packaging
-# bugs (missing files, metadata drift) actually bite. The dependents are
-# packaged with --no-verify: their verification build would resolve mira-eval
-# from crates.io (path is stripped on publish), compiling against the stale
-# published version instead of the workspace, so it fails whenever they use
-# unpublished mira-eval APIs. The real, order-aware publish (mira-eval first,
-# then dependents) lives in .github/workflows/publish.yml; here we only check
-# that the dependents package cleanly.
+#
+# One --workspace invocation, not six per-crate ones. Per-crate dry-runs cannot
+# work at a version bump: each crate's generated manifest drops the `path` of
+# its internal deps, so `cargo publish -p mira-eval` resolves
+# `mira-macros = "^X.Y.Z"` against the crates.io index, where the new version
+# does not exist yet — it fails while *packaging*, before any build, so
+# --no-verify does not help either. With --workspace, cargo resolves the
+# sibling crates being published together against the workspace, so all six
+# package *and* fully verify. Publish order is cargo's job here and
+# .github/workflows/publish.yml's job for the real, index-waiting publish.
 publish-dry-run:
-    cargo publish --dry-run -p mira-macros
-    cargo publish --dry-run -p mira-eval
-    cargo publish --dry-run -p mira-cli --no-verify
-    cargo publish --dry-run -p mira-everruns --no-verify
-    cargo publish --dry-run -p mira-judge --no-verify
-    cargo publish --dry-run -p mira-publish-everruns --no-verify
+    cargo publish --dry-run --workspace
 
 # Pre-PR gate: fmt, clippy, tests. The publish dry-run is a release-time
 # concern (it guards packaging, which only matters when cutting a release), so
