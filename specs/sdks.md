@@ -1,11 +1,11 @@
-# Mira — non-Rust study SDKs
+# Mira, non-Rust study SDKs
 
 - Status: **implemented** (Python and TypeScript)
 - Authors: Everruns
 
 Design of record for native study SDKs in other languages. Code complies with
 this or proposes a change here. Related: [`architecture.md`](architecture.md)
-(execution model, the protocol seam) and [`docs/protocol.md`](../docs/protocol.md)
+(execution model, the protocol boundary) and [`docs/protocol.md`](../docs/protocol.md)
 (the normative wire reference).
 
 ## 1. Problem
@@ -14,7 +14,7 @@ Mira's architecture splits the **study** (defines evals, owns subjects and
 scoring, holds provider keys) from the **host** (the `mira` CLI: selection,
 matrix, concurrency, saved runs, reporting), talking newline-delimited JSON over
 stdio. "Implementing a study in another language" already works at the raw
-protocol level — but hand-rolling the stdio loop and mirroring the wire structs
+protocol level, but hand-rolling the stdio loop and mirroring the wire structs
 by hand (as the original `greet-python` did) is tedious and drifts from the Rust
 types.
 
@@ -23,17 +23,17 @@ types.
 
 ## 2. Decision: native libraries, not bindings
 
-Each SDK is a **standalone, native library** that speaks the protocol — *not* an
+Each SDK is a **standalone, native library** that speaks the protocol, *not* an
 FFI binding to `mira-eval` (no PyO3/maturin, no napi/wasm).
 
 Rationale:
 
-- **The protocol is the seam, by design.** Bindings would route around the
+- **The protocol is the boundary, by design.** Bindings would route around the
   boundary the architecture deliberately invests in, and re-couple at the FFI
   layer what the wire decouples.
 - **The study side is small.** Wire types + an authoring API (eval registry,
   subject/scorer helpers) + a stdio `serve()` loop is a few hundred lines of
-  idiomatic code per language — cheaper to build and maintain than an FFI bridge.
+  idiomatic code per language, cheaper to build and maintain than an FFI bridge.
 - **The heavy parts stay Rust and are reached over the wire.** Selection, the
   matrix cross-product, adaptive per-provider throttling, saved runs / resume, and
   HTML/JUnit/MD reporting live host-side; an SDK author gets all of it for free
@@ -50,14 +50,14 @@ the scorer *vocabulary*, never an implementation.
 
 ## 3. The protocol layer is generated from the schema
 
-The one real cost of native SDKs — each re-declaring the protocol — is removed by
+The one real cost of native SDKs, each re-declaring the protocol, is removed by
 generating it from the canonical artifacts under `schema/v<major>/` (themselves
 generated from `mira::protocol` by `mira-schema-gen`). Each SDK ships a small
-codegen with a `--check` drift mode — the per-language dual of the Rust schema
-`--check` — that emits, and guards:
+codegen with a `--check` drift mode, the per-language dual of the Rust schema
+`--check`, that emits, and guards:
 
-- **wire types** from `schema.json` — the typed payload layer; and
-- **protocol metadata** from `meta.json` — the `PROTOCOL_VERSION`, the method
+- **wire types** from `schema.json`, the typed payload layer; and
+- **protocol metadata** from `meta.json`, the `PROTOCOL_VERSION`, the method
   list, and the capability tokens.
 
 So the version string and method/capability vocabulary are *not* hardcoded in the
@@ -76,14 +76,14 @@ SDK adds tests that bind its *hand-written* layer to the generated metadata:
 | New method unhandled | test: `meta` methods ⊆ the serve loop's handled set ✅ |
 | Capability typo / unknown token | test: advertised capabilities ⊆ `meta` tokens ✅ |
 | Emitted messages malformed | conformance test validates them against `schema.json` ✅ |
-| **Scoring semantics** (verdict/aggregate/NA) | **not** codegen-able — covered only by behaviour tests + the cross-language golden (`greet` vs `greet-python`) ⚠️ |
+| **Scoring semantics** (verdict/aggregate/NA) | **not** codegen-able, covered only by behaviour tests + the cross-language golden (`greet` vs `greet-python`) ⚠️ |
 
 The last row is the residual: an SDK mirrors `crate::runner`'s scoring by hand,
 so a change to those rules is caught by tests, not by a generated `--check`.
 
 Forward/backward compatibility rides the protocol's existing contract (ignore
 unknown fields, default missing fields, capability negotiation), so an SDK and an
-older/newer host interoperate without lockstep on *versions* — only on the
+older/newer host interoperate without lockstep on *versions*, only on the
 *major*.
 
 ## 4. Layout
@@ -124,18 +124,18 @@ aggregate; an unavailable model / infra error short-circuits to a single N/A.
 ## 5.1 Scorer parity (Rust is the source of truth)
 
 Scoring runs **study-side** (the SDK process answers `score`), so scorer logic
-can't be shared across languages — only kept in lock-step. The rule:
+can't be shared across languages, only kept in lock-step. The rule:
 
 - **`crates/mira-eval/src/scorer.rs` is canonical.** Every deterministic
   built-in there has a hand-written mirror in each SDK
   (`sdks/python/mira/scorers.py`, `sdks/typescript/src/scorers.ts`), same name,
   same verdict. The `scorer(name, fn)` escape hatch and the LLM-judge
-  (`model_graded`) are deliberately **not** mirrored — neither is a
+  (`model_graded`) are deliberately **not** mirrored: neither is a
   deterministic, language-portable spec.
 - **Behaviour is pinned by shared golden vectors** at
   `schema/v1/conformance/scorers.json` (hand-authored, no generator). Each case
   is `(scorer descriptor, transcript, expected {pass, value, na})`. Only the
-  verdict-affecting fields are checked — `reason` text is human-facing and may
+  verdict-affecting fields are checked; `reason` text is human-facing and may
   differ per language. The vectors deliberately exclude N/A combinator
   propagation (it needs a synthetic N/A source); each language covers that in
   its own unit tests, mirroring `crate::runner`.
@@ -154,10 +154,10 @@ can't be shared across languages — only kept in lock-step. The rule:
 
 ## 6. Status & deferred
 
-- **Python** (`sdks/python`) — implemented: schema-driven codegen, full serve
+- **Python** (`sdks/python`), implemented: schema-driven codegen, full serve
   loop (incl. the `execute`/`score` split and `list_samples` pagination),
   conformance + behaviour tests.
-- **TypeScript** (`sdks/typescript`) — implemented, same shape: a self-contained
+- **TypeScript** (`sdks/typescript`), implemented, same shape: a self-contained
   `codegen.mjs` (no external lib, for a hermetic `--check`) generating typed wire
   interfaces + protocol metadata from `schema/v1/`, a `serve()` loop (incl. the
   `execute`/`score` split and `list_samples` pagination), parity authoring API,
@@ -165,5 +165,5 @@ can't be shared across languages — only kept in lock-step. The rule:
   `typescript` are dev-only). Worked example: `examples/greet-typescript`.
 - **Publishing:** both SDKs publish to their registries (`mira-eval` on PyPI and
   npm) via OIDC trusted publishing in `publish.yml`, gated on a one-time
-  trusted-publisher registration — see [`release-process`](release-process.md).
+  trusted-publisher registration; see [`release-process`](release-process.md).
 - **Deferred:** emitting `event` progress notifications from SDK studies.

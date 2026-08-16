@@ -7,33 +7,33 @@ in [`specs/`](../specs). Conventions for this directory are in
 
 ## Start here
 
-- [How it works](how-it-works.md) — the core model and moving parts, end to end.
-- [Getting started](getting-started.md) — zero to a passing run.
+- [How it works](how-it-works.md), the core model and moving parts, end to end.
+- [Getting started](getting-started.md), zero to a passing run.
 
 ## Authoring
 
-- [Authoring evals](authoring.md) — datasets, the model matrix, extra axes,
+- [Authoring evals](authoring.md), datasets, the model matrix, extra axes,
   metadata, infra-errors-vs-failures.
-- [Scorers](scorers.md) — built-ins, budgets, combinators, closures, LLM-judge.
-- [Metrics](metrics.md) — tokens/cost/latency and custom numeric metrics.
-- [Subjects](subjects.md) — in-process, CLI/polyglot, and runtime sessions.
-- [Python SDK](../sdks/python) — author a study in Python (native library,
+- [Scorers](scorers.md), built-ins, budgets, combinators, closures, LLM-judge.
+- [Metrics](metrics.md), tokens/cost/latency and custom numeric metrics.
+- [Subjects](subjects.md), in-process, CLI/polyglot, and runtime sessions.
+- [Python SDK](../sdks/python), author a study in Python (native library,
   protocol over stdio, no Rust dependency).
-- [TypeScript SDK](../sdks/typescript) — author a study in TypeScript/Node
+- [TypeScript SDK](../sdks/typescript), author a study in TypeScript/Node
   (native, zero-dependency library, protocol over stdio, no Rust dependency).
 
 ## Feature guides
 
-- [Feature guides](features/README.md) — higher-level Mira workflows.
-- [Experiment plans](features/experiment-plans.md) — define, run, and reproduce
+- [Feature guides](features/README.md), higher-level Mira workflows.
+- [Experiment plans](features/experiment-plans.md), define, run, and reproduce
   treatment comparisons.
 
 ## Extending
 
-- [Extensibility](extensibility.md) — the map of every seam: subjects, scorers,
+- [Extensibility](extensibility.md), the map of every extension point: subjects, scorers,
   metrics, trajectories, and protocol-level extension.
 
 ## Reference
 
-- [The eval protocol](protocol.md) — the normative wire format and its
+- [The eval protocol](protocol.md), the normative wire format and its
   forward-compatible versioning.

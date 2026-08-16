@@ -2,7 +2,7 @@
 
 A [Mira](https://github.com/everruns/mira) `Subject` adapter for the published
 [`everruns-runtime`](https://crates.io/crates/everruns-runtime). `RuntimeSubject`
-drives a real `InProcessRuntime` session per sample — the in-process path to
+drives a real `InProcessRuntime` session per sample, the in-process path to
 evaluating everruns-based agents.
 
 [![crates.io](https://img.shields.io/crates/v/mira-everruns.svg)](https://crates.io/crates/mira-everruns)
@@ -24,7 +24,7 @@ SDK. Each provider integration is its own crate; this is the everruns one.
 2. asks your factory closure to build an `InProcessRuntime` + session for it,
 3. plays the sample's turns through the session, and
 4. normalizes the runtime's `TurnResult` + `Event` stream into a Mira
-   `Transcript` (final response, tool calls, token/cost usage, events) — the same
+   `Transcript` (final response, tool calls, token/cost usage, events), the same
    shape every other subject produces, so scoring and reporting are shared.
 
 ## Usage
@@ -44,7 +44,7 @@ Drop the `subject` into an `Eval` like any other and run it with the
 `classify_runtime_error` to bucket runtime errors into Mira's `ErrorKind` so
 infrastructure failures are reported distinctly from genuine eval failures.
 
-See the [Mira docs](https://github.com/everruns/mira/tree/main/docs) — in
+See the [Mira docs](https://github.com/everruns/mira/tree/main/docs), in
 particular [subjects](https://github.com/everruns/mira/blob/main/docs/subjects.md).
 
-Licensed under MIT — see [LICENSE](../../LICENSE).
+Licensed under MIT, see [LICENSE](../../LICENSE).

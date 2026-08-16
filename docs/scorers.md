@@ -23,15 +23,15 @@ matrix. `aggregate` on a case is the mean of the values.
 
 Every scorer is handed the `Sample` and the full `Transcript`, so it can grade:
 
-- **the agent's result** — `Transcript.final_response` (e.g. `contains`, `equals`,
+- **the agent's result**: `Transcript.final_response` (e.g. `contains`, `equals`,
   `regex`, `json_valid`);
-- **the transcript** — the structured ATIF `Transcript.trajectory` (tool
-  arguments, correlated observations, steps — e.g. `tool_called_with`,
+- **the transcript**: the structured ATIF `Transcript.trajectory` (tool
+  arguments, correlated observations, steps, e.g. `tool_called_with`,
   `observation_contains`, `steps_within`) plus the flat `tool_calls`,
   `iterations`, and `files` (e.g. `tool_called`, `tools_used_exactly`,
   `tool_called_before`, `file_contains`). The trajectory is the primary
   structured contract; scorers never walk the raw `events` debug channel;
-- **prebuilt metrics** — the operational fields `Transcript.usage` (tokens, cost)
+- **prebuilt metrics**: the operational fields `Transcript.usage` (tokens, cost)
   and `Transcript.timing` (latency, TTFT) (e.g. `tokens_within`, `cost_within`,
   `latency_within`).
 
@@ -40,7 +40,7 @@ The provider-backed LLM judge (below) can grade any of these via `Include`.
 ## N/A: when a scorer can't run
 
 A scorer that depends on infrastructure (an LLM judge, a network call) will
-sometimes fail for reasons unrelated to the subject — a missing API key, a rate
+sometimes fail for reasons unrelated to the subject, a missing API key, a rate
 limit, a 5xx. For those, return **N/A** instead of crashing the run or scoring a
 misleading `fail`:
 
@@ -85,10 +85,10 @@ no provider credentials stays green: every judge case is simply N/A.
 **Trajectory structure** (arguments, observations, steps)
 
 These grade the structured [ATIF trajectory](protocol.md#structured-trajectory-transcripttrajectory)
-(`Transcript.trajectory`) — the primary trajectory contract, and the only place
+(`Transcript.trajectory`), the primary trajectory contract, and the only place
 tool *arguments* and *observations* exist. A transcript without a trajectory
 **fails** them with reason `subject reported no trajectory` (like `ttft_within`
-on unmeasured TTFT: an unverifiable check fails — N/A stays reserved for infra).
+on unmeasured TTFT: an unverifiable check fails; N/A stays reserved for infra).
 
 | Scorer | Passes when |
 |--------|-------------|
@@ -130,7 +130,7 @@ let eval = Eval::new("stock")
 | `file_exists(path)` | the captured workspace has a file at `path` |
 | `file_contains(path, s)` | that file exists and contains `s` |
 
-**Combinators** — compose scorers without a new type:
+**Combinators**: compose scorers without a new type:
 
 | Scorer | Passes when |
 |--------|-------------|
@@ -158,7 +158,7 @@ let eval = Eval::new("coding")
 
 Operational scorers read `Transcript.usage` (tokens incl. `cache_read` /
 `reasoning`, and `cost_usd`) and `Transcript.timing` (`duration_ms`,
-`time_to_first_token_ms`). Subjects populate what they can measure — `CliSubject`
+`time_to_first_token_ms`). Subjects populate what they can measure, `CliSubject`
 and `RuntimeSubject` time the run automatically, and the JSONL event walker
 totals usage from a transcript stream. File-based scorers read `Transcript.files`
 (a `CliSubject` fills it with `.capture_files()`).
@@ -195,7 +195,7 @@ let overlap = scorer("token_f1", |sample, t| {
 
 ## LLM-as-judge
 
-`model_graded(rubric, judge)` shows that LLM-as-judge is just another scorer —
+`model_graded(rubric, judge)` shows that LLM-as-judge is just another scorer,
 not a special case in the engine. The judge is an async closure backed by a
 (typically cheaper) model, kept independent of the model under test.
 
@@ -218,7 +218,7 @@ let eval = Eval::new("qa")
 
 ### Provider-backed judges (`mira-judge`)
 
-`model_graded` is the bare mechanism — you bring the model call. The
+`model_graded` is the bare mechanism, you bring the model call. The
 **`mira-judge`** crate is the batteries-included integration: an `LlmJudge`
 wired to a real endpoint, exposed as an ordinary `Scorer`. Three transports
 ship today:
@@ -250,7 +250,7 @@ let eval = Eval::new("qa")
   tokens/cost/latency). This is how a judge grades the result, the transcript,
   or the metrics.
 - **Infra-safe by construction.** No API key, a non-2xx, a transport error, or
-  an unparseable reply all yield **N/A** — never a crash or a spurious fail. A
+  an unparseable reply all yield **N/A**: never a crash or a spurious fail. A
   key-free run stays green.
 - The judge keeps its model independent of the model under test, requests
   deterministic JSON (`temperature: 0`, JSON output mode), and tolerates replies

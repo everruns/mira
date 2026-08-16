@@ -19,7 +19,7 @@ stop and ask.
 - Small, incremental, PR-sized changes.
 - No backward-compat needed pre-1.0 (internal code).
 - Write a failing test before fixing a bug.
-- Everything runnable and tested — no theoretical code. Don't stop until e2e
+- Everything runnable and tested, no theoretical code. Don't stop until e2e
   works; verify before declaring done.
 
 ### Specs
@@ -36,7 +36,7 @@ change there.
 
 ### Documentation
 
-- **Public docs** live in `docs/`, indexed by `docs/README.md` — user-facing
+- **Public docs** live in `docs/`, indexed by `docs/README.md`, user-facing
   guides and the protocol reference (`docs/protocol.md`). Keep them in sync with
   behaviour. Conventions (structure, the SVG-diagram rule, sync) are the design
   of record in [`specs/docs.md`](specs/docs.md).
@@ -62,7 +62,7 @@ sdks/                native, non-Rust study SDKs over the protocol (e.g.
 
 The core is **provider-agnostic**: `Target` carries `(provider, model)`
 labels and no SDK types. Keep everruns (and any future provider SDK) out of
-`mira-eval` — integrations are separate crates.
+`mira-eval`, integrations are separate crates.
 
 ### Local dev
 
@@ -109,8 +109,8 @@ Actions secrets for publishing. The Homebrew tap push uses
 
 - Use `.github/pull_request_template.md` for the description.
 - Center it on functional change and impact, not a code-location walkthrough (the
-  diff shows that). Add a Before / After with proof — CLI output, logs, metrics, or
-  screenshots for UI — whenever behaviour changes.
+  diff shows that). Add a Before / After with proof (CLI output, logs, metrics, or
+  screenshots for UI) whenever behaviour changes.
 - Conventional Commits titles; Squash and Merge; never merge red CI.
 
 ### Pre-PR checklist

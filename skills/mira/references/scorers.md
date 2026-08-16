@@ -31,10 +31,10 @@ them with `.scorer(...)`; a case passes only if every scorer passes. Import from
 
 ## Trajectory structure (ATIF)
 
-These grade the structured ATIF trajectory (`Transcript.trajectory`) — the
+These grade the structured ATIF trajectory (`Transcript.trajectory`), the
 primary trajectory contract, and the only place tool **arguments** and
 **observations** exist. A transcript without a trajectory **fails** them
-(reason: "subject reported no trajectory") — produce one via
+(reason: "subject reported no trajectory"); produce one via
 `TranscriptSource::AtifFile`, the everruns subject, or an SDK study.
 
 | Scorer | Passes when |
@@ -55,7 +55,7 @@ primary trajectory contract, and the only place tool **arguments** and
 | `latency_within(ms)` | Wall-clock duration ≤ `ms`. |
 | `ttft_within(ms)` | Time-to-first-token ≤ `ms`. |
 
-Budget scorers grade the metrics the subject reports — see
+Budget scorers grade the metrics the subject reports; see
 <https://github.com/everruns/mira/blob/main/docs/metrics.md>.
 
 ## Files

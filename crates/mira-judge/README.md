@@ -10,13 +10,13 @@ the deterministic built-ins and combinators unchanged.
 
 Three provider transports are supported:
 
-- `LlmJudge::openai_completions` — OpenAI **Chat Completions** (`/v1/chat/completions`).
-- `LlmJudge::openai_responses` — OpenAI **Responses** (`/v1/responses`).
-- `LlmJudge::claude` — Anthropic **Messages** (`/v1/messages`).
+- `LlmJudge::openai_completions`, OpenAI **Chat Completions** (`/v1/chat/completions`).
+- `LlmJudge::openai_responses`, OpenAI **Responses** (`/v1/responses`).
+- `LlmJudge::claude`, Anthropic **Messages** (`/v1/messages`).
 
 A judge depends on a network call, so it *will* sometimes fail for reasons that
 have nothing to do with the subject (no API key, rate limit, 5xx, timeout). In
-those cases the scorer returns `Score::na` — neither pass nor fail — rather than
+those cases the scorer returns `Score::na`, neither pass nor fail, rather than
 crashing the run or scoring a spurious `fail`. A run with no credentials
 therefore stays green: every judge case is simply N/A.
 

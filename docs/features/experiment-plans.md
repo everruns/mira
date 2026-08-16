@@ -76,11 +76,11 @@ Other values pass through unchanged.
 
 Every treatment run archives:
 
-- `experiment-source.toml` — the exact plan supplied to Mira;
-- `experiment.toml` — the resolved plan, including manifest-relative paths;
+- `experiment-source.toml`, the exact plan supplied to Mira;
+- `experiment.toml`, the resolved plan, including manifest-relative paths;
 - run environment labels for `experiment_id`, `treatment`, and `experiment_baseline`.
 
-The normal run artifacts still capture study version, effective run configuration, results, and report data. When environment capture is enabled—the default—they also record Git and host context plus the experiment labels. The archived manifests remain available regardless of that setting.
+The normal run artifacts still capture study version, effective run configuration, results, and report data. When environment capture is enabled, the default, they also record Git and host context plus the experiment labels. The archived manifests remain available regardless of that setting.
 
 Use Mira's normal saved-run reporting and comparison workflows on those runs. The experiment metadata is a run-level comparison dimension; it does not become a permanent study axis.
 

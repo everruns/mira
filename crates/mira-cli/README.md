@@ -12,7 +12,7 @@ model matrix, executes each case over the protocol, scores it, and reports.
 
 ## Install
 
-Via Homebrew (recommended) — installs the `mira` binary:
+Via Homebrew (recommended), installs the `mira` binary:
 
 ```bash
 brew install everruns/tap/mira
@@ -37,7 +37,7 @@ All three install the same `mira` binary. Verify with `mira --version`.
 ## How it works
 
 The host and your study run as **two processes talking newline-delimited JSON
-over stdio** (MCP-style). Your study owns the evals, subjects, and scoring — and
+over stdio** (MCP-style). Your study owns the evals, subjects, and scoring, and
 your provider API keys, which never cross the wire. The `mira` CLI owns
 everything operational: selection, the model matrix, concurrency, saved runs,
 and reporting.
@@ -71,10 +71,10 @@ A single run reads as a conversation over one pipe: the host handshakes
 case while the study streams `event`/`log` notifications back. Richer renderings
 of these flows live in the docs:
 
-- [Run lifecycle (sequence)](https://github.com/everruns/mira/blob/main/docs/assets/mira-run-lifecycle.svg)
-  — host ↔ study over one stdio pipe.
-- [Author → plan → execute → score → report](https://github.com/everruns/mira/blob/main/docs/assets/mira-workflow.svg)
-  — what you write vs. what the host does for you.
+- [Run lifecycle (sequence)](https://github.com/everruns/mira/blob/main/docs/assets/mira-run-lifecycle.svg):
+  host ↔ study over one stdio pipe.
+- [Author → plan → execute → score → report](https://github.com/everruns/mira/blob/main/docs/assets/mira-workflow.svg):
+  what you write vs. what the host does for you.
 
 ## Usage
 
@@ -96,7 +96,7 @@ mira run --study study.rs --resume <run_id>         # finish an interrupted run 
 mira report <run_id>                                # re-render a saved run's reports
 ```
 
-Execution and scoring can be **split** — handy for long-running subjects whose
+Execution and scoring can be **split**: handy for long-running subjects whose
 transcripts take minutes to play out:
 
 ```bash
@@ -131,4 +131,4 @@ Run folders default to `./results/`; configure via `[results].dir` in
 - [How it works](https://github.com/everruns/mira/blob/main/docs/how-it-works.md)
 - [The eval protocol](https://github.com/everruns/mira/blob/main/docs/protocol.md)
 
-Licensed under MIT — see [LICENSE](../../LICENSE).
+Licensed under MIT, see [LICENSE](../../LICENSE).

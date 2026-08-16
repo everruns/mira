@@ -11,7 +11,7 @@ Eval = Dataset(Sample…) + Subject + [Scorer…]  ×  model matrix
 
 These entities nest: a study holds evals; each eval composes a dataset of
 samples, a subject, scorers, and the matrix axes (targets × extra axes). The
-host expands that matrix into cases — repeated as trials — and each run yields a
+host expands that matrix into cases, repeated as trials, and each run yields a
 transcript the scorers grade into scores.
 
 <p align="center">
@@ -94,8 +94,8 @@ samples` into independently-addressable cases (`greet/hi@sim`).
 ])
 ```
 
-A case whose model is **unavailable** (missing API key) is skipped, never failed
-— so the default run is green offline and lights up as keys appear. The
+A case whose model is **unavailable** (missing API key) is skipped, never failed,
+so the default run is green offline and lights up as keys appear. The
 `provider` and `model` fields are passed to the subject via `cx.target`; how
 they're used is the subject's business.
 
@@ -104,7 +104,7 @@ they're used is the subject's business.
 A run can go wrong two ways, and Mira keeps them apart so you measure the model,
 not the weather:
 
-- A **failure** is the model/agent under test getting it wrong — a scorer
+- A **failure** is the model/agent under test getting it wrong, a scorer
   doesn't pass. It counts against the pass-rate; that's the eval's job.
 - An **infrastructure error** is the scaffolding around the run breaking: out of
   budget/quota, rate-limited, a provider 5xx/outage, a network/timeout fault.
@@ -126,7 +126,7 @@ subject-attributed `Transcript::failed(..)`:
 }))
 ```
 
-An infra error **short-circuits scoring to a single N/A score** — the case-level
+An infra error **short-circuits scoring to a single N/A score**: the case-level
 dual of a scorer returning [`Score::na`](scorers.md). The case is then excluded
 from the pass-rate (neither pass nor fail, like a skip), and is **retry-eligible**:
 the host's concurrent executor re-queues it (alongside rate-limited cases) up to
@@ -163,11 +163,11 @@ This expands to `samples × targets × effort` cases, each with a stable key lik
 ## Interactive (multi-turn) evals
 
 By default a subject runs once per case. To evaluate a *conversation*, add a
-`.responder(..)` — a simulated user. The runner then drives a turn exchange:
+`.responder(..)`, a simulated user. The runner then drives a turn exchange:
 it invokes the subject once per turn with the running conversation in
 `cx.conversation`, appends the responder's reply, and repeats until the responder
 returns `None` or `max_turns` is reached. The whole dialog is folded into one
-transcript the scorers grade — so scoring is unchanged.
+transcript the scorers grade, so scoring is unchanged.
 
 ```rust
 use mira::{Eval, Message, Part, Role, Transcript, subject::subject_fn};
@@ -196,15 +196,15 @@ let eval = Eval::new("clarify")
     .build();
 ```
 
-This is in-process and needs no protocol feature — the study owns the loop. A
+This is in-process and needs no protocol feature, the study owns the loop. A
 model-graded responder (an LLM playing the user) is just a closure that calls a
 judge. Runnable example: `examples/interactive.rs`.
 
 ## Metadata & observability
 
 Metadata is free-form, open-ended `string → JSON` on evals, samples, and
-targets — values may be a string, number, bool, or a nested object/array. It rides
-through the protocol and surfaces in `list` and reports — the place to put trace
+targets, values may be a string, number, bool, or a nested object/array. It rides
+through the protocol and surfaces in `list` and reports, the place to put trace
 URLs, dashboard deep-links, commit SHAs, and dataset provenance.
 
 ```rust

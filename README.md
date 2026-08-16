@@ -4,7 +4,7 @@
 
 # Mira
 
-**A Rust-first, code-first evaluation framework for agents and tools — built
+**A Rust-first, code-first evaluation framework for agents and tools, built
 for multi-turn, tool-using, long-running agent trajectories.**
 
 [![CI](https://github.com/everruns/mira/actions/workflows/ci.yml/badge.svg)](https://github.com/everruns/mira/actions/workflows/ci.yml)
@@ -20,11 +20,11 @@ Part of the [Everruns](https://everruns.com) ecosystem.
 
 Mira is an evals toolkit. You define evals in Rust (or any language that speaks
 the [protocol](docs/protocol.md)), and a generic host CLI runs them across a
-model matrix, scores the results, and reports — with selective runs, saved and
+model matrix, scores the results, and reports, with selective runs, saved and
 resumable runs, operational-metric budgets, and CI-native output (including a
 self-contained HTML report).
 
-> **Mira** — Ukrainian *міра*: measure, metric, standard. The thing an eval
+> **Mira**, Ukrainian *міра*: measure, metric, standard. The thing an eval
 > framework is for.
 
 Three pieces and how they relate:
@@ -39,28 +39,28 @@ Three pieces and how they relate:
   saved runs, and reporting.
 - A **study** is your eval program. It owns the **subjects** (the things under
   evaluation) and the **scorers**, and answers the host over the protocol.
-- A **subject** evaluates a model — in-process, an external binary, or a live
+- A **subject** evaluates a model, in-process, an external binary, or a live
   runtime session.
 
 ```text
 Eval = Dataset(Sample…) + Subject + [Scorer…]  ×  model matrix × axes
 ```
 
-- **`Subject`** — the thing under evaluation. One adapter per *shape*: an
+- **`Subject`**: the thing under evaluation. One adapter per *shape*: an
   in-process closure, an external binary (`CliSubject`, the **polyglot** path),
   or a live runtime session (`mira-everruns`).
-- **`Scorer`** — deterministic built-ins (`contains`, `regex`, `tool_called`,
+- **`Scorer`**: deterministic built-ins (`contains`, `regex`, `tool_called`,
   `file_contains`, …), trajectory-structure scorers over the ATIF trajectory
   (`tool_called_with`, `tool_arg_matches`, `observation_contains`,
   `steps_within`), operational budgets (`tokens_within`, `cost_within`,
   `latency_within`, `ttft_within`, `tools_used_exactly`, …), combinators
   (`all_of`/`any_of`/`not`), an arbitrary-closure escape hatch, and LLM-as-judge
-  (`model_graded`) — one open vocabulary, freely composed.
-- **Matrix & axes** — the target (a model or harness) is the first-class axis;
+  (`model_graded`), one open vocabulary, freely composed.
+- **Matrix & axes**: the target (a model or harness) is the first-class axis;
   add arbitrary axes (`.axis("effort", ["low","high"])`) and the runner takes the
   cross-product. Subset any axis at run time with `--targets`/`--axis`/`--preset`.
   Missing API keys **skip** rather than fail, so a fresh run is green offline.
-- **Two processes, one protocol** — your eval program (the *study*) owns
+- **Two processes, one protocol**: your eval program (the *study*) owns
   subjects and scoring; the `mira` CLI (the *host*) owns selection, the matrix,
   saved runs, and reporting. Provider keys never cross the wire. The
   [protocol](docs/protocol.md) is versioned and forward-compatible.
@@ -142,11 +142,11 @@ cargo run -p mira-cli -- run --study-bin metrics
 
 ## Why Mira
 
-Teams run agents and tools against datasets in incompatible ways — a Python
+Teams run agents and tools against datasets in incompatible ways, a Python
 SWE-bench harness here, a bespoke Rust string-check bench there, an rstest matrix
 somewhere else. Mira is the one framework they can converge on:
 
-- **Agent-trajectory-native** — the structured trajectory contract is
+- **Agent-trajectory-native**: the structured trajectory contract is
   [ATIF](https://github.com/harbor-framework/harbor/blob/main/rfcs/0001-trajectory-format.md)
   (`Transcript.trajectory`): score tool calls with their arguments and
   observations (`tool_called`, `tools_used_exactly`, `tool_called_with`,
@@ -155,15 +155,15 @@ somewhere else. Mira is the one framework they can converge on:
   to play out.
 - **Code-first authoring** with `cargo test`-style discovery (`#[eval]`) and
   selection.
-- **Polyglot by design** — the `CliSubject` evaluates any binary in any language
+- **Polyglot by design**: the `CliSubject` evaluates any binary in any language
   that writes an ATIF trajectory file (or, as the advanced path, emits the
   canonical JSONL transcript), so non-Rust agents are first-class.
 - **Composable scoring** that generalizes string checks, operational budgets, and
   LLM-judge into one trait.
-- **Operational metrics first-class** — tokens (incl. cache/reasoning), cost,
+- **Operational metrics first-class**: tokens (incl. cache/reasoning), cost,
   wall-clock latency, time-to-first-token, and exact tool usage are scorable
   fields, surfaced per-case in the JSON/HTML reports.
-- **Built for CI** — JSON, JUnit, Markdown, and a self-contained HTML report;
+- **Built for CI**: JSON, JUnit, Markdown, and a self-contained HTML report;
   saved runs for resume; non-zero exit on failure.
 
 ## Workspace layout
@@ -182,24 +182,24 @@ somewhere else. Mira is the one framework they can converge on:
 
 Indexed in [`docs/`](docs/README.md):
 
-- [How it works](docs/how-it-works.md) — the model and moving parts, end to end
+- [How it works](docs/how-it-works.md), the model and moving parts, end to end
 - [Getting started](docs/getting-started.md)
 - [Authoring evals](docs/authoring.md)
 - [Scorers](docs/scorers.md)
-- [Metrics](docs/metrics.md) — tokens/cost/latency and custom metrics
+- [Metrics](docs/metrics.md), tokens/cost/latency and custom metrics
 - [Subjects](docs/subjects.md)
-- [Extensibility](docs/extensibility.md) — the map of every extension seam
-- [The eval protocol](docs/protocol.md) — the wire format, ACP-style reference
+- [Extensibility](docs/extensibility.md), the map of every extension point
+- [The eval protocol](docs/protocol.md), the wire format, ACP-style reference
 
 ## Ecosystem
 
-Mira is part of [Everruns](https://everruns.com) — a platform for building,
+Mira is part of [Everruns](https://everruns.com), a platform for building,
 running, and evaluating agents:
 
-- [everruns.com](https://everruns.com) — the platform.
-- [`everruns-runtime`](https://crates.io/crates/everruns-runtime) — the embeddable
+- [everruns.com](https://everruns.com), the platform.
+- [`everruns-runtime`](https://crates.io/crates/everruns-runtime), the embeddable
   in-process agent runtime that `mira-everruns` drives.
-- [github.com/everruns](https://github.com/everruns) — the rest of the ecosystem.
+- [github.com/everruns](https://github.com/everruns), the rest of the ecosystem.
 
 ## Contributing
 
@@ -208,4 +208,4 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) and [AGENTS.md](AGENTS.md). Run
 
 ## License
 
-MIT — see [LICENSE](LICENSE).
+MIT, see [LICENSE](LICENSE).

@@ -1,7 +1,7 @@
-# greet-python — a Mira eval study in Python
+# greet-python, a Mira eval study in Python
 
 A non-Rust eval study, written with the [Mira Python SDK](../../sdks/python). It
-has **no Rust dependency** — the SDK is a native Python library over the
+has **no Rust dependency**: the SDK is a native Python library over the
 [Mira eval protocol](../../docs/protocol.md) (newline-delimited JSON over stdio),
 whose wire types are generated from the protocol JSON Schema. It mirrors the Rust
 [`greet`](../greet) example so you can compare them side by side.
