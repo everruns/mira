@@ -1,7 +1,7 @@
 ---
 name: mira
 description: >-
-  Author and run Mira evaluations — the Rust-first, code-first eval framework
+  Author and run Mira evaluations, the Rust-first, code-first eval framework
   for agents and tools. Use when writing eval suites, adding scorers/subjects,
   running evals across a model matrix, wiring evals into CI, or driving the
   `mira` host CLI. Covers in-process (`subject_fn`), polyglot (`CliSubject`),
@@ -16,11 +16,11 @@ Mira is a developer tool shaped like a test runner.
 Eval = Dataset(Sample…) + Subject + [Scorer…]  ×  model matrix
 ```
 
-- **Subject** — what's under test: `subject_fn` (in-process), `CliSubject`
+- **Subject**: what's under test: `subject_fn` (in-process), `CliSubject`
   (any external binary, the polyglot path), or `mira_everruns::RuntimeSubject`.
-- **Scorer** — grades a `Transcript`: built-ins (text, tools, budgets, files),
+- **Scorer**: grades a `Transcript`: built-ins (text, tools, budgets, files),
   combinators (`all_of`/`any_of`/`not`), closures, or `model_graded`.
-- **Matrix** — `Target`s plus extra `.axis(name, values)`; missing API keys
+- **Matrix**: `Target`s plus extra `.axis(name, values)`; missing API keys
   *skip*, so runs are green offline.
 
 ## Install
@@ -28,7 +28,7 @@ Eval = Dataset(Sample…) + Subject + [Scorer…]  ×  model matrix
 The framework is a library (`mira-eval`, imported as `mira`); the runner is a
 binary (`mira-cli`, installed as `mira`).
 
-**CLI (`mira` host)** — install the prebuilt binary; don't build from source:
+**CLI (`mira` host)**: install the prebuilt binary; don't build from source:
 
 ```bash
 brew install everruns/tap/mira      # prebuilt binary (recommended)
@@ -39,14 +39,14 @@ to each GitHub Release: <https://github.com/everruns/mira/releases>. If Homebrew
 enforces tap trust checks, run `brew trust --tap everruns/tap` once first.
 Building from source (`cargo install mira-cli --locked`) is the fallback only.
 
-**Framework (Rust studies)** — add the library to your crate:
+**Framework (Rust studies)**: add the library to your crate:
 
 ```bash
 cargo add mira-eval                 # the eval framework, used as `mira::…`
 cargo add mira-everruns             # + everruns runtime subject (optional)
 ```
 
-Cross-language studies need no Rust framework at all — see [SDKs](#cross-language-studies-sdks).
+Cross-language studies need no Rust framework at all; see [SDKs](#cross-language-studies-sdks).
 
 ## Authoring an eval study
 
@@ -54,7 +54,7 @@ A study is a program that defines evals and calls
 `mira::Study::registered().serve_blocking()` (it owns the runtime, so the study
 needs no tokio dependency); register factories with `#[eval]`. The
 lightest form is a **single file** (`study.rs`) with cargo-script frontmatter for
-its deps — run with `mira run --study study.rs`, no `Cargo.toml`. The same code
+its deps, run with `mira run --study study.rs`, no `Cargo.toml`. The same code
 also works as a crate `[[bin]]` (`--study-bin NAME`) or `examples/*.rs`
 (`--study-example NAME`).
 
@@ -98,7 +98,7 @@ the frontmatter); `MIRA_SCRIPT_NATIVE=1` uses `cargo -Zscript` on nightly.
 Full example (tools + budget scorers + main), the polyglot `CliSubject`, the
 everruns runtime subject, in-process `Runner` tests, and custom scorers:
 [`references/cookbook.md`](references/cookbook.md). A non-Rust study runs via
-`--study-cmd "..."` (or `--study study.py` / `--study-python`) — see
+`--study-cmd "..."` (or `--study study.py` / `--study-python`); see
 [`examples/greet-python/`](https://github.com/everruns/mira/tree/main/examples/greet-python).
 
 ## Running
@@ -130,7 +130,7 @@ TOML plan. Each treatment becomes a normal saved run with a shared experiment
 ID. Read [references/experiments.md](references/experiments.md) for an agent-ready
 template and decision rules, or see the public [experiment plan guide](https://github.com/everruns/mira/blob/main/docs/features/experiment-plans.md).
 
-Exit code is non-zero if any case failed — drops straight into CI. Run
+Exit code is non-zero if any case failed; drops straight into CI. Run
 `mira help --full` for an overview, every flag, examples, and links.
 
 When a setup misbehaves (typo'd `mira.toml` keys, a preset that selects
@@ -144,7 +144,7 @@ leftover temp files, re-rendering missing reports). Errors exit non-zero.
 A case passes only if every `.scorer(...)` passes. Families: **text/output**
 (`succeeded`, `contains`, `regex`, `json_field_equals`…), **tools**
 (`tool_called`, `tools_used_exactly`, `tool_called_before`…), **trajectory
-structure** over the ATIF trajectory — tool arguments, observations, steps
+structure** over the ATIF trajectory, tool arguments, observations, steps
 (`tool_called_with`, `tool_arg_matches`, `observation_contains`,
 `steps_within`; they fail if the subject reported no trajectory), **budgets**
 (`tokens_within`, `cost_within`, `latency_within`…), **files** (`file_exists`,
@@ -152,8 +152,8 @@ structure** over the ATIF trajectory — tool arguments, observations, steps
 `scorer(name, closure)`, `model_graded(rubric, judge)`).
 
 Prefer trajectory-based scoring for agent behaviour: `Transcript.trajectory`
-(ATIF) is the primary structured contract — produce it via
-`TranscriptSource::AtifFile`, the everruns subject, or an SDK study — and it is
+(ATIF) is the primary structured contract, produce it via
+`TranscriptSource::AtifFile`, the everruns subject, or an SDK study, and it is
 the only place tool *arguments* and *observations* exist. The raw `events`
 channel is an advanced fallback for producer-specific data the trajectory
 doesn't model; don't score against `events` when the trajectory covers the need.
@@ -162,11 +162,11 @@ Full catalog with semantics: [`references/scorers.md`](references/scorers.md).
 
 ## Subjects
 
-What's under test — pick one per eval:
+What's under test. Pick one per eval:
 
-- `subject_fn(...)` — in-process Rust (see Authoring above).
-- `CliSubject` — evaluate **any external binary** (the polyglot path).
-- `mira_everruns::RuntimeSubject` — a real everruns runtime session.
+- `subject_fn(...)`, in-process Rust (see Authoring above).
+- `CliSubject`, evaluate **any external binary** (the polyglot path).
+- `mira_everruns::RuntimeSubject`, a real everruns runtime session.
 
 Recipes for all three (+ in-process `Runner` tests):
 [`references/cookbook.md`](references/cookbook.md).
@@ -178,9 +178,9 @@ selection, the model matrix, concurrency, saved runs, and reporting; the study
 owns subjects and scoring. The SDKs are native (not FFI bindings) and generated
 from the canonical schema, so they never drift from the wire format.
 
-- Python SDK — <https://github.com/everruns/mira/blob/main/sdks/python/README.md>
-- Wire protocol (write your own, any language) — <https://github.com/everruns/mira/blob/main/docs/protocol.md>
-- Worked example — <https://github.com/everruns/mira/tree/main/examples/greet-python>
+- Python SDK, <https://github.com/everruns/mira/blob/main/sdks/python/README.md>
+- Wire protocol (write your own, any language), <https://github.com/everruns/mira/blob/main/docs/protocol.md>
+- Worked example, <https://github.com/everruns/mira/tree/main/examples/greet-python>
 - Run it: `mira run --study-cmd "python3 study.py"`
 
 ## Examples (runnable, offline)
@@ -188,11 +188,11 @@ from the canonical schema, so they never drift from the wire format.
 All run against the `sim` model with no API keys, so they stay green in CI and
 cost nothing. Browse: <https://github.com/everruns/mira/tree/main/examples>
 
-- `greet` — smallest eval, single-file (`--study`): `#[eval]`, a closure subject, text + LLM-judge scorers — <https://github.com/everruns/mira/blob/main/examples/greet.rs>
-- `coding` — single-file (`--study`): seeded files, a model matrix, structural + file scorers — <https://github.com/everruns/mira/blob/main/examples/coding.rs>
-- `cli_subject` — crate (`--study-bin`): the polyglot path, driving an external program — <https://github.com/everruns/mira/tree/main/examples/cli_subject>
-- `matrix` — crate (`--study-bin`): a multi-axis matrix (targets × a custom `effort` axis) — <https://github.com/everruns/mira/tree/main/examples/matrix>
-- `greet-python` — a whole study in Python via the SDK — <https://github.com/everruns/mira/tree/main/examples/greet-python>
+- `greet`, smallest eval, single-file (`--study`): `#[eval]`, a closure subject, text + LLM-judge scorers, <https://github.com/everruns/mira/blob/main/examples/greet.rs>
+- `coding`, single-file (`--study`): seeded files, a model matrix, structural + file scorers, <https://github.com/everruns/mira/blob/main/examples/coding.rs>
+- `cli_subject`, crate (`--study-bin`): the polyglot path, driving an external program, <https://github.com/everruns/mira/tree/main/examples/cli_subject>
+- `matrix`, crate (`--study-bin`): a multi-axis matrix (targets × a custom `effort` axis), <https://github.com/everruns/mira/tree/main/examples/matrix>
+- `greet-python`, a whole study in Python via the SDK, <https://github.com/everruns/mira/tree/main/examples/greet-python>
 
 ```bash
 cargo run -p mira-cli -- run --study examples/greet.rs                             # a single-file Rust example
@@ -203,13 +203,13 @@ cargo run -p mira-cli -- run --study-cmd "python3 examples/greet-python/study.py
 ## Learn more (read on demand)
 
 Progressive disclosure: this skill is the overview. Bundled references ship with
-the skill (offline) — read them first:
+the skill (offline); read them first:
 
-- [`references/cookbook.md`](references/cookbook.md) — recipes for every subject
+- [`references/cookbook.md`](references/cookbook.md), recipes for every subject
   kind, in-process tests, and custom scorers.
-- [`references/scorers.md`](references/scorers.md) — the full scorer catalog.
+- [`references/scorers.md`](references/scorers.md), the full scorer catalog.
 
-Canonical prose lives in the repo docs — open one only when the task needs that
+Canonical prose lives in the repo docs; open one only when the task needs that
 depth:
 
 | Doc | When to read |

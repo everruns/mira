@@ -7,7 +7,7 @@ code-first evaluation framework for agents and tools.
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](../../LICENSE)
 
 This crate provides the **`#[eval]` attribute**, which registers an eval factory
-for `cargo test`-style discovery — annotate a function returning `Eval` and the
+for `cargo test`-style discovery, annotate a function returning `Eval` and the
 host finds it automatically, no manual registration list to maintain.
 
 ## You don't depend on this directly
@@ -42,7 +42,7 @@ fn main() -> std::io::Result<()> {
 registry, collected at link time via
 [`inventory`](https://crates.io/crates/inventory).
 `mira::Study::registered()` collects them all, so adding an eval is just adding a
-function — the same ergonomics as `#[test]`. It is the declarative alternative to
+function, the same ergonomics as `#[test]`. It is the declarative alternative to
 calling `register_eval!(greet)` by hand.
 
 See the [Mira docs](https://docs.rs/mira-eval) and the
@@ -51,4 +51,4 @@ for the full guide.
 
 ## License
 
-MIT — see [LICENSE](../../LICENSE).
+MIT, see [LICENSE](../../LICENSE).

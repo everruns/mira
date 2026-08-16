@@ -3,7 +3,7 @@
 The Mira Eval Protocol is how a **host** (the `mira` CLI) talks to an eval
 **study** (your program). It is a small, MCP-style JSON-RPC dialect spoken over
 a child process's stdio. Any program in any language that implements it is a
-valid study — this is Mira's polyglot seam.
+valid study. This is Mira's polyglot boundary.
 
 This page is the normative reference. For the Rust types, see the
 [`mira::protocol`](https://docs.rs/mira-eval/latest/mira/protocol/) module. For a
@@ -53,7 +53,7 @@ A line is classified by its **fields**, not by which pipe it arrived on:
 `method` is the discriminator: a line that has it is a request or notification,
 never a response. Today requests flow host→study and responses/notifications flow
 study→host, so direction and shape line up. But the rule is field-based on
-purpose — it leaves room for a **reverse request** (study→host) without changing
+purpose: it leaves room for a **reverse request** (study→host) without changing
 the framing (see [Reverse requests](#reverse-requests-studyhost)).
 
 ### Request (host → study)
@@ -100,8 +100,8 @@ Fire-and-forget; no `id`, never acknowledged. Used for live progress.
 ```
 
 Both payloads are typed and published in the schema (`EventParams`, `LogParams`).
-A notification can't carry the envelope `id` — that field classifies a line as a
-[Response](#response-study--host) — so an `event` correlates to the `run`/`execute`
+A notification can't carry the envelope `id` (that field classifies a line as a
+[Response](#response-study--host)), so an `event` correlates to the `run`/`execute`
 request that triggered it via a **`request_id`** in the payload, the same
 demultiplexing key responses use. This lets the host bind progress to a specific
 in-flight call even when many cases (including repeated trials of one case) are
@@ -110,7 +110,7 @@ so a study that omits it still validates.
 
 An `event`'s **`kind`** is drawn from an open, growing vocabulary (like
 `capabilities`): `started` (run begun, emitted first), `turn` (a reasoning
-iteration started — `turn` carries its index), `tool_call` (`tool` carries the
+iteration started, `turn` carries its index), `tool_call` (`tool` carries the
 name), `output` (`text` carries a streamed delta), `finished` (run done, emitted
 last). An older host carries an unrecognised future kind through verbatim rather
 than failing. The current set is indexed in `schema/v1/meta.json` as
@@ -166,16 +166,16 @@ and may return `EvalInfo.next_cursor` from `list`), `trajectory` (attaches a
 transcripts). `study_version` and
 `capabilities` are optional and default to empty. A study that implements only
 the base methods (`initialize`, `list`, `run`) and advertises no capabilities
-interoperates unchanged — the host simply won't see the
+interoperates unchanged, the host simply won't see the
 `execute`/`score`/`trials`/`cancel`/`paginate`/`trajectory` capabilities.
 
 The `trajectory` token's `capability_params` entry names the representation the
-study **emits** — `{ "format": "ATIF", "version": "1.7" }`. `format` keeps the
+study **emits**: `{ "format": "ATIF", "version": "1.7" }`. `format` keeps the
 door open for a non-ATIF (or ATIF-v2) representation without a new token; a
 reader is more lenient than the advertised version (any `ATIF-v1.x` parses).
 
 `capability_params` (optional, defaulted) carries **structured config** for the
-advertised capabilities, keyed by capability token — the data a bare token
+advertised capabilities, keyed by capability token, the data a bare token
 can't: which `event` kinds the study emits, the input/output `modalities` it
 understands, and so on. It is open-vocabulary like `metadata`, so a host reads
 it additively and falls back to default behaviour when a token is absent.
@@ -183,7 +183,7 @@ it additively and falls back to default behaviour when a token is absent.
 ### `list`
 
 Enumerates every eval the study defines, with enough detail for the host to
-plan the full `samples × targets` grid and apply selection — without running
+plan the full `samples × targets` grid and apply selection, without running
 anything. For large or lazily generated datasets, samples are **paginated**: an
 eval carries the first page inline and a `next_cursor` the host follows with
 [`list_samples`](#list_samples).
@@ -220,7 +220,7 @@ eval carries the first page inline and a `next_cursor` the host follows with
   (optional, default absent/`null`) is an **opaque** continuation token: present
   iff more samples remain. The host pages the rest with `list_samples`, passing
   the token back verbatim, until it comes back absent. A study that fits its
-  whole dataset inline omits `next_cursor` — identical to a non-paginated `list`,
+  whole dataset inline omits `next_cursor`, identical to a non-paginated `list`,
   so an older host that ignores the field still works for non-paginated studies.
 - `available: false` marks a case the study cannot run (e.g. a missing API
   key). The host skips it rather than failing.
@@ -237,15 +237,15 @@ eval carries the first page inline and a `next_cursor` the host follows with
   object/array. (Axis `params`, by
   contrast, stay `string → string`: they form part of a case's identity.)
   Carried at three levels, each optional and defaulting to empty: on the **eval**
-  (shown above), on each **sample** (`samples[].metadata` — repo, difficulty,
-  dataset split, …), and on each **model** (`targets[].metadata` — agent,
+  (shown above), on each **sample** (`samples[].metadata`, repo, difficulty,
+  dataset split, …), and on each **model** (`targets[].metadata`, agent,
   underlying model, effort, price, sandbox, …). The per-sample and per-target maps
   are optional; an older study that omits them still parses. The host
   surfaces them in `list` and can break resolve-rate down by any of their keys
   with `mira run --group-by <key>`.
 - `trials` (optional, default 1) is how many times each case should be **repeated**
   for pass@k / pass-rate / variance over a stochastic subject. Unlike an axis,
-  trials don't form new cases — they're re-runs of one case, grouped back by the
+  trials don't form new cases, they're re-runs of one case, grouped back by the
   host. `seed` (optional) is the study's base seed: trial `t` runs with `seed + t`,
   so the repetition set replays deterministically. The host may override both with
   `--trials` / `--seed`. See [`run`](#run) for how a trial is addressed.
@@ -254,7 +254,7 @@ eval carries the first page inline and a `next_cursor` the host follows with
 
 Fetches the **next page** of one eval's samples, continuing from a cursor handed
 back by `list` (`EvalInfo.next_cursor`) or a prior `list_samples`. Lets a study
-advertise a dataset too large — or too lazily generated — to enumerate in a
+advertise a dataset too large, or too lazily generated, to enumerate in a
 single `list` line (e.g. SWE-bench full). Advertised by the `paginate`
 capability.
 
@@ -286,7 +286,7 @@ capability.
 The host loops `list_samples` until `next_cursor` is absent, concatenating the
 pages onto the eval's `samples` to reconstruct the full grid before planning. The
 cursor is opaque: only the study interprets it (the bundled study encodes a
-sample offset, but a study may use any token — a DB keyset, an API page token).
+sample offset, but a study may use any token, a DB keyset, an API page token).
 
 ### `run`
 
@@ -359,11 +359,11 @@ The `transcript.usage` object may also carry `cache_read_tokens` and
 and `time_to_first_token_ms` (omitted when unmeasured). The optional
 `transcript.metrics` object is an open `string → number` map for custom metrics a
 study reports (e.g. `{"retrieval_recall@5": 0.83}`); hosts that don't recognise a
-key simply carry it through. All are optional and defaulted — older studies that
+key simply carry it through. All are optional and defaulted, older studies that
 omit them still validate.
 
-For a **multimodal** subject the transcript may also carry an `output` array —
-the response as ordered, typed [`Part`](#multimodal-content)s — alongside
+For a **multimodal** subject the transcript may also carry an `output` array,
+the response as ordered, typed [`Part`](#multimodal-content)s, alongside
 `final_response`. `final_response` stays the canonical *text* projection (so a
 text-only scorer keeps working); `output` carries the non-text modalities. It is
 optional and omitted for the common text-only case.
@@ -382,7 +382,7 @@ A `Part` is one piece of content, a self-describing JSON object tagged by `kind`
 
 Media is **referenced, not embedded**: a media part carries a `media_type` plus a
 `source` that is **exactly one** of `{ "uri": … }` (a URL or `data:` URI) or
-`{ "data": … }` (inline base64) — never raw bytes, so a part is plain JSON. A
+`{ "data": … }` (inline base64), never raw bytes, so a part is plain JSON. A
 media part with neither source is invalid. Inputs (a study's dataset) use the
 same vocabulary off-wire; `output` puts it on the wire.
 
@@ -392,10 +392,10 @@ Runs one case's subject **without scoring** and returns the **full** transcript
 (raw `events` and captured `files` included, unlike `run`, which returns a
 lightweight summary). This is the run-now-score-later half of `run`: a
 long-running subject is executed once and its transcript persisted as an
-execution artifact, to be scored — or re-scored — later. Advertised by the
+execution artifact, to be scored, or re-scored, later. Advertised by the
 `execute` capability.
 
-**Params** — identical to `run` (`{ eval, sample, target, params, trial, trials, seed }`).
+**Params**: identical to `run` (`{ eval, sample, target, params, trial, trials, seed }`).
 
 **Result**
 
@@ -426,13 +426,13 @@ execution artifact, to be scored — or re-scored — later. Advertised by the
 #### Structured trajectory (`transcript.trajectory`)
 
 `transcript.trajectory` is the protocol's **primary structured trajectory
-contract**: a typed, producer-agnostic record of *what the agent did* — ordered
+contract**: a typed, producer-agnostic record of *what the agent did*, ordered
 steps carrying structured tool calls (name **and** arguments), correlated
 observations, per-step reasoning, and per-step token/cost metrics. Its shape is
 the [Agent Trajectory Interchange Format](https://github.com/harbor-framework/harbor/blob/main/rfcs/0001-trajectory-format.md)
 (ATIF), carried verbatim, so a Mira transcript's trajectory is a valid ATIF
 document for external SFT/RL/visualization tooling. It rides the full
-`Transcript` — `execute` results and `score` params — and is deliberately
+`Transcript`, `execute` results and `score` params, and is deliberately
 **not** part of the lightweight `TranscriptSummary` that `run` results carry.
 Advertised by the `trajectory` capability, with the emitted format/version in
 `capability_params` (`{ "format": "ATIF", "version": "1.7" }`); readers accept
@@ -462,7 +462,7 @@ any `ATIF-v1.x` and reject other prefixes with an error, never a crash.
 `tool_calls` every `function_name` in step order, `iterations` the agent steps
 with `llm_call_count != 0`, and `usage` comes from `final_metrics` (else the
 per-step sum). A producer may therefore serialize a transcript containing
-**only** `{ "trajectory": … }` — the framework fills the flat fields on
+**only** `{ "trajectory": … }`, the framework fills the flat fields on
 receipt/production (never overwriting one the producer set explicitly), so
 every existing name-based scorer keeps working with zero producer-side effort.
 `events` is **not** required alongside a trajectory: trajectory, events, both,
@@ -475,11 +475,11 @@ reasoning, metrics); reach for `events` only for debugging and data the
 trajectory doesn't carry.
 
 **Compatibility.** The field + token are the `1.1` minor addition. An old
-(pre-`1.1`) study never sets the field — nothing to do. A new study talking to a
+(pre-`1.1`) study never sets the field, nothing to do. A new study talking to a
 pre-`1.1` **host** keeps working too, with one consequence to know about: the
 old host parses `ExecuteResult` into *its* transcript shape, ignoring the
 unknown `trajectory` field, and re-serializes that when persisting execute
-artifacts — so **the trajectory is silently dropped from artifacts stored by a
+artifacts, so **the trajectory is silently dropped from artifacts stored by a
 pre-`1.1` host** (deferred trajectory-aware scoring then degrades to the flat
 fields). Nothing breaks; a study that needs durable trajectories can detect the
 situation from the host's `protocol_version` in `initialize.params` and warn on
@@ -488,7 +488,7 @@ situation from the host's `protocol_version` in `initialize.params` and warn on
 ### `score`
 
 Runs an eval's scorers over a **supplied** transcript and returns the same
-`RunResult` as `run` — but without re-executing the subject. The transcript
+`RunResult` as `run`, but without re-executing the subject. The transcript
 travels in the request, so the host can replay a stored `execute` artifact.
 Scoring depends only on the eval + sample, so the `model` label need not still
 exist. Re-issuing `score` over the same transcript is a re-score (e.g. after a
@@ -512,7 +512,7 @@ scorer change). Advertised by the `score` capability.
 The `trial`/`trials`/`seed` fields (optional) are echoed into the resulting
 `RunResult` so a re-scored trial keeps its identity.
 
-**Result** — a [`RunResult`](#run), identical in shape to the `run` response
+**Result**: a [`RunResult`](#run), identical in shape to the `run` response
 (scores + lightweight transcript summary).
 
 ### `cancel`
@@ -527,8 +527,8 @@ whole connection. Advertised by the `cancel` capability.
 { "id": 7 }
 ```
 
-`id` is the **request id** of the call to abort — the `id` the host put on the
-`run` and is awaiting a response on — not a case key. So a host can target one
+`id` is the **request id** of the call to abort, the `id` the host put on the
+`run` and is awaiting a response on, not a case key. So a host can target one
 specific outstanding call even when several runs of the same case are in flight.
 
 **Result**
@@ -539,7 +539,7 @@ specific outstanding call even when several runs of the same case are in flight.
 
 `cancelled` is whether a matching in-flight request was found and aborted.
 `false` is normal and benign: the targeted request had already completed (or was
-never in flight) by the time the cancel arrived. Cancellation is **best-effort** —
+never in flight) by the time the cancel arrived. Cancellation is **best-effort**:
 a `run` that finishes first still returns its real result.
 
 A cancelled run's own response arrives as an `error` correlated by its `id`
@@ -554,30 +554,30 @@ fail-fast `select!`), and also exposes an explicit `HostHandle::cancel(id)`.
 
 ### Reverse requests (study→host)
 
-> **Status: reserved seam, not yet implemented.** No reverse method is defined
+> **Status: reserved extension point, not yet implemented.** No reverse method is defined
 > and no host answers one today. This section is the *design of record* so the
-> channel can be added later as a **minor** bump, not a breaking 2.0 — the one
+> channel can be added later as a **minor** bump, not a breaking 2.0, the one
 > direction the protocol doesn't yet carry, and the one most likely to force a
 > major version if retrofitted carelessly.
 
 Today a study is fully self-contained: subjects and provider keys live study-side
 by design, and every request flows host→study. Some capabilities want the
-opposite direction — the study asking the host for something mid-run:
+opposite direction, the study asking the host for something mid-run:
 
-- **host-brokered model access** — central credentials, caching, and budgeting
+- **host-brokered model access**: central credentials, caching, and budgeting
   in the host instead of per-study keys;
-- **shared resources** — a sandbox, fixture, or dataset the host owns;
-- **human-in-the-loop** — pause a case to ask the operator a question.
+- **shared resources**: a sandbox, fixture, or dataset the host owns;
+- **human-in-the-loop**: pause a case to ask the operator a question.
 
 Each needs a study→host **request** (with a host **response**), a direction that
 doesn't exist yet. The framing already admits it without a breaking change,
-provided these invariants hold — they are the contract a future implementation
+provided these invariants hold, they are the contract a future implementation
 must keep:
 
 1. **Field-based classification.** A line is a request/notification iff it bears
    `method` (see [Message types](#message-types)); only a `method`-less line is a
    response. So a reverse request (`{ "id": …, "method": …, "params": … }`) on
-   the study's stdout is unambiguous and is **never** mistaken for a response —
+   the study's stdout is unambiguous and is **never** mistaken for a response,
    even by a host that predates the feature.
 2. **Independent `id` spaces per direction.** Host-originated and study-originated
    request ids are separate sequences; each correlates only with responses
@@ -589,13 +589,13 @@ must keep:
    opt in: the host advertises support in `initialize.params` and the study
    advertises the reserved `host_requests` capability (and only then emits reverse
    requests). A study must assume the channel is absent until it sees host
-   support — exactly the additive, feature-detected pattern the rest of the
+   support, exactly the additive, feature-detected pattern the rest of the
    protocol uses.
 
 A conforming host that doesn't implement the channel simply never advertises it,
 and safely ignores any reverse request it receives (it logs and drops it rather
 than letting the id corrupt its own request routing). That graceful-ignore
-behaviour is implemented today, so the seam is real, not theoretical.
+behaviour is implemented today, so the mechanism is real, not theoretical.
 
 #### Score
 
@@ -605,17 +605,17 @@ behaviour is implemented today, so the seam is real, not theoretical.
 
 `value` is a continuous score in `0.0..=1.0`; `pass` is the boolean verdict (for
 graded scorers, typically `value >= threshold`). A score may also carry
-`"na": true` — the scorer **could not be evaluated** (an unreachable judge, an
+`"na": true`, the scorer **could not be evaluated** (an unreachable judge, an
 infra hiccup). N/A scores are excluded from the case verdict and aggregate:
 neither pass nor fail.
 
 #### Infrastructure errors
 
 A subject that fails for an **infrastructure** reason (budget/quota, rate limit,
-provider 5xx/outage, network/timeout — not the model's fault) sets
+provider 5xx/outage, network/timeout, not the model's fault) sets
 `transcript.error` and `transcript.error_kind: "infra"` (the default,
 `"subject"`, is omitted). The study then scores the case with a single N/A score,
-so it is excluded from the pass-rate — neither passed nor failed, like a skip.
+so it is excluded from the pass-rate, neither passed nor failed, like a skip.
 The host **retries** infra-errored cases (keyed off `error_kind`) up to
 `--max-retries`, and a case whose every score is N/A is reported as N/A, not a
 failure. `error_kind` is optional and defaulted, so a study that omits it still
@@ -648,7 +648,7 @@ host                                   study
 
 The host issues one `run` per planned case. Requests are **multiplexed**: the
 host may keep many runs in flight over the single pipe, and the study dispatches
-them concurrently — responses are correlated to requests by `id`, so they may
+them concurrently; responses are correlated to requests by `id`, so they may
 arrive in any order. The host bounds how many run at once with a global cap, a
 per-provider cap, and **adaptive** per-provider backoff: a case whose response
 (or transcript) carries a rate-limit signal (HTTP 429, "overloaded", quota) is
@@ -659,8 +659,8 @@ each completed case is saved under the run folder (`cases/<key>/result.json`),
 and `--resume <run_id>` subtracts those already-saved cases on the next
 invocation.
 
-A host can abort a single in-flight run with [`cancel`](#cancel) — addressing it
-by request `id` — without disturbing the others or closing the connection. This
+A host can abort a single in-flight run with [`cancel`](#cancel), addressing it
+by request `id`, without disturbing the others or closing the connection. This
 is the lever for per-case timeouts, hard cost caps, and fail-fast. (Closing
 stdin, by contrast, ends *every* in-flight run at once.)
 
@@ -684,12 +684,12 @@ eval/sample/model `metadata` (open-ended JSON), and multimodal `output` plus
 structured `capability_params`. **`1.1`** adds the
 [structured ATIF trajectory](#structured-trajectory-transcripttrajectory): one
 optional `Transcript.trajectory` field (riding `execute` results and `score`
-params) plus the `trajectory` capability token — additive, so a `1.0` peer
+params) plus the `trajectory` capability token, additive, so a `1.0` peer
 ignores both and keeps interoperating (see the compatibility note in that
 section for the one artifact-persistence consequence). A study that implements
 only the base methods
-(`initialize`, `list`, `run`) — advertising no capabilities and emitting no
-notifications — interoperates with a full `1.1` host: every method and field
+(`initialize`, `list`, `run`), advertising no capabilities and emitting no
+notifications, interoperates with a full `1.1` host: every method and field
 beyond the base is feature-detected or defaulted. Future additions bump the minor.
 
 - A **MINOR** bump is **additive**: new optional fields, new notification kinds,
@@ -723,7 +723,7 @@ would be staged behind `protocol-unstable` like any other structural addition.
 
 The wire types have a generated, language-neutral definition under `schema/`:
 
-- `schema/v1/schema.json` — a **JSON Schema 2020-12** document. The root is an
+- `schema/v1/schema.json`, a **JSON Schema 2020-12** document. The root is an
   `anyOf` over the three envelopes (`Request`, `Response`, `Notification`); every
   payload type (`InitializeResult`, `ListResult`/`EvalInfo`,
   `ListSamplesParams`/`ListSamplesResult`, `RunParams`,
@@ -731,13 +731,13 @@ The wire types have a generated, language-neutral definition under `schema/`:
   payloads `EventParams`/`LogParams`, and the full `Transcript`, `Score`, plus
   the ATIF trajectory types `Trajectory`/`Step`/`ToolCall`/`Observation`/…) is
   published under `$defs`.
-- `schema/v1/meta.json` — a small index: the current `version`, `min_version`,
+- `schema/v1/meta.json`, a small index: the current `version`, `min_version`,
   the method list, the defined `capabilities` tokens, and the `event_kinds`
   vocabulary.
 
 The directory is versioned by the protocol **major** (`v1`). The artifacts are
 **generated from the Rust types** in `mira::protocol` by the `mira-schema-gen`
-tool — they are not hand-edited and stay in lockstep with the wire format.
+tool, they are not hand-edited and stay in lockstep with the wire format.
 Regenerate with `just schema` (or `cargo run -p mira-schema-gen`); CI runs the
 same generator with `--check` and fails if the committed files are stale, so a
 protocol change can't merge without a matching schema update. A separate test
@@ -749,11 +749,11 @@ standard JSON Schema validator instead of mirroring the Rust structs by hand.
 ### Staging unstable additions
 
 New wire structure is developed behind the `mira-eval` crate's
-`protocol-unstable` feature first — gated with `#[cfg(feature =
+`protocol-unstable` feature first, gated with `#[cfg(feature =
 "protocol-unstable")]`. The schema generator builds **without** that feature, so
 the committed `schema/` describes only the stable protocol; an addition reaches
 the artifact (and a minor-version bump) only when promoted out of staging. This
-covers *structural* changes — a new typed field or method — that the open
+covers *structural* changes, a new typed field or method, that the open
 `metrics` / `metadata` / `capabilities` vocabularies can't express; those
 already extend without a protocol bump. It lets such a change land and be
 exercised in-tree without prematurely freezing the language-neutral contract.
@@ -772,7 +772,7 @@ A minimal study is a stdio loop that:
    `RunResult`;
 5. exits on EOF.
 
-No Rust dependency is required — only the JSON shapes above (validate against the
+No Rust dependency is required, only the JSON shapes above (validate against the
 [machine-readable schema](#machine-readable-schema) instead of mirroring them by
 hand). This is how non-Rust agents (a Python SWE-bench harness, a Node agent)
 plug in as first-class studies.

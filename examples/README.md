@@ -5,15 +5,15 @@ stay full crates where they need to. Every one runs against the `sim` model with
 no API keys, so they stay green in CI and cost nothing.
 
 - **Single-file studies** (`examples/<name>.rs`) carry their dependencies in
-  cargo-script frontmatter (RFC 3502) — no `Cargo.toml`. The host runs them with
+  cargo-script frontmatter (RFC 3502), no `Cargo.toml`. The host runs them with
   `--study <file>`, shimming cargo-script onto **stable** (it's otherwise the
   nightly-only `cargo -Zscript`). See
   [single-file studies](../docs/how-it-works.md#single-file-studies).
 - **Crate examples** (`examples/<name>/`) are individual crates exposing a
   like-named binary; the host resolves them with `--study-bin <name>`. Kept as
   crates when they're multi-file or pull heavy provider deps.
-- **Polyglot examples** (e.g. [`greet-python`](greet-python)) are plain folders —
-  no Cargo.toml — that implement the [protocol](../docs/protocol.md) directly.
+- **Polyglot examples** (e.g. [`greet-python`](greet-python)) are plain folders
+  (no Cargo.toml) that implement the [protocol](../docs/protocol.md) directly.
   The host launches them with `--study-cmd "..."` (or `--study <file>.py` /
   `--study-uv` / `--study-python`).
 
@@ -40,7 +40,7 @@ cargo run -p mira-cli -- run --study-cmd "node examples/greet-typescript/study.m
 | [`interactive`](interactive.rs) | Rust · `--study` | A clarify-then-answer multi-turn dialog subject. |
 | [`infra`](infra.rs) | Rust · `--study` | Infrastructure errors vs. failures: an N/A (retried) case vs. a real fail. |
 | [`llm_judge`](llm_judge.rs) | Rust · `--study` | Provider-backed LLM-as-judge (`mira-judge`); the judge is N/A without a key, so it stays green offline. |
-| [`cli_subject`](cli_subject) | Rust · `--study-bin` | The polyglot subject path — driving an external program ([`subject.sh`](cli_subject/subject.sh)); stays a crate for its sibling script. |
+| [`cli_subject`](cli_subject) | Rust · `--study-bin` | The polyglot subject path, driving an external program ([`subject.sh`](cli_subject/subject.sh)); stays a crate for its sibling script. |
 | [`metrics`](metrics) | Rust · `--study-bin` | Operational budgets: tokens, cost, latency, TTFT, exact/ordered tool use. Multi-file crate. |
 | [`matrix`](matrix) | Rust · `--study-bin` | A multi-axis matrix: targets × a custom `effort` axis. Multi-file crate. |
 | [`llmsim`](llmsim) | Rust · `--study-bin` | Driving a real `everruns-runtime` session against the offline `LlmSim` driver (heavy dep). |

@@ -47,16 +47,16 @@ unless every job succeeds. That one job is the status check to require.
 Configure once, in **Settings → Branches → Branch protection rules** for
 `main` (needs admin):
 
-- **Require a pull request before merging** — no direct pushes to `main`.
+- **Require a pull request before merging**: no direct pushes to `main`.
 - **Require status checks to pass before merging**, then search for and select
   the `Check` status check. GitHub lists Actions checks as
   `<workflow> / <job>`, so it appears as **`CI / Check`** (the `Check` job in
-  the `CI` workflow) — pick that entry, not a bare `Check`. Keep "Require
+  the `CI` workflow), pick that entry, not a bare `Check`. Keep "Require
   branches to be up to date before merging" on so the gate runs against the
   post-merge tree.
 - **Do not allow bypassing the above settings** (applies the rule to admins).
 
-The job is named `Check` deliberately — keep that name stable so the required
+The job is named `Check` deliberately. Keep that name stable so the required
 check never silently detaches. Without this rule the `Check` job is advisory
 only: a red run can still be merged.
 

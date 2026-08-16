@@ -1,12 +1,12 @@
 # Metrics
 
 Mira records the *operational* signals of a run alongside its correctness:
-tokens, cost, latency, time-to-first-token, tool usage — and any custom numeric
+tokens, cost, latency, time-to-first-token, tool usage, and any custom numeric
 metric you want to track. This page is the full model and how to extend it.
 
 The shape: a **subject** measures metrics and puts them on the `Transcript`; a
 **scorer** turns a metric into a pass/fail (a budget). There is no separate
-metrics pipeline — metrics ride the transcript, surface in every report, and are
+metrics pipeline: metrics ride the transcript, surface in every report, and are
 graded by ordinary scorers.
 
 ## The model
@@ -50,11 +50,11 @@ pub struct Transcript {
 Typed fields give the built-in budgets (`tokens_within`, `cost_within`,
 `latency_within`, `ttft_within`, …) a stable shape to read, and they roll up into
 the report totals (total tokens, total cost). The open `metrics` map is the
-extension seam: a subject reports a new metric *key* and grades it generically,
+extension point: a subject reports a new metric *key* and grades it generically,
 with **no new protocol version or core change** (the `metrics` map itself is an
-additive, versioned part of the wire — see [the protocol](protocol.md)). Use
+additive, versioned part of the wire, see [the protocol](protocol.md)). Use
 `metrics` (not `metadata`) for anything
-you want to compare numerically — values stay `f64` and feed the generic scorers;
+you want to compare numerically, values stay `f64` and feed the generic scorers;
 `metadata` is for free-form strings (links, ids, labels).
 
 ## Built-in metric scorers
@@ -70,7 +70,7 @@ you want to compare numerically — values stay `f64` and feed the generic score
 | `metric_within(name, max)` | `metrics` | custom `name` ≤ `max` (fails if unreported) |
 | `metric_at_least(name, min)` | `metrics` | custom `name` ≥ `min` (fails if unreported) |
 
-A budget over an *unreported* metric **fails** rather than silently passing — a
+A budget over an *unreported* metric **fails** rather than silently passing; a
 budget you can't verify is not satisfied.
 
 ## Adding a custom metric
@@ -100,13 +100,13 @@ let eval = Eval::new("retrieval")
 `with_metric(name, value)` is the builder form; `record_metric(&mut self, …)` is
 the in-place form for subjects that build the transcript mutably, and
 `transcript.metric(name) -> Option<f64>` reads one back. Non-finite values
-(`NaN`/`±inf`) are dropped on record — JSON can't represent them, so the metric
+(`NaN`/`±inf`) are dropped on record: JSON can't represent them, so the metric
 stays unreported rather than breaking the report.
 
 Once recorded, a custom metric surfaces three ways: as a **pass/fail score** in
 every report, in the **per-case `metrics` block** of the JSON and HTML reports,
 and (because it rides the transcript) in any saved run. A working end-to-end
-example is [`examples/metrics`](../examples/metrics) — it reports
+example is [`examples/metrics`](../examples/metrics), it reports
 `retrieval_recall@5` and grades it with `metric_at_least`.
 
 ### Beyond a scalar
@@ -114,7 +114,7 @@ example is [`examples/metrics`](../examples/metrics) — it reports
 If you want a *derived* verdict or your metric isn't a single number, use a
 [closure scorer](scorers.md#closures-the-escape-hatch): it receives the whole
 transcript, so it can combine `usage`/`timing`/`metrics`, read the structured
-ATIF `trajectory` (per-step tool calls, observations, and metrics — the primary
+ATIF `trajectory` (per-step tool calls, observations, and metrics, the primary
 structured contract), and emit a `Score::graded(...)`. For non-numeric
 structured detail (per-step traces, retrieval hits), prefer
 `Transcript.trajectory` over `metrics`; the raw `events` channel is
@@ -122,16 +122,16 @@ advanced-only, for producer-specific data the trajectory doesn't model.
 
 ## Where metrics go
 
-- **CLI** — a per-case line (`68 tok · $0.0003 · 88ms · 3 tool calls`).
-- **JSON** (`--format json`) — the full `RunResult` per case, including `usage`,
+- **CLI**: a per-case line (`68 tok · $0.0003 · 88ms · 3 tool calls`).
+- **JSON** (`--format json`), the full `RunResult` per case, including `usage`,
   `timing`, and the `metrics` map, plus rolled-up totals in `summary`.
-- **HTML** (`--format html`) — summary cards, the pass/fail matrix, and a
+- **HTML** (`--format html`), summary cards, the pass/fail matrix, and a
   per-case breakdown that lists scores, tools, the `metrics` map, and metadata.
-- **JUnit** (`--format junit`) — pass/fail per case for any CI.
+- **JUnit** (`--format junit`), pass/fail per case for any CI.
 
 ## See also
 
-- [Scorers](scorers.md) — the budget scorers and how to write your own.
-- [Extensibility](extensibility.md) — the full map of extension seams.
-- [The protocol](protocol.md) — how `metrics` rides the wire, and its
+- [Scorers](scorers.md), the budget scorers and how to write your own.
+- [Extensibility](extensibility.md), the full map of extension points.
+- [The protocol](protocol.md), how `metrics` rides the wire, and its
   forward-compatible versioning.

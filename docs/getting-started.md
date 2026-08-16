@@ -22,9 +22,9 @@ cargo binstall mira-cli             # prebuilt binary, no compile (installs `mir
 ## 2. Write an eval study
 
 An eval **study** is just a program that defines evals and calls
-`mira::Study::registered().serve_blocking()` — which owns the async runtime, so
+`mira::Study::registered().serve_blocking()`, which owns the async runtime, so
 `mira-eval` is the only dependency you need. The lightest way to write one is a
-**single file** — no crate, no `Cargo.toml` — using cargo-script frontmatter for
+**single file**: no crate, no `Cargo.toml`, using cargo-script frontmatter for
 its deps. Save this as `study.rs`:
 
 ```rust
@@ -67,10 +67,10 @@ fn main() -> std::io::Result<()> {
 ```
 
 `cargo -Zscript` is nightly-only, so the host **shims it onto stable**: it reads
-the frontmatter, materializes a throwaway crate, and builds it — no nightly
+the frontmatter, materializes a throwaway crate, and builds it, no nightly
 toolchain required. (Set `MIRA_SCRIPT_NATIVE=1` to run it natively once
 cargo-script stabilizes.) Prefer a real crate? The same `#[eval]`/`main` works as
-a `[[bin]]` or an `examples/*.rs` target — run it with `--study-bin NAME` /
+a `[[bin]]` or an `examples/*.rs` target, run it with `--study-bin NAME` /
 `--study-example NAME` instead of `--study`.
 
 ## 3. Run it
@@ -86,7 +86,7 @@ capital — Knows world capitals  (max_turns=12)
   targets:  sim, anthropic/claude-opus-4-8 (unavailable)
 ```
 
-The cloud case is **unavailable** because `ANTHROPIC_API_KEY` isn't set — it will
+The cloud case is **unavailable** because `ANTHROPIC_API_KEY` isn't set, it will
 be skipped, not failed. Run the matrix:
 
 ```bash
@@ -102,7 +102,7 @@ mira run --study study.rs
 ```
 
 A case that *does* run but hits **infrastructure** trouble (out of budget,
-rate-limited, a provider outage) is scored **N/A** rather than failed — it's not
+rate-limited, a provider outage) is scored **N/A** rather than failed, it's not
 the model's fault. N/A cases are excluded from the pass-rate and retried; see
 [Infrastructure errors vs. failures](authoring.md#infrastructure-errors-vs-failures).
 
@@ -156,15 +156,15 @@ Every `mira run` (and `mira score`) **saves a run folder by default** under the
 results dir, unless you pass `--dry-run`. Each run lands in
 `<results_dir>/<run_id>/`:
 
-- `meta.json` — run identity: id, study, start/finish timestamps, summary, and
+- `meta.json`, run identity: id, study, start/finish timestamps, summary, and
   the **environment** the run came from (see below). Written as a header when
   the run starts, then rewritten at the end with the finish time and summary.
-- `report.json` — the canonical machine-readable record (summary + per case),
-- `report.html` — the self-contained transcript viewer,
-- `cases/<encoded-key>/result.json` — one finished case
+- `report.json`, the canonical machine-readable record (summary + per case),
+- `report.html`, the self-contained transcript viewer,
+- `cases/<encoded-key>/result.json`, one finished case
   (`eval/sample@target[…]#trial`), written atomically as that case completes.
 
-A fresh `mira run` mints a new id and reuses nothing — no silent reuse of stale
+A fresh `mira run` mints a new id and reuses nothing, no silent reuse of stale
 results. To continue a run, name it explicitly: `--resume <run_id>` reopens that
 run folder, skips the cases already recorded under `cases/`, and runs only
 what's missing.
@@ -178,18 +178,18 @@ dir = "./results"   # where saved run folders go
 ```
 
 `mira report <run_id>` re-renders a saved run's reports from its stored
-`cases/*/result.json` — no study process is spawned, nothing is re-executed.
+`cases/*/result.json`, no study process is spawned, nothing is re-executed.
 
 ### Environment metadata
 
 Every saved run records the context it was produced in, so a result can be
-interpreted and compared later — which commit, which box, which host version.
+interpreted and compared later, which commit, which box, which host version.
 `meta.json` carries an `environment` block:
 
-- **git** — `HEAD` commit, branch, and a `dirty` flag for uncommitted edits,
-- **box** — `os`, `arch`, `hostname`, `cpus`, `mem_total_mib`,
-- **mira_version** — the host binary that produced the run,
-- **labels** — auto-detected CI context (`ci.*`) plus anything you configure.
+- **git**: `HEAD` commit, branch, and a `dirty` flag for uncommitted edits,
+- **box**: `os`, `arch`, `hostname`, `cpus`, `mem_total_mib`,
+- **mira_version**: the host binary that produced the run,
+- **labels**: auto-detected CI context (`ci.*`) plus anything you configure.
 
 Capture is **on by default** and best-effort (anything it can't determine is
 omitted; it never fails a run). Control it under `[environment]`:
@@ -209,7 +209,7 @@ Configured labels override auto-detected ones on a key collision.
 
 Every run is saved locally, but you can also publish it to an
 [everruns](https://everruns.com) instance, which hosts and visualizes results it
-did not execute — useful for sharing, comparing runs, and onboarding people who
+did not execute, useful for sharing, comparing runs, and onboarding people who
 shouldn't have to run the eval themselves.
 
 ```bash
@@ -225,17 +225,17 @@ own `~/.config/everruns/credentials.json`. One run becomes one everruns run grou
 
 ## 6. Check your setup (`mira doctor`)
 
-When something misbehaves — a preset that selects nothing, a launcher that
-won't start, runs that look torn — `mira doctor` diagnoses the whole setup in
+When something misbehaves (a preset that selects nothing, a launcher that
+won't start, runs that look torn), `mira doctor` diagnoses the whole setup in
 one pass:
 
 - **Config** (`mira.toml`): parse errors, unknown or misspelled keys (with a
   "did you mean" suggestion), launcher mistakes (no launch mode, conflicting
   modes, missing scripts), presets and timeouts that can't work.
 - **Study**: launches your study exactly like `run` would, then lints what it
-  advertises — duplicate sample ids / target labels / axis values (these
+  advertises, duplicate sample ids / target labels / axis values (these
   collide case keys, so results silently overwrite), empty datasets or
-  matrices, unavailable targets — and cross-checks the config's presets and
+  matrices, unavailable targets, and cross-checks the config's presets and
   `[targets.LABEL]` sections against the real listing.
 - **Saved runs** (the results dir): interrupted runs (with the `--resume` id to
   finish them), invalid case results, leftover temp files from interrupted
@@ -251,10 +251,10 @@ Warnings never fail doctor; errors exit non-zero, so it can gate CI.
 
 ## Next steps
 
-- [Authoring evals](authoring.md) — datasets, the matrix, extra axes, metadata.
-- [Scorers](scorers.md) — the built-ins (incl. metric budgets) and writing your own.
-- [Metrics](metrics.md) — tokens/cost/latency, and how to add a custom metric.
-- [Subjects](subjects.md) — in-process, CLI/polyglot, and runtime sessions.
-- [Extensibility](extensibility.md) — the map of every seam: custom subjects,
+- [Authoring evals](authoring.md), datasets, the matrix, extra axes, metadata.
+- [Scorers](scorers.md), the built-ins (incl. metric budgets) and writing your own.
+- [Metrics](metrics.md), tokens/cost/latency, and how to add a custom metric.
+- [Subjects](subjects.md), in-process, CLI/polyglot, and runtime sessions.
+- [Extensibility](extensibility.md), the map of every extension point: custom subjects,
   scorers, metrics, trajectories, and protocol-level extension.
-- [The protocol](protocol.md) — what flows over the wire, and its versioning.
+- [The protocol](protocol.md), what flows over the wire, and its versioning.

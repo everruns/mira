@@ -34,8 +34,8 @@ pub struct Transcript {
 }
 ```
 
-A subject that can describe *what the agent did* — tool calls with arguments,
-observations, per-step reasoning and metrics — should set `trajectory` (an
+A subject that can describe *what the agent did*, tool calls with arguments,
+observations, per-step reasoning and metrics, should set `trajectory` (an
 [ATIF](https://github.com/harbor-framework/harbor/blob/main/rfcs/0001-trajectory-format.md)
 document); the flat fields above are derived from it automatically. See the
 [protocol reference](protocol.md#structured-trajectory-transcripttrajectory).
@@ -43,7 +43,7 @@ document); the flat fields above are derived from it automatically. See the
 Mira ships two general subjects, plus a runtime adapter in `mira-everruns`.
 
 <p align="center">
-<img src="assets/mira-subjects.svg" alt="Three subject shapes — subject_fn (in-process closure), CliSubject (external binary), and RuntimeSubject (everruns session) — all normalize a sample into the same Transcript, which scoring and reporting share" width="720" />
+<img src="assets/mira-subjects.svg" alt="Three subject shapes, subject_fn (in-process closure), CliSubject (external binary), and RuntimeSubject (everruns session), all normalize a sample into the same Transcript, which scoring and reporting share" width="720" />
 </p>
 
 ## In-process: `subject_fn`
@@ -60,8 +60,8 @@ let subject = subject_fn(|sample, cx| async move {
 });
 ```
 
-Populate as much of the transcript as you can measure — `iterations`,
-`tool_calls`, `usage`, `files` — so structural and cost scorers have signal.
+Populate as much of the transcript as you can measure, `iterations`,
+`tool_calls`, `usage`, `files`, so structural and cost scorers have signal.
 
 ## Polyglot: `CliSubject`
 
@@ -89,11 +89,11 @@ let s = CliSubject::new("my-agent")
 
 **`AtifFile` is the recommended source for any agent that uses tools.** The
 agent writes a single [ATIF](https://github.com/harbor-framework/harbor/blob/main/rfcs/0001-trajectory-format.md)
-document (a file, not stdout — ATIF is one JSON document, and harbor-ecosystem
+document (a file, not stdout, ATIF is one JSON document, and harbor-ecosystem
 agents already write `trajectory.json`); the subprocess receives the absolute
 target path as `MIRA_TRAJECTORY_PATH`. The parsed document becomes the
 transcript's [structured trajectory](protocol.md#structured-trajectory-transcripttrajectory),
-and the flat fields — `final_response`, `tool_calls`, `usage`, `iterations` —
+and the flat fields (`final_response`, `tool_calls`, `usage`, `iterations`)
 are derived from it, so every scorer works with zero extra emission code. A
 missing or invalid file becomes a subject-kind `Transcript.error`.
 
@@ -109,7 +109,7 @@ let s = CliSubject::new("coding-cli")
 ```
 
 When reading a JSONL transcript, Mira extracts tool-call names and token/cost
-usage heuristically — any producer emitting `{input_tokens, output_tokens, cost}`
+usage heuristically, any producer emitting `{input_tokens, output_tokens, cost}`
 usage blocks and `{name, input}` tool-call objects is understood, including
 everruns coding CLIs. A line with a `final_response` / `response` / `text` field
 sets the final response. Unlike a trajectory, this yields names-only tool calls:
@@ -121,7 +121,7 @@ route on the matrix case.
 ## Runtime sessions: `mira-everruns`
 
 `mira_everruns::RuntimeSubject` drives a real `everruns-runtime`
-`InProcessRuntime` session — the in-process path to evaluating everruns agents.
+`InProcessRuntime` session, the in-process path to evaluating everruns agents.
 The embedder supplies a factory that builds a runtime for each matrix case; Mira
 normalizes the `TurnResult` and `Event` stream into a `Transcript`, folding the
 typed events into an ATIF trajectory (`mira_everruns::atif_from_events`: one
@@ -146,7 +146,7 @@ factory contract.
 
 A `Sample` carries text turns in `input`; attach non-text input (images, audio,
 files, structured JSON) with `attachments`. A subject reads the fused prompt via
-`Sample::prompt_parts()` — the text turns followed by the attachments, as one
+`Sample::prompt_parts()`, the text turns followed by the attachments, as one
 ordered `Part` list:
 
 ```rust
@@ -162,7 +162,7 @@ let kinds = sample.modalities();            // ["text", "image", "audio"]
 ```
 
 Media is *referenced* (`media_type` + a `uri` or inline base64 `data`), never raw
-bytes, so a sample stays plain JSON in a JSONL dataset. This is study-side only —
+bytes, so a sample stays plain JSON in a JSONL dataset. This is study-side only;
 no protocol change. Runnable example: `examples/multimodal.rs`. Multimodal *output*
 (`Transcript::output`) is staged behind the `protocol-unstable` feature; see
 [architecture §14](../specs/architecture.md).
@@ -170,7 +170,7 @@ no protocol change. Runnable example: `examples/multimodal.rs`. Multimodal *outp
 ## Writing your own
 
 Reach for a `subject_fn` closure first. Implement `Subject` directly when you
-want a **reusable adapter that holds state** — a connection pool, an HTTP client,
+want a **reusable adapter that holds state**: a connection pool, an HTTP client,
 an auth token shared across every case.
 
 The contract:
@@ -182,8 +182,8 @@ The contract:
   scorers have signal. Anything you can't measure stays at its default.
 - **Record failures, don't panic.** Put the error in `Transcript.error` (or use
   `Transcript::failed(msg)`); a panicking subject takes down the whole run.
-- **Separate infra errors from failures.** When the fault is the scaffolding —
-  budget/quota, rate limit, provider outage, network/timeout — use
+- **Separate infra errors from failures.** When the fault is the scaffolding
+  (budget/quota, rate limit, provider outage, network/timeout), use
   `Transcript::infra_error(msg)` instead. Scoring short-circuits to a single
   **N/A** score, so the case is excluded from the pass-rate (neither pass nor
   fail, like a scorer's `Score::na`) and the host retries it. See

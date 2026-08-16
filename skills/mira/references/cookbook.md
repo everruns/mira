@@ -11,7 +11,7 @@ A study is a program that defines evals and calls
 the only dependency needed; from an async `main`, `.serve().await` instead).
 Register factories with `#[eval]` (or `register_eval!`). Ship it as a single-file `study.rs` (cargo-script frontmatter,
 run with `mira run --study study.rs`) or as a crate `[[bin]]` / `examples/*.rs`
-(run with `--study-bin NAME` / `--study-example NAME`) — the body below is
+(run with `--study-bin NAME` / `--study-example NAME`); the body below is
 identical either way.
 
 ```rust
@@ -73,7 +73,7 @@ a fresh temp workdir; `MIRA_TARGET` / `MIRA_PROVIDER` env vars are set. Example:
 ## Trajectory scoring (tool arguments / observations)
 
 With a trajectory-producing subject (`AtifFile`, everruns, or an SDK study),
-grade the structure — not just tool names. These fail when the subject reported
+grade the structure, not just tool names. These fail when the subject reported
 no trajectory; don't fall back to scoring the raw `events` channel.
 
 ```rust
@@ -89,12 +89,12 @@ use serde_json::json;
 ## everruns runtime subject
 
 `mira_everruns::RuntimeSubject` drives a real `everruns-runtime` session (add
-`cargo add mira-everruns`). Offline, point it at the `LlmSim` driver — example:
+`cargo add mira-everruns`). Offline, point it at the `LlmSim` driver; example:
 <https://github.com/everruns/mira/tree/main/examples/llmsim>.
 
 ## In-process testing
 
-Drive a study from a `#[tokio::test]` with `Runner` — no host binary, no network.
+Drive a study from a `#[tokio::test]` with `Runner`, no host binary, no network.
 
 ```rust
 use mira::Runner;

@@ -3,7 +3,7 @@
 Publish a saved [Mira](https://everruns.com) eval run to an
 [everruns](https://everruns.com) instance, which hosts and visualizes eval
 results it did **not** execute. This lets a study run against any provider or
-CLI subject and then publish its results for hosted comparison — no need to run
+CLI subject and then publish its results for hosted comparison, no need to run
 inside everruns' session system.
 
 ```bash
@@ -37,5 +37,5 @@ result carrying its scores, a normalized transcript, and an open-vocab metrics
 bag (cost, cache/reasoning tokens, time-to-first-token, study metrics).
 Publishing is idempotent on the run id: re-publishing replaces the prior run.
 
-everruns trusts Mira's verdict — it stores and displays the scores, it does not
+everruns trusts Mira's verdict, it stores and displays the scores, it does not
 re-grade.
