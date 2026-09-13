@@ -87,14 +87,7 @@ pub const MIN_PROTOCOL_VERSION: &str = "1.0";
 /// protocol, and it is what makes [`MIN_PROTOCOL_VERSION`] load-bearing:
 /// mira published that constant in `meta.json` but never checked it.
 pub fn negotiation() -> lanok_core::Negotiation {
-    lanok_core::Negotiation::with_min(
-        PROTOCOL_VERSION
-            .parse()
-            .expect("PROTOCOL_VERSION is a literal MAJOR.MINOR"),
-        MIN_PROTOCOL_VERSION
-            .parse()
-            .expect("MIN_PROTOCOL_VERSION is a literal MAJOR.MINOR"),
-    )
+    declaration::NEGOTIATION
 }
 
 /// The major component of a `MAJOR.MINOR` version string (0 if malformed).
@@ -193,10 +186,10 @@ pub struct Notification {
 }
 
 impl Notification {
-    /// The `method` of a progress `event` notification.
-    pub const EVENT: &'static str = "event";
-    /// The `method` of a free-form `log` notification.
-    pub const LOG: &'static str = "log";
+    /// The `method` of a progress `event` notification, from the declaration.
+    pub const EVENT: &'static str = method::EVENT;
+    /// The `method` of a free-form `log` notification, from the declaration.
+    pub const LOG: &'static str = method::LOG;
 
     /// Build a typed `event` progress notification.
     pub fn event(params: EventParams) -> Self {
@@ -284,6 +277,21 @@ pub struct LogParams {
 
 // ----- method payloads ------------------------------------------------------
 
+/// `initialize` params: what the host tells the study about itself.
+///
+/// Both fields are defaulted: a study SDK calling `handle("initialize", {})`
+/// (which the Python and TypeScript conformance suites do) must still parse.
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+pub struct InitializeParams {
+    /// The protocol version the host speaks, as `MAJOR.MINOR`.
+    #[serde(default)]
+    pub protocol_version: String,
+    /// The host's name, for the study's diagnostics.
+    #[serde(default)]
+    pub host: String,
+}
+
 /// `initialize` result.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
@@ -318,50 +326,132 @@ impl InitializeResult {
     }
 }
 
-/// Capability tokens a study may advertise in [`InitializeResult::capabilities`].
+/// The eval protocol, declared once.
 ///
-/// # Reserved (not yet implemented)
-/// `host_requests` is the negotiation handle for the **reverse channel** — a
+/// Everything below this point, method names, directions, which are requests
+/// and which are notifications, the capability tokens and what each promises,
+/// used to be written twice: as string literals in [`crate::host`]'s call sites
+/// and again as match arms in [`crate::study`]'s dispatch, with nothing
+/// checking that the two lists agreed. The declaration is now the single
+/// source, and both sides are generated from it.
+///
+/// It lives in a private module because two of the constants the macro emits
+/// (`PROTOCOL_VERSION`, `MIN_PROTOCOL_VERSION`) are typed
+/// [`lanok::Version`]s, while mira publishes the same two as strings in
+/// `meta.json` and across its SDKs. The strings above stay the public spelling;
+/// `versions_agree` below is the guard that keeps them equal.
+///
+/// # Reserved (not yet declared)
+/// `host_requests` is the negotiation handle for the **reverse channel**, a
 /// study→host request direction (host-brokered model access, shared resources,
-/// human-in-the-loop). It is *reserved*, not defined here: no const is minted and
-/// it is absent from the generated `meta.json` until the channel actually lands
-/// (then as a minor bump). The framing already accommodates it without a breaking
-/// change — see the `Inbound` classifier in [`crate::host`] and the
-/// reverse-channel seam in `docs/protocol.md` / `specs/architecture.md`.
-pub mod capabilities {
-    /// Study advertises extra matrix axes in `list` and honours `run.params`.
-    pub const AXES: &str = "axes";
-    /// Study emits `event` progress notifications during `run`.
-    pub const EVENTS: &str = "events";
-    /// Study reports token/cost usage and timing in transcripts.
-    pub const USAGE: &str = "usage";
-    /// Study answers `execute` (run the subject only, returning a full
-    /// transcript) for run-now-score-later workflows.
-    pub const EXECUTE: &str = "execute";
-    /// Study answers `score` (run scorers over a supplied transcript) for
-    /// deferred scoring and re-scoring of stored transcripts.
-    pub const SCORE: &str = "score";
-    /// Study honours the `trial`/`seed` run params — it threads the seed into the
-    /// subject so repetitions are reproducible. Trials run regardless (the host
-    /// drives the repetition); this advertises that seeding actually takes
-    /// effect, not just that the case is re-run.
-    pub const TRIALS: &str = "trials";
-    /// Study answers `cancel` (abort one in-flight run by its request `id`).
-    /// Without it, a host can only stop work by closing stdin, which ends every
-    /// in-flight run at once.
-    pub const CANCEL: &str = "cancel";
-    /// Study answers `list_samples` and may return a non-empty
-    /// `EvalInfo.next_cursor` from `list`, so the host pages large or lazily
-    /// generated sample sets instead of receiving them all in one `list`.
-    pub const PAGINATE: &str = "paginate";
-    /// Study attaches a structured ATIF trajectory to transcripts
-    /// (`Transcript::trajectory` on `execute` results / `score` params), and
-    /// its scorers can grade trajectory structure. The format/version pair
-    /// rides `capability_params` (`{"trajectory": {"format": "ATIF",
-    /// "version": "1.7"}}`), so a non-ATIF or ATIF-v2 representation needs no
-    /// new token. See [`crate::trajectory`].
-    pub const TRAJECTORY: &str = "trajectory";
+/// human-in-the-loop). It is *reserved*, not declared: no token is minted and
+/// it is absent from `meta.json` until the channel lands (then as a minor
+/// bump). Declaring it is additive when the time comes, because a method's
+/// direction is a property of the method rather than of the process: see the
+/// reverse-channel seam in `docs/protocol.md`.
+mod declaration {
+    use super::{
+        CancelParams, CancelResult, EventParams, ExecuteResult, InitializeParams, InitializeResult,
+        ListResult, ListSamplesParams, ListSamplesResult, LogParams, RunParams, RunResult,
+        ScoreParams,
+    };
+
+    lanok::protocol! {
+        name    = "mira";
+        version = "1.1";
+        min     = "1.0";
+
+        /// Announce the host and learn what the study is and can do.
+        initiator fn initialize(InitializeParams) -> InitializeResult;
+
+        /// The eval catalogue, with the first page of each eval's samples
+        /// inline.
+        initiator fn list() -> ListResult;
+
+        /// The next page of one eval's samples, for datasets too large (or too
+        /// lazy) to enumerate in one `list`.
+        initiator fn list_samples(ListSamplesParams) -> ListSamplesResult
+            requires "paginate";
+
+        /// Execute and score one matrix case in a single call.
+        initiator fn run(RunParams) -> RunResult;
+
+        /// Execute one case's subject without scoring, returning the full
+        /// transcript, for run-now-score-later workflows.
+        initiator fn execute(RunParams) -> ExecuteResult requires "execute";
+
+        /// Score a supplied transcript without re-executing the subject, for
+        /// deferred scoring and re-scoring.
+        initiator fn score(ScoreParams) -> RunResult requires "score";
+
+        /// Abort one in-flight `run`/`execute`/`score` by its request `id`.
+        ///
+        /// A request rather than a notification, and acknowledged: the host
+        /// learns whether the run was still in flight. That divergence from
+        /// other protocols, where cancel is fire-and-forget, is why lanok's
+        /// cancellation is a hook the protocol fills rather than a setting.
+        initiator fn cancel(CancelParams) -> CancelResult requires "cancel";
+
+        /// Live progress for one in-flight run, correlated to its request by
+        /// `request_id`.
+        responder notify event(EventParams) requires "events";
+
+        /// Free-form study output, for the host's log pane.
+        responder notify log(LogParams);
+
+        capabilities {
+            /// Study advertises extra matrix axes in `list` and honours
+            /// `run.params`.
+            axes,
+            /// Study emits `event` progress notifications during `run`.
+            events,
+            /// Study reports token/cost usage and timing in transcripts.
+            usage,
+            /// Study answers `execute` (run the subject only, returning a full
+            /// transcript) for run-now-score-later workflows.
+            execute,
+            /// Study answers `score` (run scorers over a supplied transcript)
+            /// for deferred scoring and re-scoring of stored transcripts.
+            score,
+            /// Study honours the `trial`/`seed` run params: it threads the seed
+            /// into the subject so repetitions are reproducible. Trials run
+            /// regardless (the host drives the repetition); this advertises
+            /// that seeding actually takes effect, not just that the case is
+            /// re-run.
+            trials,
+            /// Study answers `cancel` (abort one in-flight run by its request
+            /// `id`). Without it, a host can only stop work by closing stdin,
+            /// which ends every in-flight run at once.
+            cancel,
+            /// Study answers `list_samples` and may return a non-empty
+            /// `EvalInfo.next_cursor` from `list`, so the host pages large or
+            /// lazily generated sample sets instead of receiving them all in
+            /// one `list`.
+            paginate,
+            /// Study attaches a structured ATIF trajectory to transcripts
+            /// (`Transcript::trajectory` on `execute` results / `score`
+            /// params), and its scorers can grade trajectory structure. The
+            /// format/version pair rides `capability_params`
+            /// (`{"trajectory": {"format": "ATIF", "version": "1.7"}}`), so a
+            /// non-ATIF or ATIF-v2 representation needs no new token. See
+            /// [`crate::trajectory`].
+            trajectory,
+        }
+    }
 }
+
+/// The protocol's vocabulary as data: methods, directions, capability tokens.
+pub use declaration::META;
+/// Wire method names, so no call site spells one as a string literal.
+pub use declaration::method;
+/// Typed stubs for the host side, implemented for [`lanok::Peer`].
+pub use declaration::{InitiatorApi, InitiatorDispatch, InitiatorHandler};
+/// Typed handlers and dispatch for the study side.
+pub use declaration::{ResponderDispatch, ResponderHandler};
+
+/// Capability tokens a study may advertise in [`InitializeResult::capabilities`],
+/// generated from the `capabilities` block of the declaration above.
+pub use declaration::capability as capabilities;
 
 /// Defined `event` notification kinds — the value of [`EventParams::kind`].
 ///
@@ -761,6 +851,71 @@ impl RunResult {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The declaration owns the version; these two strings are the published
+    /// spelling of it (`meta.json`, the Python and TypeScript SDKs). They are
+    /// separate values, so this is the guard that keeps them one fact.
+    #[test]
+    fn versions_agree_with_the_declaration() {
+        assert_eq!(PROTOCOL_VERSION, declaration::PROTOCOL_VERSION.to_string());
+        assert_eq!(
+            MIN_PROTOCOL_VERSION,
+            declaration::MIN_PROTOCOL_VERSION.to_string()
+        );
+    }
+
+    /// The method list is what the SDKs, the conformance vectors and
+    /// `meta.json` are all built against, so a method added to the declaration
+    /// without being published is worth catching here rather than in a study.
+    #[test]
+    fn the_declaration_carries_the_whole_method_surface() {
+        let declared: Vec<&str> = META.methods.iter().map(|m| m.name).collect();
+        assert_eq!(
+            declared,
+            [
+                "initialize",
+                "list",
+                "list_samples",
+                "run",
+                "execute",
+                "score",
+                "cancel",
+                "event",
+                "log",
+            ]
+        );
+
+        // Directions are the point: everything the host calls is `initiator`,
+        // and the two notifications come back the other way. A reverse request
+        // would be an additive `responder fn`, not a redesign.
+        use lanok::{Direction, MethodKind};
+        for name in ["initialize", "list", "run", "cancel"] {
+            let method = META.method(name).unwrap();
+            assert_eq!(method.direction, Direction::Initiator);
+            assert_eq!(method.kind, MethodKind::Request);
+        }
+        for name in ["event", "log"] {
+            let method = META.method(name).unwrap();
+            assert_eq!(method.direction, Direction::Responder);
+            assert_eq!(method.kind, MethodKind::Notification);
+        }
+    }
+
+    /// Gating is declared, not remembered at each call site. `run` and `list`
+    /// are the base surface every study answers; the rest are opt-in.
+    #[test]
+    fn optional_methods_declare_the_capability_they_need() {
+        assert_eq!(META.method("run").unwrap().requires, None);
+        assert_eq!(META.method("list").unwrap().requires, None);
+        assert_eq!(META.method("execute").unwrap().requires, Some("execute"));
+        assert_eq!(META.method("score").unwrap().requires, Some("score"));
+        assert_eq!(META.method("cancel").unwrap().requires, Some("cancel"));
+        assert_eq!(
+            META.method("list_samples").unwrap().requires,
+            Some("paginate")
+        );
+        assert_eq!(META.method("event").unwrap().requires, Some("events"));
+    }
 
     // Exercises the `protocol-unstable` staging mechanism: when the feature is
     // on, the experimental field is part of the wire type and round-trips. The

@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- The eval protocol is now **declared** with `lanok::protocol!` in
+  `protocol.rs`, rather than described twice: as string literals at the host's
+  call sites and again as match arms in the study's dispatch, with nothing
+  checking that the two agreed. Method names, directions, request-versus-
+  notification, and the capability each optional method needs all come from the
+  one declaration, and `capabilities::*` is generated from it (docs included).
+  The wire is unchanged.
+
 ### Fixed
 
 - `MIN_PROTOCOL_VERSION` is now enforced during the handshake. It was published

@@ -25,7 +25,7 @@ use lanok_core::Message;
 use crate::protocol::{
     CancelResult, ExecuteResult, InitializeResult, ListResult, ListSamplesParams,
     ListSamplesResult, Notification, PROTOCOL_VERSION, Request, RpcError, RunParams, RunResult,
-    ScoreParams, capabilities,
+    ScoreParams, capabilities, method,
 };
 use crate::{Params, Trial};
 
@@ -61,7 +61,7 @@ impl HostHandle {
     pub async fn initialize(&self, host_name: &str) -> Result<InitializeResult, RpcError> {
         let value = self
             .request(
-                "initialize",
+                method::INITIALIZE,
                 serde_json::json!({ "protocol_version": PROTOCOL_VERSION, "host": host_name }),
                 false,
             )
@@ -87,7 +87,9 @@ impl HostHandle {
     /// remain — use [`list_complete`](HostHandle::list_complete) to fetch them
     /// all, or page manually with [`list_samples`](HostHandle::list_samples).
     pub async fn list(&self) -> Result<ListResult, RpcError> {
-        let value = self.request("list", serde_json::Value::Null, false).await?;
+        let value = self
+            .request(method::LIST, serde_json::Value::Null, false)
+            .await?;
         serde_json::from_value(value).map_err(|e| RpcError::internal(e.to_string()))
     }
 
@@ -104,7 +106,11 @@ impl HostHandle {
             cursor: cursor.into(),
         };
         let value = self
-            .request("list_samples", serde_json::to_value(params).unwrap(), false)
+            .request(
+                method::LIST_SAMPLES,
+                serde_json::to_value(params).unwrap(),
+                false,
+            )
             .await?;
         serde_json::from_value(value).map_err(|e| RpcError::internal(e.to_string()))
     }
@@ -145,7 +151,7 @@ impl HostHandle {
             return Ok(false);
         }
         let value = self
-            .request("cancel", serde_json::json!({ "id": run_id }), false)
+            .request(method::CANCEL, serde_json::json!({ "id": run_id }), false)
             .await?;
         let result: CancelResult =
             serde_json::from_value(value).map_err(|e| RpcError::internal(e.to_string()))?;
@@ -166,7 +172,7 @@ impl HostHandle {
     ) -> Result<RunResult, RpcError> {
         let params = run_params(eval, sample, target, params, trial);
         let value = self
-            .request("run", serde_json::to_value(params).unwrap(), true)
+            .request(method::RUN, serde_json::to_value(params).unwrap(), true)
             .await?;
         serde_json::from_value(value).map_err(|e| RpcError::internal(e.to_string()))
     }
@@ -184,7 +190,7 @@ impl HostHandle {
     ) -> Result<ExecuteResult, RpcError> {
         let params = run_params(eval, sample, target, params, trial);
         let value = self
-            .request("execute", serde_json::to_value(params).unwrap(), true)
+            .request(method::EXECUTE, serde_json::to_value(params).unwrap(), true)
             .await?;
         let mut result: ExecuteResult =
             serde_json::from_value(value).map_err(|e| RpcError::internal(e.to_string()))?;
@@ -212,7 +218,7 @@ impl HostHandle {
             transcript: captured.transcript.clone(),
         };
         let value = self
-            .request("score", serde_json::to_value(params).unwrap(), true)
+            .request(method::SCORE, serde_json::to_value(params).unwrap(), true)
             .await?;
         serde_json::from_value(value).map_err(|e| RpcError::internal(e.to_string()))
     }
@@ -343,7 +349,7 @@ async fn send_cancel(
     let id = next_id.fetch_add(1, Ordering::SeqCst) + 1;
     let request = Request {
         id,
-        method: "cancel".into(),
+        method: method::CANCEL.into(),
         params: serde_json::json!({ "id": run_id }),
     };
     let mut line = serde_json::to_vec(&request).unwrap_or_default();
@@ -539,7 +545,7 @@ async fn reader_loop(
                 // rather than let its id corrupt routing.
                 let cb = on_event.lock().expect("on_event mutex poisoned").clone();
                 cb(&Notification {
-                    method: "log".into(),
+                    method: Notification::LOG.into(),
                     params: serde_json::json!({
                         "message": format!("ignoring unsupported host request: {method}")
                     }),

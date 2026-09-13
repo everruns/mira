@@ -1907,13 +1907,73 @@ dependencies = [
 ]
 
 [[package]]
+name = "lanok"
+version = "0.1.0"
+source = "git+https://github.com/everruns/lanok?rev=06ca30e#06ca30ea58fd8d792a373970303c0bdfbd1faa81"
+dependencies = [
+ "async-trait",
+ "lanok-core",
+ "lanok-macros",
+ "lanok-peer",
+ "lanok-schema",
+ "lanok-transport",
+ "serde_json",
+]
+
+[[package]]
 name = "lanok-core"
 version = "0.1.0"
-source = "git+https://github.com/everruns/lanok?rev=f7410b7#f7410b70fa64357d1afa45484e5c3ccaef5ac45b"
+source = "git+https://github.com/everruns/lanok?rev=06ca30e#06ca30ea58fd8d792a373970303c0bdfbd1faa81"
 dependencies = [
  "schemars",
  "serde",
  "serde_json",
+]
+
+[[package]]
+name = "lanok-macros"
+version = "0.1.0"
+source = "git+https://github.com/everruns/lanok?rev=06ca30e#06ca30ea58fd8d792a373970303c0bdfbd1faa81"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 2.0.119",
+]
+
+[[package]]
+name = "lanok-peer"
+version = "0.1.0"
+source = "git+https://github.com/everruns/lanok?rev=06ca30e#06ca30ea58fd8d792a373970303c0bdfbd1faa81"
+dependencies = [
+ "async-trait",
+ "lanok-core",
+ "lanok-transport",
+ "schemars",
+ "serde",
+ "serde_json",
+ "tokio",
+]
+
+[[package]]
+name = "lanok-schema"
+version = "0.1.0"
+source = "git+https://github.com/everruns/lanok?rev=06ca30e#06ca30ea58fd8d792a373970303c0bdfbd1faa81"
+dependencies = [
+ "lanok-core",
+ "schemars",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "lanok-transport"
+version = "0.1.0"
+source = "git+https://github.com/everruns/lanok?rev=06ca30e#06ca30ea58fd8d792a373970303c0bdfbd1faa81"
+dependencies = [
+ "async-trait",
+ "lanok-core",
+ "serde_json",
+ "tokio",
 ]
 
 [[package]]
@@ -2075,6 +2135,7 @@ version = "0.5.0"
 dependencies = [
  "async-trait",
  "inventory",
+ "lanok",
  "lanok-core",
  "mira-macros",
  "regex",

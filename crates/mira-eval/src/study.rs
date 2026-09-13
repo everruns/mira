@@ -39,7 +39,7 @@ use crate::protocol::{
     AxisInfo, CancelParams, CancelResult, EvalInfo, EventParams, ExecuteResult, InitializeResult,
     ListResult, ListSamplesParams, ListSamplesResult, Notification, PROTOCOL_VERSION, Request,
     Response, RpcError, RunParams, RunResult, SampleInfo, ScoreParams, TargetInfo,
-    TranscriptSummary, capabilities, codes, event,
+    TranscriptSummary, capabilities, codes, event, method,
 };
 use crate::registry::registered_evals;
 use crate::runner::{aggregate_value, execute_case, run_case, score_transcript, verdict};
@@ -194,7 +194,7 @@ impl Study {
 
             // `cancel` mutates the in-flight registry and must resolve promptly;
             // handle it inline rather than racing it against the runs it cancels.
-            if request.method == "cancel" {
+            if request.method == method::CANCEL {
                 let response = cancel(&request, &inflight);
                 write_line(&out, &response).await?;
                 continue;
@@ -234,7 +234,7 @@ impl Study {
 
     async fn dispatch(&self, request: &Request, stdout: &SharedWriter) -> Response {
         match request.method.as_str() {
-            "initialize" => Response::ok(
+            method::INITIALIZE => Response::ok(
                 request.id,
                 json(&InitializeResult {
                     protocol_version: PROTOCOL_VERSION.into(),
@@ -257,8 +257,8 @@ impl Study {
                     capability_params: advertised_capability_params(),
                 }),
             ),
-            "list" => Response::ok(request.id, json(&self.list())),
-            "list_samples" => {
+            method::LIST => Response::ok(request.id, json(&self.list())),
+            method::LIST_SAMPLES => {
                 let params: ListSamplesParams = match serde_json::from_value(request.params.clone())
                 {
                     Ok(p) => p,
@@ -271,7 +271,7 @@ impl Study {
                     Err(e) => Response::err(request.id, e),
                 }
             }
-            "run" => {
+            method::RUN => {
                 let params: RunParams = match serde_json::from_value(request.params.clone()) {
                     Ok(p) => p,
                     Err(e) => {
@@ -293,7 +293,7 @@ impl Study {
                     Err(e) => Response::err(request.id, e),
                 }
             }
-            "execute" => {
+            method::EXECUTE => {
                 let params: RunParams = match serde_json::from_value(request.params.clone()) {
                     Ok(p) => p,
                     Err(e) => {
@@ -312,7 +312,7 @@ impl Study {
                     Err(e) => Response::err(request.id, e),
                 }
             }
-            "score" => {
+            method::SCORE => {
                 let params: ScoreParams = match serde_json::from_value(request.params.clone()) {
                     Ok(p) => p,
                     Err(e) => {
