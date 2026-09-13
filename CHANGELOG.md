@@ -9,6 +9,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **The host runs on `lanok::Peer`.** `host.rs` carried its own JSON-RPC
+  client: a reader task, a pending-request map, id allocation, a drop guard,
+  and a hand-written `cancel` writer. None of it was specific to evals. The
+  peer owns that now, and the calls are the declaration's generated stubs
+  (`peer.run(params)`, not `request("run", ...)`), so a method's capability
+  gate is checked before the wire instead of after a round trip, and the
+  notifications arrive through the generated handler with their params already
+  typed. What stays is what is actually mira's: the `initialize` payloads, the
+  version check, that an abandoned `run` is worth an acknowledged `cancel`
+  request, and projecting a transcript from its trajectory on receipt. Net 170
+  lines lighter. `Host::shutdown` now also drains the study's stderr before
+  returning, so a crashing study's last lines are visible.
+
 - `schema/v1/meta.json` is now serialized from the `lanok::protocol!`
   declaration instead of listing the methods and capability tokens again by
   hand. It was a third copy of the method names, kept in step by nothing:

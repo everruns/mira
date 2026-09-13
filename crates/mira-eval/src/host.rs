@@ -3,71 +3,76 @@
 //! notifications. The `mira` CLI (`mira-cli`) is the user-facing driver built on
 //! top of this.
 //!
+//! ## What is mira's here, and what isn't
+//!
+//! The JSON-RPC plumbing is [`lanok::Peer`]'s: framing, id allocation,
+//! correlating a response to the caller that is waiting for it, classifying a
+//! line by its fields, noticing that a caller abandoned a request, failing every
+//! in-flight call at once when the study goes away. None of that is specific to
+//! evals, and mira used to carry its own copy.
+//!
+//! What stays here is the part that *is* mira's: which methods exist (declared
+//! in [`crate::protocol`], so the calls below are generated stubs rather than
+//! string literals), what `initialize` means, that an abandoned `run` is worth a
+//! `cancel` request, and that a transcript is projected from its trajectory on
+//! receipt.
+//!
 //! ## Concurrency
 //!
-//! A single study process serves **many in-flight requests at once**. [`Host`]
-//! spawns one reader task that owns the study's stdout, routes each response to
-//! the waiter that registered its `id`, and dispatches notifications to the
-//! `on_event` callback. Requests are written under a stdin mutex, so a caller can
-//! fire several `run`s concurrently (see [`crate::exec`]) over the one pipe. The
-//! cheaply-cloneable [`HostHandle`] is what concurrent callers share.
+//! A single study process serves **many in-flight requests at once**. The peer
+//! owns the study's stdio, routes each response to the waiter that registered its
+//! id, and hands notifications to the handler installed below. Requests may be
+//! issued concurrently from any clone (see [`crate::exec`]); the cheaply-cloneable
+//! [`HostHandle`] is what concurrent callers share.
 
-use std::collections::HashMap;
 use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 
-use tokio::io::{AsyncBufReadExt, AsyncRead, AsyncWrite, AsyncWriteExt, BufReader, Lines};
-use tokio::process::{Child, Command};
-use tokio::sync::{Mutex, oneshot};
+use tokio::io::{AsyncRead, AsyncWrite};
+use tokio::process::Command;
 
-use lanok_core::Message;
+use lanok::{Abandoned, ChildTransport, NdjsonTransport, Peer, PeerInfo, Transport};
 
 use crate::protocol::{
-    CancelResult, ExecuteResult, InitializeResult, ListResult, ListSamplesParams,
-    ListSamplesResult, Notification, PROTOCOL_VERSION, Request, RpcError, RunParams, RunResult,
-    ScoreParams, capabilities, method,
+    CancelParams, ExecuteResult, InitializeParams, InitializeResult, InitiatorApi,
+    InitiatorDispatch, InitiatorHandler, ListResult, ListSamplesParams, ListSamplesResult,
+    Notification, PROTOCOL_VERSION, RpcError, RunParams, RunResult, ScoreParams, capabilities,
+    method,
 };
 use crate::{Params, Trial};
 
 /// Callback invoked for each progress notification (e.g. to render a live log).
 type EventCb = Arc<dyn Fn(&Notification) + Send + Sync>;
 
-/// One in-flight request's slot: the reader fulfils it by `id`. The error is the
-/// structured [`RpcError`] so callers (and the executor) can classify/retry a
-/// protocol-level failure without parsing the message.
-type Pending =
-    Arc<std::sync::Mutex<HashMap<u64, oneshot::Sender<Result<serde_json::Value, RpcError>>>>>;
-
-/// Boxed transports so the host works over both a child process's stdio and
-/// in-memory pipes (the latter for in-process host↔study tests).
-type BoxedWriter = Box<dyn AsyncWrite + Send + Unpin>;
-type BoxedReader = Box<dyn AsyncRead + Send + Unpin>;
+/// The methods worth cancelling when their caller goes away: the long ones that
+/// cost money. `list`/`initialize` are short enough that a cancel would race the
+/// response it was meant to pre-empt.
+const CANCELABLE: &[&str] = &[method::RUN, method::EXECUTE, method::SCORE];
 
 /// A cheaply-cloneable client over the study's framed stdio channel. Every method
 /// takes `&self`, so clones can issue requests concurrently — responses are
 /// demultiplexed by request `id`. Obtain one with [`Host::handle`].
 #[derive(Clone)]
 pub struct HostHandle {
-    stdin: Arc<Mutex<BoxedWriter>>,
-    pending: Pending,
-    next_id: Arc<AtomicU64>,
-    /// Set once `initialize` sees the study advertise the `cancel` capability.
-    /// Gates both explicit [`cancel`](HostHandle::cancel) and cancel-on-drop, so
-    /// the host never sends `cancel` to a study that wouldn't understand it.
-    supports_cancel: Arc<AtomicBool>,
+    peer: Peer,
 }
 
 impl HostHandle {
     pub async fn initialize(&self, host_name: &str) -> Result<InitializeResult, RpcError> {
-        let value = self
-            .request(
+        // Not `Peer::handshake`: that one exchanges lanok's own `Hello`, and
+        // mira's `initialize` answers with the eval catalogue. So the version
+        // check and the capability record are done here, against the protocol's
+        // own payloads, and the generated `NEGOTIATION` is what decides.
+        let info: InitializeResult = self
+            .peer
+            .handshake_with(
                 method::INITIALIZE,
-                serde_json::json!({ "protocol_version": PROTOCOL_VERSION, "host": host_name }),
-                false,
+                &InitializeParams {
+                    protocol_version: PROTOCOL_VERSION.to_string(),
+                    host: host_name.into(),
+                },
             )
             .await?;
-        let info: InitializeResult =
-            serde_json::from_value(value).map_err(|e| RpcError::internal(e.to_string()))?;
+
         // Forward/backward compatibility: a mismatched *major* is a hard
         // incompatibility; a differing minor is additive and tolerated.
         if !crate::protocol::version_compatible(&info.protocol_version) {
@@ -76,9 +81,16 @@ impl HostHandle {
                 info.protocol_version, PROTOCOL_VERSION
             )));
         }
-        // Remember whether cancellation is available for later runs.
-        let can_cancel = info.capabilities.iter().any(|c| c == capabilities::CANCEL);
-        self.supports_cancel.store(can_cancel, Ordering::Relaxed);
+
+        // Recording what the study advertised is what lights up capability
+        // gating: the generated stubs consult it before writing to the wire, so
+        // an unsupported method is a typed local answer instead of a round trip
+        // that ends in `method not found`.
+        self.peer.record_peer(PeerInfo {
+            name: info.study.clone(),
+            version: None,
+            capabilities: info.capabilities.iter().cloned().collect(),
+        });
         Ok(info)
     }
 
@@ -87,10 +99,7 @@ impl HostHandle {
     /// remain — use [`list_complete`](HostHandle::list_complete) to fetch them
     /// all, or page manually with [`list_samples`](HostHandle::list_samples).
     pub async fn list(&self) -> Result<ListResult, RpcError> {
-        let value = self
-            .request(method::LIST, serde_json::Value::Null, false)
-            .await?;
-        serde_json::from_value(value).map_err(|e| RpcError::internal(e.to_string()))
+        self.peer.list().await
     }
 
     /// Fetch one more page of an eval's samples, continuing from `cursor` (an
@@ -101,18 +110,12 @@ impl HostHandle {
         eval: &str,
         cursor: &str,
     ) -> Result<ListSamplesResult, RpcError> {
-        let params = ListSamplesParams {
-            eval: eval.into(),
-            cursor: cursor.into(),
-        };
-        let value = self
-            .request(
-                method::LIST_SAMPLES,
-                serde_json::to_value(params).unwrap(),
-                false,
-            )
-            .await?;
-        serde_json::from_value(value).map_err(|e| RpcError::internal(e.to_string()))
+        self.peer
+            .list_samples(ListSamplesParams {
+                eval: eval.into(),
+                cursor: cursor.into(),
+            })
+            .await
     }
 
     /// The full catalogue with **every** sample materialized: call `list`, then
@@ -135,7 +138,7 @@ impl HostHandle {
 
     /// Whether the study advertised the `cancel` capability at `initialize`.
     pub fn supports_cancel(&self) -> bool {
-        self.supports_cancel.load(Ordering::Relaxed)
+        self.peer.supports(capabilities::CANCEL)
     }
 
     /// Ask the study to abort an in-flight `run`/`execute`/`score` by its request
@@ -147,14 +150,13 @@ impl HostHandle {
     /// best-effort cancel for that run. This is the explicit lever for when you
     /// hold the id and want the study's acknowledgement.
     pub async fn cancel(&self, run_id: u64) -> Result<bool, RpcError> {
-        if !self.supports_cancel.load(Ordering::Relaxed) {
+        // A study that can't cancel is "nothing to cancel", not an error: this
+        // is the best-effort lever, and its callers branch on the bool. The
+        // generated stub's own gate would answer `capability unsupported`.
+        if !self.supports_cancel() {
             return Ok(false);
         }
-        let value = self
-            .request(method::CANCEL, serde_json::json!({ "id": run_id }), false)
-            .await?;
-        let result: CancelResult =
-            serde_json::from_value(value).map_err(|e| RpcError::internal(e.to_string()))?;
+        let result = self.peer.cancel(CancelParams { id: run_id }).await?;
         Ok(result.cancelled)
     }
 
@@ -170,11 +172,9 @@ impl HostHandle {
         params: &Params,
         trial: Trial,
     ) -> Result<RunResult, RpcError> {
-        let params = run_params(eval, sample, target, params, trial);
-        let value = self
-            .request(method::RUN, serde_json::to_value(params).unwrap(), true)
-            .await?;
-        serde_json::from_value(value).map_err(|e| RpcError::internal(e.to_string()))
+        self.peer
+            .run(run_params(eval, sample, target, params, trial))
+            .await
     }
 
     /// Execute one case's subject without scoring, returning the full transcript
@@ -188,12 +188,10 @@ impl HostHandle {
         params: &Params,
         trial: Trial,
     ) -> Result<ExecuteResult, RpcError> {
-        let params = run_params(eval, sample, target, params, trial);
-        let value = self
-            .request(method::EXECUTE, serde_json::to_value(params).unwrap(), true)
+        let mut result = self
+            .peer
+            .execute(run_params(eval, sample, target, params, trial))
             .await?;
-        let mut result: ExecuteResult =
-            serde_json::from_value(value).map_err(|e| RpcError::internal(e.to_string()))?;
         // Normalize on receipt: a foreign study may return a trajectory-only
         // transcript (only `transcript.trajectory` set). Fill any flat fields
         // still at their defaults from the trajectory — never overwriting one
@@ -207,119 +205,18 @@ impl HostHandle {
     /// (deferred scoring / re-scoring). Requires the study to advertise the
     /// `score` capability. Safe to call concurrently from clones.
     pub async fn score(&self, captured: &ExecuteResult) -> Result<RunResult, RpcError> {
-        let params = ScoreParams {
-            eval: captured.eval.clone(),
-            sample: captured.sample.clone(),
-            target: captured.target.clone(),
-            params: captured.params.clone(),
-            trial: captured.trial,
-            trials: captured.trials,
-            seed: captured.seed,
-            transcript: captured.transcript.clone(),
-        };
-        let value = self
-            .request(method::SCORE, serde_json::to_value(params).unwrap(), true)
-            .await?;
-        serde_json::from_value(value).map_err(|e| RpcError::internal(e.to_string()))
-    }
-
-    /// Send one request and await its correlated response. Concurrency-safe: the
-    /// `id` is registered before the line is written, and the reader task routes
-    /// the reply back here.
-    ///
-    /// `cancelable` arms cancel-on-drop: if the caller drops this future before
-    /// the response arrives (a per-case `timeout`, a fail-fast `select!`), the
-    /// guard best-effort tells the study to abort the run — so an abandoned run
-    /// stops burning cost instead of running to completion unobserved.
-    async fn request(
-        &self,
-        method: &str,
-        params: serde_json::Value,
-        cancelable: bool,
-    ) -> Result<serde_json::Value, RpcError> {
-        let id = self.next_id.fetch_add(1, Ordering::SeqCst) + 1;
-        let (tx, rx) = oneshot::channel();
-        self.pending
-            .lock()
-            .expect("pending mutex poisoned")
-            .insert(id, tx);
-
-        // The guard frees the pending slot on every exit path (including the
-        // caller dropping this future), so a leaked id can't pin the reader.
-        let mut guard = RequestGuard {
-            id,
-            pending: self.pending.clone(),
-            cancel: None,
-            completed: false,
-        };
-
-        let request = Request {
-            id,
-            method: method.into(),
-            params,
-        };
-        let mut line =
-            serde_json::to_vec(&request).map_err(|e| RpcError::internal(e.to_string()))?;
-        line.push(b'\n');
-        {
-            let mut stdin = self.stdin.lock().await;
-            stdin
-                .write_all(&line)
-                .await
-                .map_err(|e| RpcError::internal(e.to_string()))?;
-            stdin
-                .flush()
-                .await
-                .map_err(|e| RpcError::internal(e.to_string()))?;
-        }
-
-        // The request is genuinely in flight now: arm cancel-on-drop (only for a
-        // cancelable method against a study that supports it).
-        if cancelable && self.supports_cancel.load(Ordering::Relaxed) {
-            guard.cancel = Some((self.stdin.clone(), self.next_id.clone()));
-        }
-
-        let out = match rx.await {
-            Ok(result) => result,
-            // Reader dropped the sender without replying ⇒ the channel closed.
-            Err(_) => Err(RpcError::internal("study closed the connection")),
-        };
-        guard.completed = true;
-        out
-    }
-}
-
-/// Cleans up an in-flight request when its [`HostHandle::request`] future exits.
-/// Always frees the pending slot; if armed and the future was dropped before the
-/// response arrived, it also fires a best-effort `cancel` so the study aborts the
-/// abandoned run.
-struct RequestGuard {
-    id: u64,
-    pending: Pending,
-    cancel: Option<(Arc<Mutex<BoxedWriter>>, Arc<AtomicU64>)>,
-    completed: bool,
-}
-
-impl Drop for RequestGuard {
-    fn drop(&mut self) {
-        self.pending
-            .lock()
-            .expect("pending mutex poisoned")
-            .remove(&self.id);
-        if self.completed {
-            return;
-        }
-        // Dropped before the response arrived. Fire-and-forget a cancel for this
-        // run id (a fresh request id, no reply awaited). Needs a runtime to spawn
-        // the write; if there isn't one (e.g. drop during shutdown), skip it.
-        if let Some((stdin, next_id)) = self.cancel.take() {
-            let run_id = self.id;
-            if let Ok(rt) = tokio::runtime::Handle::try_current() {
-                rt.spawn(async move {
-                    let _ = send_cancel(&stdin, &next_id, run_id).await;
-                });
-            }
-        }
+        self.peer
+            .score(ScoreParams {
+                eval: captured.eval.clone(),
+                sample: captured.sample.clone(),
+                target: captured.target.clone(),
+                params: captured.params.clone(),
+                trial: captured.trial,
+                trials: captured.trials,
+                seed: captured.seed,
+                transcript: captured.transcript.clone(),
+            })
+            .await
     }
 }
 
@@ -338,55 +235,53 @@ fn run_params(eval: &str, sample: &str, target: &str, params: &Params, trial: Tr
     }
 }
 
-/// Write a fire-and-forget `cancel { id: run_id }` line. No pending slot is
-/// registered: the study's ack arrives with an unknown id and the reader ignores
-/// it, which is exactly what best-effort cancellation wants.
-async fn send_cancel(
-    stdin: &Arc<Mutex<BoxedWriter>>,
-    next_id: &Arc<AtomicU64>,
-    run_id: u64,
-) -> std::io::Result<()> {
-    let id = next_id.fetch_add(1, Ordering::SeqCst) + 1;
-    let request = Request {
-        id,
-        method: method::CANCEL.into(),
-        params: serde_json::json!({ "id": run_id }),
-    };
-    let mut line = serde_json::to_vec(&request).unwrap_or_default();
-    line.push(b'\n');
-    let mut stdin = stdin.lock().await;
-    stdin.write_all(&line).await?;
-    stdin.flush().await
+/// Forwards the study's notifications to the host's `on_event` callback.
+///
+/// This is the generated [`InitiatorHandler`]: the study is the responder, so
+/// `event` and `log` are what it may send, and the dispatcher routes them here
+/// with their params already typed. The callback stays untyped
+/// ([`Notification`]) because that is the host's public surface; a malformed
+/// notification is dropped by the dispatcher before it gets this far.
+struct Events(Arc<std::sync::Mutex<EventCb>>);
+
+impl Events {
+    fn emit(&self, notification: Notification) {
+        let cb = self.0.lock().expect("on_event mutex poisoned").clone();
+        cb(&notification);
+    }
+}
+
+impl InitiatorHandler for Events {
+    fn event(&self, params: crate::protocol::EventParams) {
+        self.emit(Notification::event(params));
+    }
+
+    fn log(&self, params: crate::protocol::LogParams) {
+        self.emit(Notification::log(params.message, params.request_id));
+    }
 }
 
 /// A study connection and the framed channel to it. Usually a spawned child
 /// process ([`spawn`](Host::spawn)); also constructible over arbitrary pipes
 /// ([`connect`](Host::connect)) for in-process tests.
 pub struct Host {
-    child: Option<Child>,
     handle: HostHandle,
-    reader: Option<tokio::task::JoinHandle<()>>,
-    /// Swappable progress callback, read by the reader task per notification.
+    /// Swappable progress callback, read by the notification handler per event.
     on_event: Arc<std::sync::Mutex<EventCb>>,
 }
 
 impl Host {
-    /// Spawn `command` as the eval study. Its stderr is inherited (build logs,
-    /// tracing); only stdout carries protocol JSON. A background reader task is
-    /// started immediately to demultiplex responses and notifications.
-    pub async fn spawn(mut command: Command) -> std::io::Result<Self> {
-        command
-            .stdin(std::process::Stdio::piped())
-            .stdout(std::process::Stdio::piped())
-            .stderr(std::process::Stdio::inherit());
-        let mut child = command.spawn()?;
-        let stdin = child.stdin.take().expect("piped stdin");
-        let stdout = child.stdout.take().expect("piped stdout");
-        Ok(Self::with_io(
-            Some(child),
-            Box::new(stdout),
-            Box::new(stdin),
-        ))
+    /// Spawn `command` as the eval study. Its stderr is forwarded to the host's
+    /// (build logs, tracing); only stdout carries protocol JSON. The peer starts
+    /// reading immediately, demultiplexing responses and notifications.
+    pub async fn spawn(command: Command) -> std::io::Result<Self> {
+        // Forwarded rather than inherited, because the transport drains the
+        // pipe: an unread stderr is what wedges a chatty study at ~8 KiB of
+        // logging, and draining is also what puts a crashing study's last lines
+        // in front of whoever is debugging it.
+        let transport =
+            ChildTransport::spawn_logging(command, Arc::new(|line: &str| eprintln!("{line}")))?;
+        Ok(Self::with_transport(transport))
     }
 
     /// Connect to a study over arbitrary transports: `reader` carries the study's
@@ -397,31 +292,46 @@ impl Host {
         R: AsyncRead + Send + Unpin + 'static,
         W: AsyncWrite + Send + Unpin + 'static,
     {
-        Self::with_io(None, Box::new(reader), Box::new(writer))
+        Self::with_transport(NdjsonTransport::new(reader, writer))
     }
 
-    /// Shared constructor: wire the reader task and the cheaply-cloneable handle
-    /// over the boxed transports.
-    fn with_io(child: Option<Child>, reader: BoxedReader, writer: BoxedWriter) -> Self {
-        let pending: Pending = Arc::new(std::sync::Mutex::new(HashMap::new()));
+    /// Shared constructor: configure the peer over `transport` and wrap it in the
+    /// cheaply-cloneable handle.
+    fn with_transport(transport: impl Transport) -> Self {
         let on_event: Arc<std::sync::Mutex<EventCb>> =
             Arc::new(std::sync::Mutex::new(Arc::new(|_: &Notification| {})));
 
-        let reader = tokio::spawn(reader_loop(
-            BufReader::new(reader).lines(),
-            pending.clone(),
-            on_event.clone(),
-        ));
+        let peer = Peer::builder()
+            .handler(InitiatorDispatch::new(Events(on_event.clone())))
+            // Cancel-on-drop. Lanok notices the abandonment and hands over the
+            // id; what goes on the wire is mira's, and mira's cancel is an
+            // acknowledged *request* rather than the usual fire-and-forget
+            // notification. Gated on the study having said it can cancel, and on
+            // the method being one worth cancelling.
+            .on_abandon(Arc::new(|peer: &Peer, abandoned: &Abandoned| {
+                if !peer.supports(capabilities::CANCEL)
+                    || !CANCELABLE.contains(&abandoned.method.as_str())
+                {
+                    return;
+                }
+                let Some(id) = abandoned.id.as_number() else {
+                    return;
+                };
+                // Needs a runtime to spawn the send; if there isn't one (a drop
+                // during shutdown), skip it. No reply is awaited: the study's
+                // ack arrives for a request nobody is waiting on, which is
+                // exactly what best-effort cancellation wants.
+                let peer = peer.clone();
+                if let Ok(rt) = tokio::runtime::Handle::try_current() {
+                    rt.spawn(async move {
+                        let _ = peer.cancel(CancelParams { id }).await;
+                    });
+                }
+            }))
+            .connect(transport);
 
         Self {
-            child,
-            handle: HostHandle {
-                stdin: Arc::new(Mutex::new(writer)),
-                pending,
-                next_id: Arc::new(AtomicU64::new(0)),
-                supports_cancel: Arc::new(AtomicBool::new(false)),
-            },
-            reader: Some(reader),
+            handle: HostHandle { peer },
             on_event,
         }
     }
@@ -490,85 +400,27 @@ impl Host {
         self.handle.cancel(run_id).await
     }
 
-    /// Close stdin and wait for the study to exit. Drops the host's own handle so
-    /// that — once any outstanding [`HostHandle`] clones are gone — the study's
-    /// stdin pipe closes and it sees EOF.
-    pub async fn shutdown(mut self) -> std::io::Result<()> {
-        drop(self.handle);
-        if let Some(reader) = self.reader.take() {
-            let _ = reader.await;
-        }
-        match self.child.take() {
-            Some(mut child) => child.wait().await.map(|_| ()),
-            None => Ok(()),
-        }
-    }
-}
-
-/// Read framed lines until EOF: route responses to their waiters by `id`, hand
-/// notifications to `on_event`. On EOF, fail any still-pending requests.
-async fn reader_loop(
-    mut lines: Lines<BufReader<BoxedReader>>,
-    pending: Pending,
-    on_event: Arc<std::sync::Mutex<EventCb>>,
-) {
-    while let Ok(Some(line)) = lines.next_line().await {
-        if line.trim().is_empty() {
-            continue;
-        }
-        // Classification is lanok's, by **fields, not the pipe**: a line bearing
-        // `method` is a request (with `id`) or a notification (without); only a
-        // `method`-less line is a response. Checking `method` first is the
-        // safety property, because a reverse request's id lives in the study's
-        // own id space and both sides number from 1, so misreading one
-        // completes an unrelated in-flight request with an empty response.
-        // That rule is worth having once rather than once per protocol.
-        let Ok(message) = Message::from_line(&line) else {
-            continue; // Not a usable message. A bad line is never fatal.
-        };
-        match message {
-            Message::Response { id, payload } => {
-                // Ids this host hands out are numbers; a string id was never
-                // ours to route.
-                let Some(id) = id.as_number() else { continue };
-                if let Some(tx) = pending.lock().expect("pending mutex poisoned").remove(&id) {
-                    let _ = tx.send(payload);
-                }
-            }
-            Message::Notification { method, params } => {
-                let cb = on_event.lock().expect("on_event mutex poisoned").clone();
-                cb(&Notification { method, params });
-            }
-            Message::Request { method, .. } => {
-                // The reverse channel is a reserved, capability-gated seam. The
-                // host advertises no support, so this is unexpected; drop it
-                // rather than let its id corrupt routing.
-                let cb = on_event.lock().expect("on_event mutex poisoned").clone();
-                cb(&Notification {
-                    method: Notification::LOG.into(),
-                    params: serde_json::json!({
-                        "message": format!("ignoring unsupported host request: {method}")
-                    }),
-                });
-            }
-        }
-    }
-    // EOF: nothing more will arrive, so unblock every outstanding waiter.
-    let mut pending = pending.lock().expect("pending mutex poisoned");
-    for (_, tx) in pending.drain() {
-        let _ = tx.send(Err(RpcError::internal("study closed the connection")));
+    /// Close the connection and wait for the study to exit. Closing stdin is the
+    /// polite signal: the study's serve loop sees EOF and returns. Returns once
+    /// the transport is released, which for a spawned study means the child has
+    /// been reaped and its stderr drained.
+    pub async fn shutdown(self) -> std::io::Result<()> {
+        self.handle.peer.shutdown().await;
+        Ok(())
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+    use lanok::Message;
 
     #[test]
     fn classifies_response_notification_and_reverse_request() {
         // The rule this host depends on, now lanok's. Kept as a test here
         // because the safety property is mira's to rely on: a reverse request
-        // must never be read as a response.
+        // must never be read as a response. Pre-lanok, a study→host request
+        // whose id collided with a host's in-flight id parsed as an "empty
+        // response" and completed that unrelated request.
 
         // A response: id, no method.
         assert!(matches!(
@@ -586,27 +438,5 @@ mod tests {
             Ok(Message::Request { ref method, ref id, .. })
                 if method == "broker_model" && id.as_number() == Some(1)
         ));
-    }
-
-    // The forward-compat guarantee that keeps a reverse channel a *minor*
-    // addition: a study→host request whose id collides with a host's in-flight
-    // request id must not spuriously complete that request. Pre-fix, the line
-    // parsed as an "empty response" and `pending.remove(&1)` corrupted routing.
-    #[tokio::test]
-    async fn reverse_request_does_not_complete_a_pending_host_request() {
-        let pending: Pending = Arc::new(std::sync::Mutex::new(HashMap::new()));
-        let (tx, rx) = oneshot::channel();
-        pending.lock().unwrap().insert(1, tx); // host's in-flight request id=1
-
-        // A reverse request reusing id=1 (the study's own id space).
-        match Message::from_line(r#"{"id":1,"method":"ping","params":{}}"#) {
-            Ok(Message::Request { .. }) => {} // correct: routed away from the response path
-            other => panic!("reverse request misclassified as {other:?}"),
-        }
-
-        // The waiter is still pending and unfulfilled.
-        assert!(pending.lock().unwrap().contains_key(&1));
-        drop(pending);
-        assert!(rx.await.is_err(), "waiter must not have been completed");
     }
 }

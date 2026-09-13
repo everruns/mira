@@ -1909,7 +1909,7 @@ dependencies = [
 [[package]]
 name = "lanok"
 version = "0.1.0"
-source = "git+https://github.com/everruns/lanok?rev=06ca30e#06ca30ea58fd8d792a373970303c0bdfbd1faa81"
+source = "git+https://github.com/everruns/lanok?rev=56360d8#56360d857146180aeadc747fa908327243cf7b10"
 dependencies = [
  "async-trait",
  "lanok-core",
@@ -1923,7 +1923,7 @@ dependencies = [
 [[package]]
 name = "lanok-core"
 version = "0.1.0"
-source = "git+https://github.com/everruns/lanok?rev=06ca30e#06ca30ea58fd8d792a373970303c0bdfbd1faa81"
+source = "git+https://github.com/everruns/lanok?rev=56360d8#56360d857146180aeadc747fa908327243cf7b10"
 dependencies = [
  "schemars",
  "serde",
@@ -1933,7 +1933,7 @@ dependencies = [
 [[package]]
 name = "lanok-macros"
 version = "0.1.0"
-source = "git+https://github.com/everruns/lanok?rev=06ca30e#06ca30ea58fd8d792a373970303c0bdfbd1faa81"
+source = "git+https://github.com/everruns/lanok?rev=56360d8#56360d857146180aeadc747fa908327243cf7b10"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -1943,7 +1943,7 @@ dependencies = [
 [[package]]
 name = "lanok-peer"
 version = "0.1.0"
-source = "git+https://github.com/everruns/lanok?rev=06ca30e#06ca30ea58fd8d792a373970303c0bdfbd1faa81"
+source = "git+https://github.com/everruns/lanok?rev=56360d8#56360d857146180aeadc747fa908327243cf7b10"
 dependencies = [
  "async-trait",
  "lanok-core",
@@ -1957,7 +1957,7 @@ dependencies = [
 [[package]]
 name = "lanok-schema"
 version = "0.1.0"
-source = "git+https://github.com/everruns/lanok?rev=06ca30e#06ca30ea58fd8d792a373970303c0bdfbd1faa81"
+source = "git+https://github.com/everruns/lanok?rev=56360d8#56360d857146180aeadc747fa908327243cf7b10"
 dependencies = [
  "lanok-core",
  "schemars",
@@ -1968,7 +1968,7 @@ dependencies = [
 [[package]]
 name = "lanok-transport"
 version = "0.1.0"
-source = "git+https://github.com/everruns/lanok?rev=06ca30e#06ca30ea58fd8d792a373970303c0bdfbd1faa81"
+source = "git+https://github.com/everruns/lanok?rev=56360d8#56360d857146180aeadc747fa908327243cf7b10"
 dependencies = [
  "async-trait",
  "lanok-core",
