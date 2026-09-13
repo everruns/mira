@@ -747,6 +747,7 @@
           "type": "string"
         },
         "retryable": {
+          "default": false,
           "description": "Hint that retrying the identical request may succeed: a *transient*\nfault such as a rate limit, an overloaded upstream, or a timeout, not\nthe caller's mistake.\n\nOmitted from the wire when false, so an error that never sets it looks\nexactly as it did before the field existed, and an unknown failure is\nnever retried blindly.",
           "type": "boolean"
         }

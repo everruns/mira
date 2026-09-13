@@ -1059,6 +1059,63 @@ mod tests {
     }
 
     #[test]
+    fn the_error_wire_shape_is_what_studies_parse() {
+        // Byte-level, because the Python and TypeScript study SDKs parse this
+        // and neither knows lanok exists. The one difference from before the
+        // adoption is recorded here deliberately: `retryable` used to be
+        // written even when false, and is now omitted. Every mira
+        // implementation defaults it (`retryable: bool = False` in Python,
+        // `retryable?: boolean` in TypeScript, `#[serde(default)]` here), and
+        // the published schema has only `message` required, so absence is
+        // inside the protocol's own forward-compatibility contract.
+        assert_eq!(
+            serde_json::to_string(&RpcError::internal("boom")).unwrap(),
+            r#"{"code":-32603,"message":"boom"}"#
+        );
+        assert_eq!(
+            serde_json::to_string(&RpcError::internal("busy").retryable()).unwrap(),
+            r#"{"code":-32603,"message":"busy","retryable":true}"#
+        );
+
+        // Everything else on the wire is byte-identical to before.
+        let request = Request {
+            id: 7,
+            method: "run".into(),
+            params: serde_json::json!({ "a": 1 }),
+        };
+        assert_eq!(
+            serde_json::to_string(&request).unwrap(),
+            r#"{"id":7,"method":"run","params":{"a":1}}"#
+        );
+        assert_eq!(
+            serde_json::to_string(&Response::ok(7, serde_json::json!({ "ok": true }))).unwrap(),
+            r#"{"id":7,"result":{"ok":true}}"#
+        );
+        let notification = Notification {
+            method: "event".into(),
+            params: serde_json::json!({ "k": 1 }),
+        };
+        assert_eq!(
+            serde_json::to_string(&notification).unwrap(),
+            r#"{"method":"event","params":{"k":1}}"#
+        );
+    }
+
+    #[test]
+    fn a_study_that_omits_retryable_still_parses() {
+        // The other half of the same contract: an older study that never sends
+        // the field, and one that sends it explicitly false, both read as
+        // not-retryable.
+        for line in [
+            r#"{"code":-32603,"message":"x"}"#,
+            r#"{"code":-32603,"message":"x","retryable":false}"#,
+        ] {
+            let error: RpcError = serde_json::from_str(line).unwrap();
+            assert!(!error.retryable, "{line}");
+        }
+    }
+
+    #[test]
     fn rpc_error_backward_compatible_with_bare_message() {
         // A peer sends only `message`; the optional fields default.
         let back: RpcError = serde_json::from_str(r#"{"message":"no such eval"}"#).unwrap();

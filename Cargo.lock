@@ -1909,7 +1909,7 @@ dependencies = [
 [[package]]
 name = "lanok-core"
 version = "0.1.0"
-source = "git+https://github.com/everruns/lanok?rev=03e9c70#03e9c705cb7d6df9322b234ab0907d8c17d1199b"
+source = "git+https://github.com/everruns/lanok?rev=f7410b7#f7410b70fa64357d1afa45484e5c3ccaef5ac45b"
 dependencies = [
  "schemars",
  "serde",
