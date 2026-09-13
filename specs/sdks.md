@@ -58,7 +58,8 @@ codegen with a `--check` drift mode, the per-language dual of the Rust schema
 
 - **wire types** from `schema.json`, the typed payload layer; and
 - **protocol metadata** from `meta.json`, the `PROTOCOL_VERSION`, the method
-  list, and the capability tokens.
+  table (each method's direction, kind, and required capability), and the
+  capability tokens.
 
 So the version string and method/capability vocabulary are *not* hardcoded in the
 SDK (which silently drifts on a minor bump); they are generated, and the serve
@@ -73,7 +74,7 @@ SDK adds tests that bind its *hand-written* layer to the generated metadata:
 |-------|-------|
 | Field/type shape | `codegen --check` (generated wire types) ✅ |
 | Protocol version string | generated `_meta`, derived by the serve loop ✅ |
-| New method unhandled | test: `meta` methods ⊆ the serve loop's handled set ✅ |
+| New method unhandled | generated `SERVED_METHODS` *is* the serve loop's dispatch set, plus a test that each one is answered ✅ |
 | Capability typo / unknown token | test: advertised capabilities ⊆ `meta` tokens ✅ |
 | Emitted messages malformed | conformance test validates them against `schema.json` ✅ |
 | **Scoring semantics** (verdict/aggregate/NA) | **not** codegen-able, covered only by behaviour tests + the cross-language golden (`greet` vs `greet-python`) ⚠️ |

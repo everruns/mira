@@ -12,7 +12,7 @@ from dataclasses import dataclass, field
 from typing import Any, Callable, Dict, List, Optional, Sequence
 
 from . import _codec
-from ._meta import PROTOCOL_VERSION
+from ._meta import PROTOCOL_VERSION, SERVED_METHODS
 from ._wire import (
     AxisInfo,
     CancelResult,
@@ -40,12 +40,12 @@ _CODE_METHOD_NOT_FOUND = -32601
 _CODE_INVALID_PARAMS = -32602
 _CODE_INTERNAL_ERROR = -32603
 
-# The protocol methods this SDK dispatches in `Study.handle`. Kept explicit so a
-# test can assert it covers every method in the generated `_meta.METHODS` — a new
-# protocol method then fails CI until the serve loop handles it.
-HANDLED_METHODS = (
-    "initialize", "list", "list_samples", "run", "execute", "score", "cancel",
-)
+# What `Study.handle` dispatches: the methods a host sends, from the generated
+# `_meta.SERVED_METHODS`. It used to be a hand-written tuple here with a test
+# asserting it covered the protocol; the list is now the declaration's, so a new
+# method arrives in it by regenerating and a test only has to check that each
+# one is answered.
+HANDLED_METHODS = SERVED_METHODS
 
 # Samples-per-page when paginating `list`. Small studies fit in one page (`list`
 # enumerates every sample inline); a huge/lazy dataset is chunked across `list` +

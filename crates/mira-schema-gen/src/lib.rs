@@ -75,26 +75,34 @@ pub fn build_schema() -> serde_json::Value {
 }
 
 /// The version-and-methods sidecar (mirrors ACP's `meta.json`): a tiny, stable
-/// index a host can read without parsing the full schema.
+/// index a host can read without parsing the full schema, and the artifact the
+/// Python and TypeScript SDK generators walk.
+///
+/// The vocabulary comes from [`protocol::META`], the `lanok::protocol!`
+/// declaration as data, rather than being listed again here. It used to be a
+/// third copy of the method names and a second of the capability tokens, kept
+/// in step by nothing: adding a method to the protocol and forgetting this list
+/// published a `meta.json` that described the previous protocol, and every SDK
+/// generated from it inherited the omission silently.
+///
+/// Declaring them once also makes the artifact say *more* than a name list. Each
+/// method now carries its direction, whether it expects a response, the
+/// capability it needs, and its documentation — enough for a generator to emit a
+/// typed method, not just a string constant.
+///
+/// The two mira-specific keys stay: `schema` names the sibling artifact, and
+/// `event_kinds` is the `event` notification's own token vocabulary, which is
+/// payload content rather than protocol vocabulary and so has no place in the
+/// declaration.
 pub fn build_meta() -> serde_json::Value {
-    serde_json::json!({
-        "version": protocol::PROTOCOL_VERSION,
-        "min_version": protocol::MIN_PROTOCOL_VERSION,
-        "schema": "schema.json",
-        "methods": ["initialize", "list", "list_samples", "run", "execute", "score", "cancel"],
-        "capabilities": [
-            protocol::capabilities::AXES,
-            protocol::capabilities::EVENTS,
-            protocol::capabilities::USAGE,
-            protocol::capabilities::EXECUTE,
-            protocol::capabilities::SCORE,
-            protocol::capabilities::TRIALS,
-            protocol::capabilities::CANCEL,
-            protocol::capabilities::PAGINATE,
-            protocol::capabilities::TRAJECTORY,
-        ],
-        "event_kinds": protocol::event::ALL,
-    })
+    let mut meta = serde_json::to_value(protocol::META).expect("protocol metadata serializes");
+    let object = meta.as_object_mut().expect("metadata is an object");
+    object.insert("schema".into(), serde_json::json!("schema.json"));
+    object.insert(
+        "event_kinds".into(),
+        serde_json::json!(protocol::event::ALL),
+    );
+    meta
 }
 
 /// `schema/v<major>` under the repo root, resolved from this crate's manifest

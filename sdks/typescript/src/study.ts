@@ -7,7 +7,7 @@ import { createInterface } from "node:readline";
 import type { Readable, Writable } from "node:stream";
 
 import { toWire } from "./codec.js";
-import { PROTOCOL_VERSION } from "./meta.js";
+import { PROTOCOL_VERSION, SERVED_METHODS } from "./meta.js";
 import { makeScore, type Scorer } from "./scorers.js";
 import { ATIF_FORMAT, ATIF_VERSION, normalizeTrajectory } from "./trajectory.js";
 import type {
@@ -28,18 +28,12 @@ const CODE_METHOD_NOT_FOUND = -32601;
 const CODE_INVALID_PARAMS = -32602;
 const CODE_INTERNAL_ERROR = -32603;
 
-// The protocol methods this SDK dispatches in `Study.handle`. Kept explicit so a
-// test can assert it covers every method in the generated `METHODS` — a new
-// protocol method then fails CI until the serve loop handles it.
-export const HANDLED_METHODS = [
-  "initialize",
-  "list",
-  "list_samples",
-  "run",
-  "execute",
-  "score",
-  "cancel",
-] as const;
+// What `Study.handle` dispatches: the methods a host sends, from the generated
+// `SERVED_METHODS`. It used to be a hand-written list here with a test asserting
+// it covered the protocol; the list is now the declaration's, so a new method
+// arrives in it by regenerating and a test only has to check that each one is
+// answered.
+export const HANDLED_METHODS = SERVED_METHODS;
 
 // Samples-per-page when paginating `list`. Small studies fit in one page (`list`
 // enumerates every sample inline); a huge/lazy dataset is chunked across `list` +

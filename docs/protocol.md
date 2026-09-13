@@ -731,9 +731,14 @@ The wire types have a generated, language-neutral definition under `schema/`:
   payloads `EventParams`/`LogParams`, and the full `Transcript`, `Score`, plus
   the ATIF trajectory types `Trajectory`/`Step`/`ToolCall`/`Observation`/…) is
   published under `$defs`.
-- `schema/v1/meta.json`, a small index: the current `version`, `min_version`,
-  the method list, the defined `capabilities` tokens, and the `event_kinds`
-  vocabulary.
+- `schema/v1/meta.json`, a small index: the protocol `name`, the current
+  `version` and `min_version`, the defined `capabilities` tokens, the
+  `event_kinds` vocabulary, and one entry per method giving its `name`,
+  `direction` (`initiator` for what the host sends, `responder` for what the
+  study sends), `kind` (`request` or `notification`), the `requires` capability
+  where it needs one, and its documentation. An SDK generator reads this to
+  emit a typed method rather than a bare string constant, and to tell what a
+  study *answers* apart from what it *emits*.
 
 The directory is versioned by the protocol **major** (`v1`). The artifacts are
 **generated from the Rust types** in `mira::protocol` by the `mira-schema-gen`

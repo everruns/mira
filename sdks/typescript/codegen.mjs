@@ -170,8 +170,19 @@ function renderWire(schemaDoc) {
 
 function renderMeta(meta) {
   const tuple = (xs) => `[${xs.map((x) => JSON.stringify(x)).join(", ")}] as const`;
+  // meta.json describes each method, not just its name: which side sends it,
+  // whether it expects a response, and the capability it needs. That is what
+  // lets the serve loop derive the set it dispatches (the methods a *host*
+  // sends) instead of keeping a hand-written list beside it, and what makes the
+  // coverage test direction-aware — a study answers requests, it does not
+  // answer its own event/log notifications.
+  const named = (direction) =>
+    meta.methods.filter((m) => m.direction === direction).map((m) => m.name);
+  const requires = Object.fromEntries(
+    meta.methods.filter((m) => m.requires).map((m) => [m.name, m.requires]),
+  );
   return [
-    "// Protocol version, methods, and capability tokens — GENERATED, do not edit.",
+    "// Protocol vocabulary — GENERATED, do not edit.",
     "//",
     "// Regenerate with `node codegen.mjs` from schema/v1/meta.json. CI runs",
     "// `node codegen.mjs --check` to fail on drift.",
@@ -179,8 +190,16 @@ function renderMeta(meta) {
     `export const PROTOCOL_VERSION = ${JSON.stringify(meta.version)};`,
     `export const MIN_PROTOCOL_VERSION = ${JSON.stringify(meta.min_version)};`,
     "",
-    `export const METHODS = ${tuple(meta.methods)};`,
+    "// Every method in the protocol, either direction.",
+    `export const METHODS = ${tuple(meta.methods.map((m) => m.name))};`,
     `export const CAPABILITIES = ${tuple(meta.capabilities)};`,
+    "",
+    "// What a study answers: the methods the host sends.",
+    `export const SERVED_METHODS = ${tuple(named("initiator"))};`,
+    "// What a study may send back: the notifications.",
+    `export const EMITTED_METHODS = ${tuple(named("responder"))};`,
+    "// The capability a method needs, for the methods that need one.",
+    `export const REQUIRES: Readonly<Record<string, string>> = ${JSON.stringify(requires, null, 2)};`,
     "",
   ].join("\n");
 }

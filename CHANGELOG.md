@@ -9,6 +9,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- `schema/v1/meta.json` is now serialized from the `lanok::protocol!`
+  declaration instead of listing the methods and capability tokens again by
+  hand. It was a third copy of the method names, kept in step by nothing:
+  adding a method and forgetting the list published a `meta.json` describing
+  the previous protocol, and every SDK generated from it inherited the omission
+  silently. Each method now also carries its `direction`, `kind`, required
+  capability and documentation, which is what lets the Python and TypeScript
+  SDKs derive the set of methods a study *answers* (previously a hand-written
+  tuple in each serve loop) apart from the notifications it *emits*.
+
 - The eval protocol is now **declared** with `lanok::protocol!` in
   `protocol.rs`, rather than described twice: as string literals at the host's
   call sites and again as match arms in the study's dispatch, with nothing

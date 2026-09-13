@@ -190,10 +190,23 @@ def _str_tuple(items: list) -> str:
 
 
 def render_meta(meta_doc: dict) -> str:
-    """The protocol version, methods, and capability tokens — so the SDK derives
-    them from meta.json instead of hardcoding (which drifts on a minor bump)."""
+    """The protocol vocabulary — version, methods, capability tokens — so the SDK
+    derives them from meta.json instead of hardcoding (which drifts on a minor
+    bump).
+
+    `meta.json` describes each method, not just its name: which side sends it,
+    whether it expects a response, and the capability it needs. That is what
+    lets the serve loop derive the set it dispatches (the methods a *host*
+    sends) instead of keeping a hand-written list beside it, and what makes the
+    coverage test direction-aware — a study answers requests, it does not answer
+    its own `event`/`log` notifications.
+    """
+    methods = meta_doc["methods"]
+    served = [m["name"] for m in methods if m["direction"] == "initiator"]
+    emitted = [m["name"] for m in methods if m["direction"] == "responder"]
+    requires = {m["name"]: m["requires"] for m in methods if m.get("requires")}
     return "\n".join([
-        '"""Protocol version, methods, and capability tokens — GENERATED, do not edit.',
+        '"""Protocol vocabulary — GENERATED, do not edit.',
         "",
         "Regenerate with `python3 codegen.py` from schema/v1/meta.json. CI runs",
         "`codegen.py --check` to fail on drift.",
@@ -202,8 +215,16 @@ def render_meta(meta_doc: dict) -> str:
         f"PROTOCOL_VERSION = {json.dumps(meta_doc['version'])}",
         f"MIN_PROTOCOL_VERSION = {json.dumps(meta_doc['min_version'])}",
         "",
-        f"METHODS = {_str_tuple(meta_doc['methods'])}",
+        "# Every method in the protocol, either direction.",
+        f"METHODS = {_str_tuple([m['name'] for m in methods])}",
         f"CAPABILITIES = {_str_tuple(meta_doc['capabilities'])}",
+        "",
+        "# What a study answers: the methods the host sends.",
+        f"SERVED_METHODS = {_str_tuple(served)}",
+        "# What a study may send back: the notifications.",
+        f"EMITTED_METHODS = {_str_tuple(emitted)}",
+        "# The capability a method needs, for the methods that need one.",
+        f"REQUIRES = {json.dumps(requires, indent=4, sort_keys=True)}",
     ]) + "\n"
 
 

@@ -18,15 +18,68 @@
     "finished"
   ],
   "methods": [
-    "initialize",
-    "list",
-    "list_samples",
-    "run",
-    "execute",
-    "score",
-    "cancel"
+    {
+      "direction": "initiator",
+      "doc": "Announce the host and learn what the study is and can do.",
+      "kind": "request",
+      "name": "initialize"
+    },
+    {
+      "direction": "initiator",
+      "doc": "The eval catalogue, with the first page of each eval's samples inline.",
+      "kind": "request",
+      "name": "list"
+    },
+    {
+      "direction": "initiator",
+      "doc": "The next page of one eval's samples, for datasets too large (or too lazy) to enumerate in one `list`.",
+      "kind": "request",
+      "name": "list_samples",
+      "requires": "paginate"
+    },
+    {
+      "direction": "initiator",
+      "doc": "Execute and score one matrix case in a single call.",
+      "kind": "request",
+      "name": "run"
+    },
+    {
+      "direction": "initiator",
+      "doc": "Execute one case's subject without scoring, returning the full transcript, for run-now-score-later workflows.",
+      "kind": "request",
+      "name": "execute",
+      "requires": "execute"
+    },
+    {
+      "direction": "initiator",
+      "doc": "Score a supplied transcript without re-executing the subject, for deferred scoring and re-scoring.",
+      "kind": "request",
+      "name": "score",
+      "requires": "score"
+    },
+    {
+      "direction": "initiator",
+      "doc": "Abort one in-flight `run`/`execute`/`score` by its request `id`.  A request rather than a notification, and acknowledged: the host learns whether the run was still in flight. That divergence from other protocols, where cancel is fire-and-forget, is why lanok's cancellation is a hook the protocol fills rather than a setting.",
+      "kind": "request",
+      "name": "cancel",
+      "requires": "cancel"
+    },
+    {
+      "direction": "responder",
+      "doc": "Live progress for one in-flight run, correlated to its request by `request_id`.",
+      "kind": "notification",
+      "name": "event",
+      "requires": "events"
+    },
+    {
+      "direction": "responder",
+      "doc": "Free-form study output, for the host's log pane.",
+      "kind": "notification",
+      "name": "log"
+    }
   ],
   "min_version": "1.0",
+  "name": "mira",
   "schema": "schema.json",
   "version": "1.1"
 }
