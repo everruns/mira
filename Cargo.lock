@@ -1907,6 +1907,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "lanok-core"
+version = "0.1.0"
+source = "git+https://github.com/everruns/lanok?rev=d2ce390#d2ce39080c2fbe3d8ef44e3ded643e6c168ed199"
+dependencies = [
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "lazy_static"
 version = "1.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2065,6 +2074,7 @@ version = "0.5.0"
 dependencies = [
  "async-trait",
  "inventory",
+ "lanok-core",
  "mira-macros",
  "regex",
  "schemars",

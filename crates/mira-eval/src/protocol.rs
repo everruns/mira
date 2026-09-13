@@ -48,7 +48,8 @@ use crate::{Metadata, Params, Score, Timing, Transcript, Usage};
 /// **Compatibility contract** (so old and new peers interoperate):
 /// * The **major** version changes only on a breaking wire change. Peers with
 ///   different majors are incompatible — [`version_compatible`] returns false
-///   and the host warns.
+///   and the host warns. A peer older than [`MIN_PROTOCOL_VERSION`] is refused
+///   for the same reason.
 /// * The **minor** version increments for backwards-compatible additions (new
 ///   methods, new optional fields). A newer peer talking to an older one must
 ///   tolerate missing additions; an older peer must ignore unknown fields.
@@ -78,18 +79,44 @@ pub const PROTOCOL_VERSION: &str = "1.1";
 /// The oldest protocol version this build can still talk to.
 pub const MIN_PROTOCOL_VERSION: &str = "1.0";
 
+/// What this build implements and the oldest peer it accepts, as one value.
+///
+/// Backed by [`lanok_core::Negotiation`], which is the shared implementation of
+/// the same `MAJOR.MINOR` contract the yolop extension protocol follows. Using
+/// it here means the rule is written once rather than reimplemented per
+/// protocol, and it is what makes [`MIN_PROTOCOL_VERSION`] load-bearing:
+/// mira published that constant in `meta.json` but never checked it.
+pub fn negotiation() -> lanok_core::Negotiation {
+    lanok_core::Negotiation::with_min(
+        PROTOCOL_VERSION
+            .parse()
+            .expect("PROTOCOL_VERSION is a literal MAJOR.MINOR"),
+        MIN_PROTOCOL_VERSION
+            .parse()
+            .expect("MIN_PROTOCOL_VERSION is a literal MAJOR.MINOR"),
+    )
+}
+
 /// The major component of a `MAJOR.MINOR` version string (0 if malformed).
 pub fn version_major(v: &str) -> u32 {
-    v.split('.')
-        .next()
-        .and_then(|s| s.parse().ok())
+    v.parse::<lanok_core::Version>()
+        .map(|version| version.major)
         .unwrap_or(0)
 }
 
-/// Whether this build can talk to a peer advertising version `other`. Same major
-/// ⇒ compatible (minor differences are additive by contract).
+/// Whether this build can talk to a peer advertising version `other`.
+///
+/// Same major, and not older than [`MIN_PROTOCOL_VERSION`]. The minimum used to
+/// be advertised and ignored: a study announcing a version this build had
+/// dropped support for was accepted anyway, and failed later at whichever
+/// method it could not satisfy. A malformed version is refused rather than
+/// treated as major `0`, which previously made `"not-a-version"` merely
+/// incompatible instead of invalid.
 pub fn version_compatible(other: &str) -> bool {
-    version_major(other) == version_major(PROTOCOL_VERSION)
+    match other.parse::<lanok_core::Version>() {
+        Ok(peer) => negotiation().accepts(peer).is_ok(),
+        Err(_) => false,
+    }
 }
 
 /// host → study.
@@ -817,6 +844,37 @@ mod tests {
         assert!(line.contains("experimental"));
         let back: TranscriptSummary = serde_json::from_str(&line).unwrap();
         assert_eq!(back.experimental.as_deref(), Some("staged"));
+    }
+
+    #[test]
+    fn a_peer_older_than_the_minimum_is_refused() {
+        // The regression this adoption fixes: MIN_PROTOCOL_VERSION was
+        // published in meta.json and never checked, so a peer below it was
+        // accepted and failed later at whichever method it could not satisfy.
+        let build =
+            lanok_core::Negotiation::with_min("1.5".parse().unwrap(), "1.2".parse().unwrap());
+        assert!(build.accepts("1.2".parse().unwrap()).is_ok());
+        assert!(
+            build.accepts("1.9".parse().unwrap()).is_ok(),
+            "a newer minor is additive"
+        );
+        assert_eq!(
+            build.accepts("1.1".parse().unwrap()),
+            Err(lanok_core::Incompatible::TooOld)
+        );
+        assert_eq!(
+            build.accepts("2.0".parse().unwrap()),
+            Err(lanok_core::Incompatible::MajorMismatch)
+        );
+    }
+
+    #[test]
+    fn a_malformed_version_is_invalid_rather_than_major_zero() {
+        // Previously these parsed as major 0 and were merely "incompatible".
+        assert!(!version_compatible("not-a-version"));
+        assert!(!version_compatible("1"));
+        assert!(!version_compatible("1.2.3"));
+        assert_eq!(version_major("not-a-version"), 0);
     }
 
     #[test]

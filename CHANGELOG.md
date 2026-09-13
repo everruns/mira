@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- `MIN_PROTOCOL_VERSION` is now enforced during the handshake. It was published
+  in `meta.json` and never checked: a study announcing a version this build had
+  dropped support for was accepted anyway and failed later at whichever method
+  it could not satisfy. A malformed version is now refused outright rather than
+  parsed as major `0`.
+
 ## [0.5.0] - 2026-07-25
 
 ### Added
