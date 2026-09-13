@@ -26,7 +26,7 @@ default = ["macros"]
 macros = ["dep:mira-macros"]
 # Derive `schemars::JsonSchema` on the protocol wire types (consumed by the
 # `mira-schema-gen` tool). Off by default so normal builds never pull schemars.
-schema = ["dep:schemars"]
+schema = ["dep:schemars", "lanok-core/schema"]
 # Staging ground for experimental protocol fields/methods (ACP-style): wire
 # additions land behind `#[cfg(feature = "protocol-unstable")]` first, so they
 # can be exercised in-tree without freezing into the published, stable schema.

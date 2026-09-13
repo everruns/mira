@@ -152,7 +152,7 @@ impl Response {
     /// [`codes::INTERNAL_ERROR`]). Use [`Response::err_with`] to attach a
     /// specific code, the `retryable` hint, or structured `data`.
     pub fn err(id: u64, message: impl Into<String>) -> Self {
-        Self::err_with(id, RpcError::new(message))
+        Self::err_with(id, RpcError::internal(message))
     }
 
     /// An error response carrying a fully-formed [`RpcError`].
@@ -165,88 +165,21 @@ impl Response {
     }
 }
 
-/// A structured, JSON-RPC-shaped protocol-level error.
+/// A JSON-RPC error object, re-exported from [`lanok_core`].
 ///
-/// Distinct from a transcript's `error`/`error_kind`, which classify a *subject*
-/// failure (the target under test got it wrong). An [`RpcError`] is the failure of
-/// the RPC itself — bad params, an unknown method, a study-side crash, a provider
-/// outage surfaced at the transport. `code` and `retryable` let the host classify
-/// and retry the request **without parsing the human `message`**, and `data`
-/// carries optional structured context.
+/// Lanok implements exactly the shape this protocol already used: `code`,
+/// `message`, a top-level `retryable` hint omitted when false, and optional
+/// `data`, with everything beyond `message` defaulted so a peer sending bare
+/// `{ "message": "…" }` still parses. The wire is unchanged. The definition
+/// simply stopped existing twice, here and in the yolop extension protocol.
+pub use lanok_core::RpcError;
+
+/// Error codes, from [`lanok_core`].
 ///
-/// All fields beyond `message` are optional and defaulted, so a peer that sends
-/// bare `{ "message": "…" }` still parses (forward/backward compat).
-#[derive(Clone, Debug, Serialize, Deserialize)]
-#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
-pub struct RpcError {
-    /// Numeric class of the failure (JSON-RPC convention; see [`codes`]). `0`
-    /// when unclassified. Defaulted so older peers that omit it still parse.
-    #[serde(default)]
-    pub code: i32,
-    /// Human-readable description. The only required field.
-    pub message: String,
-    /// Hint that retrying the identical request may succeed — a *transient
-    /// infrastructure* fault (provider outage, timeout, rate limit), not the
-    /// caller's mistake. Defaulted `false` so older peers parse and unknown
-    /// failures aren't retried blindly.
-    #[serde(default)]
-    pub retryable: bool,
-    /// Optional structured payload for programmatic handling (JSON-RPC `data`).
-    /// Omitted from the wire when absent.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub data: Option<serde_json::Value>,
-}
-
-/// JSON-RPC error codes used by [`RpcError::code`]. The negative range mirrors
-/// the JSON-RPC 2.0 reserved codes; `0` means unclassified.
-pub mod codes {
-    /// Invalid method parameters (e.g. a malformed `RunParams`, an unknown
-    /// eval/sample/target). The caller's mistake — not retryable.
-    pub const INVALID_PARAMS: i32 = -32602;
-    /// Method not found / unsupported.
-    pub const METHOD_NOT_FOUND: i32 = -32601;
-    /// Internal study-side error. The default for [`super::RpcError::new`].
-    pub const INTERNAL_ERROR: i32 = -32603;
-}
-
-impl RpcError {
-    /// A non-retryable internal error ([`codes::INTERNAL_ERROR`]).
-    pub fn new(message: impl Into<String>) -> Self {
-        Self {
-            code: codes::INTERNAL_ERROR,
-            message: message.into(),
-            retryable: false,
-            data: None,
-        }
-    }
-
-    /// Set the error [`code`](RpcError::code).
-    pub fn with_code(mut self, code: i32) -> Self {
-        self.code = code;
-        self
-    }
-
-    /// Mark this error as [`retryable`](RpcError::retryable) — a transient infra
-    /// fault the host may re-attempt.
-    pub fn retryable(mut self) -> Self {
-        self.retryable = true;
-        self
-    }
-
-    /// Attach a structured [`data`](RpcError::data) payload.
-    pub fn with_data(mut self, data: serde_json::Value) -> Self {
-        self.data = Some(data);
-        self
-    }
-}
-
-impl std::fmt::Display for RpcError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.message)
-    }
-}
-
-impl std::error::Error for RpcError {}
+/// The three mira defined are the JSON-RPC reserved values and keep their
+/// meanings. Lanok adds the rest outside the reserved range: cancelled,
+/// timeout, capability-unsupported, version-incompatible, transport-closed.
+pub use lanok_core::codes;
 
 /// study → host, fire-and-forget progress (no `id`). Carries live events (a
 /// turn started, a tool was called, tokens spent) so the host can render
@@ -1107,7 +1040,7 @@ mod tests {
 
     #[test]
     fn rpc_error_is_classifiable_and_roundtrips() {
-        let err = RpcError::new("provider 503")
+        let err = RpcError::internal("provider 503")
             .with_code(codes::INTERNAL_ERROR)
             .retryable()
             .with_data(serde_json::json!({ "provider": "anthropic" }));
@@ -1120,7 +1053,7 @@ mod tests {
             Some(serde_json::json!({ "provider": "anthropic" }))
         );
         // Default constructor is non-retryable and carries no data.
-        let plain = RpcError::new("nope");
+        let plain = RpcError::internal("nope");
         assert!(!plain.retryable);
         assert!(!serde_json::to_string(&plain).unwrap().contains("data"));
     }
@@ -1130,7 +1063,12 @@ mod tests {
         // A peer sends only `message`; the optional fields default.
         let back: RpcError = serde_json::from_str(r#"{"message":"no such eval"}"#).unwrap();
         assert_eq!(back.message, "no such eval");
-        assert_eq!(back.code, 0);
+        // A missing code now reads as INTERNAL_ERROR rather than 0. Nothing on
+        // the wire changed: this is how an error that declines to classify
+        // itself is interpreted, and 0 is not a JSON-RPC code, so it said
+        // nothing. Retry behaviour keys on `retryable` and the message, not on
+        // this value.
+        assert_eq!(back.code, codes::INTERNAL_ERROR);
         assert!(!back.retryable);
         assert!(back.data.is_none());
     }

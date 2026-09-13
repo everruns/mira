@@ -339,7 +339,7 @@ pub async fn run_cases<F, Fut>(
                 match timeout {
                     Some(dur) => match tokio::time::timeout(dur, fut).await {
                         Ok(res) => res,
-                        Err(_) => Err(RpcError::new(format!(
+                        Err(_) => Err(RpcError::internal(format!(
                             "timed out after {}s (target timeout)",
                             dur.as_secs()
                         ))),
@@ -381,7 +381,7 @@ pub async fn run_cases<F, Fut>(
                 (
                     case,
                     attempts,
-                    Err(RpcError::new(format!("task panicked: {join_err}"))),
+                    Err(RpcError::internal(format!("task panicked: {join_err}"))),
                 )
             }
         };
@@ -562,7 +562,7 @@ mod tests {
                     let mut n = a.lock().await;
                     *n += 1;
                     if *n == 1 {
-                        Err(RpcError::new("HTTP 429 rate limit"))
+                        Err(RpcError::internal("HTTP 429 rate limit"))
                     } else {
                         Ok(ok_result(&c))
                     }
@@ -630,7 +630,7 @@ mod tests {
                     let mut n = a.lock().await;
                     *n += 1;
                     if *n == 1 {
-                        Err(RpcError::new("provider outage").retryable())
+                        Err(RpcError::internal("provider outage").retryable())
                     } else {
                         Ok(ok_result(&c))
                     }
@@ -659,7 +659,7 @@ mod tests {
                 let c2 = c2.clone();
                 async move {
                     c2.fetch_add(1, Ordering::SeqCst);
-                    Err(RpcError::new("bad run params"))
+                    Err(RpcError::internal("bad run params"))
                 }
             },
             |_, r| results.push(r),
@@ -722,7 +722,7 @@ mod tests {
                 let c2 = c2.clone();
                 async move {
                     c2.fetch_add(1, Ordering::SeqCst);
-                    Err(RpcError::new("429 too many requests"))
+                    Err(RpcError::internal("429 too many requests"))
                 }
             },
             |_, r| results.push(r),

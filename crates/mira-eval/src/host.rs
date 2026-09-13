@@ -20,10 +20,12 @@ use tokio::io::{AsyncBufReadExt, AsyncRead, AsyncWrite, AsyncWriteExt, BufReader
 use tokio::process::{Child, Command};
 use tokio::sync::{Mutex, oneshot};
 
+use lanok_core::Message;
+
 use crate::protocol::{
     CancelResult, ExecuteResult, InitializeResult, ListResult, ListSamplesParams,
-    ListSamplesResult, Notification, PROTOCOL_VERSION, Request, Response, RpcError, RunParams,
-    RunResult, ScoreParams, capabilities,
+    ListSamplesResult, Notification, PROTOCOL_VERSION, Request, RpcError, RunParams, RunResult,
+    ScoreParams, capabilities,
 };
 use crate::{Params, Trial};
 
@@ -65,11 +67,11 @@ impl HostHandle {
             )
             .await?;
         let info: InitializeResult =
-            serde_json::from_value(value).map_err(|e| RpcError::new(e.to_string()))?;
+            serde_json::from_value(value).map_err(|e| RpcError::internal(e.to_string()))?;
         // Forward/backward compatibility: a mismatched *major* is a hard
         // incompatibility; a differing minor is additive and tolerated.
         if !crate::protocol::version_compatible(&info.protocol_version) {
-            return Err(RpcError::new(format!(
+            return Err(RpcError::internal(format!(
                 "incompatible protocol: study speaks {}, host speaks {} (major mismatch)",
                 info.protocol_version, PROTOCOL_VERSION
             )));
@@ -86,7 +88,7 @@ impl HostHandle {
     /// all, or page manually with [`list_samples`](HostHandle::list_samples).
     pub async fn list(&self) -> Result<ListResult, RpcError> {
         let value = self.request("list", serde_json::Value::Null, false).await?;
-        serde_json::from_value(value).map_err(|e| RpcError::new(e.to_string()))
+        serde_json::from_value(value).map_err(|e| RpcError::internal(e.to_string()))
     }
 
     /// Fetch one more page of an eval's samples, continuing from `cursor` (an
@@ -104,7 +106,7 @@ impl HostHandle {
         let value = self
             .request("list_samples", serde_json::to_value(params).unwrap(), false)
             .await?;
-        serde_json::from_value(value).map_err(|e| RpcError::new(e.to_string()))
+        serde_json::from_value(value).map_err(|e| RpcError::internal(e.to_string()))
     }
 
     /// The full catalogue with **every** sample materialized: call `list`, then
@@ -146,7 +148,7 @@ impl HostHandle {
             .request("cancel", serde_json::json!({ "id": run_id }), false)
             .await?;
         let result: CancelResult =
-            serde_json::from_value(value).map_err(|e| RpcError::new(e.to_string()))?;
+            serde_json::from_value(value).map_err(|e| RpcError::internal(e.to_string()))?;
         Ok(result.cancelled)
     }
 
@@ -166,7 +168,7 @@ impl HostHandle {
         let value = self
             .request("run", serde_json::to_value(params).unwrap(), true)
             .await?;
-        serde_json::from_value(value).map_err(|e| RpcError::new(e.to_string()))
+        serde_json::from_value(value).map_err(|e| RpcError::internal(e.to_string()))
     }
 
     /// Execute one case's subject without scoring, returning the full transcript
@@ -185,7 +187,7 @@ impl HostHandle {
             .request("execute", serde_json::to_value(params).unwrap(), true)
             .await?;
         let mut result: ExecuteResult =
-            serde_json::from_value(value).map_err(|e| RpcError::new(e.to_string()))?;
+            serde_json::from_value(value).map_err(|e| RpcError::internal(e.to_string()))?;
         // Normalize on receipt: a foreign study may return a trajectory-only
         // transcript (only `transcript.trajectory` set). Fill any flat fields
         // still at their defaults from the trajectory — never overwriting one
@@ -212,7 +214,7 @@ impl HostHandle {
         let value = self
             .request("score", serde_json::to_value(params).unwrap(), true)
             .await?;
-        serde_json::from_value(value).map_err(|e| RpcError::new(e.to_string()))
+        serde_json::from_value(value).map_err(|e| RpcError::internal(e.to_string()))
     }
 
     /// Send one request and await its correlated response. Concurrency-safe: the
@@ -250,18 +252,19 @@ impl HostHandle {
             method: method.into(),
             params,
         };
-        let mut line = serde_json::to_vec(&request).map_err(|e| RpcError::new(e.to_string()))?;
+        let mut line =
+            serde_json::to_vec(&request).map_err(|e| RpcError::internal(e.to_string()))?;
         line.push(b'\n');
         {
             let mut stdin = self.stdin.lock().await;
             stdin
                 .write_all(&line)
                 .await
-                .map_err(|e| RpcError::new(e.to_string()))?;
+                .map_err(|e| RpcError::internal(e.to_string()))?;
             stdin
                 .flush()
                 .await
-                .map_err(|e| RpcError::new(e.to_string()))?;
+                .map_err(|e| RpcError::internal(e.to_string()))?;
         }
 
         // The request is genuinely in flight now: arm cancel-on-drop (only for a
@@ -273,7 +276,7 @@ impl HostHandle {
         let out = match rx.await {
             Ok(result) => result,
             // Reader dropped the sender without replying ⇒ the channel closed.
-            Err(_) => Err(RpcError::new("study closed the connection")),
+            Err(_) => Err(RpcError::internal("study closed the connection")),
         };
         guard.completed = true;
         out
@@ -496,53 +499,6 @@ impl Host {
     }
 }
 
-/// How a study→host line is classified. Classification is by **fields, not the
-/// pipe**: this is what lets a future *reverse* request (study→host) be added as
-/// a minor, non-breaking change instead of a 2.0. The discriminator is `method`:
-///
-/// * a line bearing `method` is a [`Notification`] (no `id`) or a reverse
-///   [`Request`] (`id` + `method`) — never a response;
-/// * only a line **without** `method` is a [`Response`], routed by `id`.
-///
-/// Checking `method` first is the safety property: a reverse request's `id`
-/// lives in the study's own id space and would otherwise collide with the host's
-/// pending ids (both start at 1), spuriously completing an unrelated in-flight
-/// request with an "empty response". See the reverse-channel seam in
-/// `docs/protocol.md` and `specs/architecture.md`.
-enum Inbound {
-    Response(Response),
-    Notification(Notification),
-    /// A study→host request. Reserved seam — no reverse method is supported
-    /// today (the host advertises no such capability, so a conforming study
-    /// never sends one). Carried so a future host can answer it instead of
-    /// misrouting it; for now it is logged and ignored.
-    Request(Request),
-    /// Unparseable / neither shape; ignored.
-    Junk,
-}
-
-fn classify(line: &str) -> Inbound {
-    // `method` present ⇒ not a response. Distinguish notification (no id) from a
-    // reverse request (id + method) so neither is mistaken for a response.
-    let has_method = serde_json::from_str::<serde_json::Value>(line)
-        .ok()
-        .and_then(|v| v.get("method").map(|m| !m.is_null()))
-        .unwrap_or(false);
-    if has_method {
-        if let Ok(req) = serde_json::from_str::<Request>(line) {
-            return Inbound::Request(req);
-        }
-        if let Ok(note) = serde_json::from_str::<Notification>(line) {
-            return Inbound::Notification(note);
-        }
-        return Inbound::Junk;
-    }
-    match serde_json::from_str::<Response>(line) {
-        Ok(resp) => Inbound::Response(resp),
-        Err(_) => Inbound::Junk,
-    }
-}
-
 /// Read framed lines until EOF: route responses to their waiters by `id`, hand
 /// notifications to `on_event`. On EOF, fail any still-pending requests.
 async fn reader_loop(
@@ -554,44 +510,47 @@ async fn reader_loop(
         if line.trim().is_empty() {
             continue;
         }
-        match classify(&line) {
-            Inbound::Response(response) => {
-                let result = match (response.result, response.error) {
-                    (Some(result), _) => Ok(result),
-                    (None, Some(err)) => Err(err),
-                    (None, None) => Err(RpcError::new("empty response")),
-                };
-                if let Some(tx) = pending
-                    .lock()
-                    .expect("pending mutex poisoned")
-                    .remove(&response.id)
-                {
-                    let _ = tx.send(result);
+        // Classification is lanok's, by **fields, not the pipe**: a line bearing
+        // `method` is a request (with `id`) or a notification (without); only a
+        // `method`-less line is a response. Checking `method` first is the
+        // safety property, because a reverse request's id lives in the study's
+        // own id space and both sides number from 1, so misreading one
+        // completes an unrelated in-flight request with an empty response.
+        // That rule is worth having once rather than once per protocol.
+        let Ok(message) = Message::from_line(&line) else {
+            continue; // Not a usable message. A bad line is never fatal.
+        };
+        match message {
+            Message::Response { id, payload } => {
+                // Ids this host hands out are numbers; a string id was never
+                // ours to route.
+                let Some(id) = id.as_number() else { continue };
+                if let Some(tx) = pending.lock().expect("pending mutex poisoned").remove(&id) {
+                    let _ = tx.send(payload);
                 }
             }
-            Inbound::Notification(notification) => {
+            Message::Notification { method, params } => {
                 let cb = on_event.lock().expect("on_event mutex poisoned").clone();
-                cb(&notification);
+                cb(&Notification { method, params });
             }
-            Inbound::Request(req) => {
-                // Reverse channel is a reserved, capability-gated seam (see the
-                // `Inbound` docs). The host advertises no support, so this is
-                // unexpected; drop it rather than let its id corrupt routing.
+            Message::Request { method, .. } => {
+                // The reverse channel is a reserved, capability-gated seam. The
+                // host advertises no support, so this is unexpected; drop it
+                // rather than let its id corrupt routing.
                 let cb = on_event.lock().expect("on_event mutex poisoned").clone();
                 cb(&Notification {
                     method: "log".into(),
                     params: serde_json::json!({
-                        "message": format!("ignoring unsupported host request: {}", req.method)
+                        "message": format!("ignoring unsupported host request: {method}")
                     }),
                 });
             }
-            Inbound::Junk => {}
         }
     }
     // EOF: nothing more will arrive, so unblock every outstanding waiter.
     let mut pending = pending.lock().expect("pending mutex poisoned");
     for (_, tx) in pending.drain() {
-        let _ = tx.send(Err(RpcError::new("study closed the connection")));
+        let _ = tx.send(Err(RpcError::internal("study closed the connection")));
     }
 }
 
@@ -601,20 +560,25 @@ mod tests {
 
     #[test]
     fn classifies_response_notification_and_reverse_request() {
+        // The rule this host depends on, now lanok's. Kept as a test here
+        // because the safety property is mira's to rely on: a reverse request
+        // must never be read as a response.
+
         // A response: id, no method.
         assert!(matches!(
-            classify(r#"{"id":3,"result":{"ok":true}}"#),
-            Inbound::Response(r) if r.id == 3
+            Message::from_line(r#"{"id":3,"result":{"ok":true}}"#),
+            Ok(Message::Response { id, .. }) if id.as_number() == Some(3)
         ));
         // A notification: method, no id.
         assert!(matches!(
-            classify(r#"{"method":"event","params":{"kind":"started"}}"#),
-            Inbound::Notification(n) if n.method == "event"
+            Message::from_line(r#"{"method":"event","params":{"kind":"started"}}"#),
+            Ok(Message::Notification { ref method, .. }) if method == "event"
         ));
         // A reverse request: id + method. Must NOT be seen as a response.
         assert!(matches!(
-            classify(r#"{"id":1,"method":"broker_model","params":{}}"#),
-            Inbound::Request(r) if r.method == "broker_model" && r.id == 1
+            Message::from_line(r#"{"id":1,"method":"broker_model","params":{}}"#),
+            Ok(Message::Request { ref method, ref id, .. })
+                if method == "broker_model" && id.as_number() == Some(1)
         ));
     }
 
@@ -629,17 +593,9 @@ mod tests {
         pending.lock().unwrap().insert(1, tx); // host's in-flight request id=1
 
         // A reverse request reusing id=1 (the study's own id space).
-        match classify(r#"{"id":1,"method":"ping","params":{}}"#) {
-            Inbound::Request(_) => {} // correct: routed away from the response path
-            other => panic!(
-                "reverse request misclassified as {}",
-                match other {
-                    Inbound::Response(_) => "response",
-                    Inbound::Notification(_) => "notification",
-                    Inbound::Junk => "junk",
-                    Inbound::Request(_) => unreachable!(),
-                }
-            ),
+        match Message::from_line(r#"{"id":1,"method":"ping","params":{}}"#) {
+            Ok(Message::Request { .. }) => {} // correct: routed away from the response path
+            other => panic!("reverse request misclassified as {other:?}"),
         }
 
         // The waiter is still pending and unfulfilled.

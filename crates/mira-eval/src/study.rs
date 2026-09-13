@@ -277,7 +277,7 @@ impl Study {
                     Err(e) => {
                         return Response::err_with(
                             request.id,
-                            RpcError::new(format!("bad run params: {e}"))
+                            RpcError::internal(format!("bad run params: {e}"))
                                 .with_code(codes::INVALID_PARAMS),
                         );
                     }
@@ -299,7 +299,7 @@ impl Study {
                     Err(e) => {
                         return Response::err_with(
                             request.id,
-                            RpcError::new(format!("bad execute params: {e}"))
+                            RpcError::internal(format!("bad execute params: {e}"))
                                 .with_code(codes::INVALID_PARAMS),
                         );
                     }
@@ -318,7 +318,7 @@ impl Study {
                     Err(e) => {
                         return Response::err_with(
                             request.id,
-                            RpcError::new(format!("bad score params: {e}"))
+                            RpcError::internal(format!("bad score params: {e}"))
                                 .with_code(codes::INVALID_PARAMS),
                         );
                     }
@@ -330,7 +330,7 @@ impl Study {
             }
             other => Response::err_with(
                 request.id,
-                RpcError::new(format!("unknown method: {other}"))
+                RpcError::internal(format!("unknown method: {other}"))
                     .with_code(codes::METHOD_NOT_FOUND),
             ),
         }
@@ -578,7 +578,8 @@ fn cancel(request: &Request, inflight: &Inflight) -> Response {
         Err(e) => {
             return Response::err_with(
                 request.id,
-                RpcError::new(format!("bad cancel params: {e}")).with_code(codes::INVALID_PARAMS),
+                RpcError::internal(format!("bad cancel params: {e}"))
+                    .with_code(codes::INVALID_PARAMS),
             );
         }
     };

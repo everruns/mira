@@ -731,12 +731,12 @@
       "type": "object"
     },
     "RpcError": {
-      "description": "A structured, JSON-RPC-shaped protocol-level error.\n\nDistinct from a transcript's `error`/`error_kind`, which classify a *subject*\nfailure (the target under test got it wrong). An [`RpcError`] is the failure of\nthe RPC itself — bad params, an unknown method, a study-side crash, a provider\noutage surfaced at the transport. `code` and `retryable` let the host classify\nand retry the request **without parsing the human `message`**, and `data`\ncarries optional structured context.\n\nAll fields beyond `message` are optional and defaulted, so a peer that sends\nbare `{ \"message\": \"…\" }` still parses (forward/backward compat).",
+      "description": "A structured, JSON-RPC 2.0 error object.\n\nThis is the failure of the *RPC itself*: bad params, an unknown method, a\ncrash on the far side, an upstream outage surfaced at the transport. A\nprotocol that also models domain failures should keep those in its own\npayloads, because `code` and `retryable` exist so a caller can classify and\nretry **without parsing the human `message`**.\n\nEvery field beyond `message` is optional and defaulted, so a peer that sends\na bare `{\"message\": \"…\"}` still parses.",
       "properties": {
         "code": {
-          "default": 0,
-          "description": "Numeric class of the failure (JSON-RPC convention; see [`codes`]). `0`\nwhen unclassified. Defaulted so older peers that omit it still parse.",
-          "format": "int32",
+          "default": -32603,
+          "description": "Numeric class of the failure; see [`codes`]. Defaults to\n[`codes::INTERNAL_ERROR`] when a peer omits it, because an error that\ndeclines to classify itself is an unexplained failure, and `0` is not a\nJSON-RPC code.",
+          "format": "int64",
           "type": "integer"
         },
         "data": {
@@ -747,8 +747,7 @@
           "type": "string"
         },
         "retryable": {
-          "default": false,
-          "description": "Hint that retrying the identical request may succeed — a *transient\ninfrastructure* fault (provider outage, timeout, rate limit), not the\ncaller's mistake. Defaulted `false` so older peers parse and unknown\nfailures aren't retried blindly.",
+          "description": "Hint that retrying the identical request may succeed: a *transient*\nfault such as a rate limit, an overloaded upstream, or a timeout, not\nthe caller's mistake.\n\nOmitted from the wire when false, so an error that never sets it looks\nexactly as it did before the field existed, and an unknown failure is\nnever retried blindly.",
           "type": "boolean"
         }
       },
