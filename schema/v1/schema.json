@@ -401,6 +401,22 @@
       ],
       "type": "object"
     },
+    "InitializeParams": {
+      "description": "`initialize` params: what the host tells the study about itself.\n\nBoth fields are defaulted: a study SDK calling `handle(\"initialize\", {})`\n(which the Python and TypeScript conformance suites do) must still parse.",
+      "properties": {
+        "host": {
+          "default": "",
+          "description": "The host's name, for the study's diagnostics.",
+          "type": "string"
+        },
+        "protocol_version": {
+          "default": "",
+          "description": "The protocol version the host speaks, as `MAJOR.MINOR`.",
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
     "InitializeResult": {
       "description": "`initialize` result.",
       "properties": {
@@ -1616,5 +1632,70 @@
     }
   ],
   "description": "Wire schema for the Mira host<->study protocol (newline-delimited JSON over stdio). Protocol version 1.1. Generated from mira::protocol by `mira-schema-gen` (`just schema`); do not edit by hand.",
+  "messages": {
+    "cancel": {
+      "params": {
+        "$ref": "#/$defs/CancelParams"
+      },
+      "result": {
+        "$ref": "#/$defs/CancelResult"
+      }
+    },
+    "event": {
+      "params": {
+        "$ref": "#/$defs/EventParams"
+      }
+    },
+    "execute": {
+      "params": {
+        "$ref": "#/$defs/RunParams"
+      },
+      "result": {
+        "$ref": "#/$defs/ExecuteResult"
+      }
+    },
+    "initialize": {
+      "params": {
+        "$ref": "#/$defs/InitializeParams"
+      },
+      "result": {
+        "$ref": "#/$defs/InitializeResult"
+      }
+    },
+    "list": {
+      "result": {
+        "$ref": "#/$defs/ListResult"
+      }
+    },
+    "list_samples": {
+      "params": {
+        "$ref": "#/$defs/ListSamplesParams"
+      },
+      "result": {
+        "$ref": "#/$defs/ListSamplesResult"
+      }
+    },
+    "log": {
+      "params": {
+        "$ref": "#/$defs/LogParams"
+      }
+    },
+    "run": {
+      "params": {
+        "$ref": "#/$defs/RunParams"
+      },
+      "result": {
+        "$ref": "#/$defs/RunResult"
+      }
+    },
+    "score": {
+      "params": {
+        "$ref": "#/$defs/ScoreParams"
+      },
+      "result": {
+        "$ref": "#/$defs/RunResult"
+      }
+    }
+  },
   "title": "Mira Eval Protocol"
 }

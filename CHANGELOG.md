@@ -9,6 +9,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **The Python and TypeScript SDKs generate their typed study surface.** Each
+  had a hand-written dispatch chain — `if method == "run"` / `case "run":` —
+  doing its own decode, call and encode per branch, with the payload types
+  known only as casts. `meta.json` now names each method's params and result
+  types, so `codegen` emits a `StudyHandler` (one typed method per protocol
+  method a host sends, defaulting to method-not-found) and the `dispatch` that
+  routes to it. `Study` implements that surface: `run(params: RunParams) ->
+  RunResult` in both languages, rather than `params["eval"]` and
+  `params.eval as string`. A method missing from a serve loop is now a
+  refusal from the declaration rather than a missing branch, and
+  method-not-found is classified by type instead of by matching on the error
+  message text.
+
 - **The host runs on `lanok::Peer`.** `host.rs` carried its own JSON-RPC
   client: a reader task, a pending-request map, id allocation, a drop guard,
   and a hand-written `cancel` writer. None of it was specific to evals. The

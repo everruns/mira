@@ -449,6 +449,12 @@ pub use declaration::{InitiatorApi, InitiatorDispatch, InitiatorHandler};
 /// Typed handlers and dispatch for the study side.
 pub use declaration::{ResponderDispatch, ResponderHandler};
 
+/// The protocol's JSON Schema, built from the declaration so the artifact lists
+/// exactly the declared methods and their payload types. Fed to
+/// `mira-schema-gen`; see [`crate::protocol`].
+#[cfg(feature = "schema")]
+pub use declaration::schema_document;
+
 /// Capability tokens a study may advertise in [`InitializeResult::capabilities`],
 /// generated from the `capabilities` block of the declaration above.
 pub use declaration::capability as capabilities;

@@ -10,11 +10,7 @@
 
 use std::path::PathBuf;
 
-use mira::protocol::{
-    self, CancelParams, CancelResult, EventParams, ExecuteResult, InitializeResult, ListResult,
-    ListSamplesParams, ListSamplesResult, LogParams, Notification, Request, Response, RunParams,
-    RunResult, ScoreParams,
-};
+use mira::protocol::{self, Notification, Request, Response};
 use schemars::SchemaGenerator;
 use schemars::generate::SchemaSettings;
 
@@ -29,30 +25,30 @@ use schemars::generate::SchemaSettings;
 pub fn build_schema() -> serde_json::Value {
     let mut generator: SchemaGenerator = SchemaSettings::draft2020_12().into_generator();
 
-    // Envelopes: every protocol line is exactly one of these three.
+    // Envelopes: every protocol line is exactly one of these three. They are
+    // mira's own framing, not part of the method declaration, so they are
+    // registered here.
     let request = generator.subschema_for::<Request>();
     let response = generator.subschema_for::<Response>();
     let notification = generator.subschema_for::<Notification>();
+    let mut defs = generator.take_definitions(true);
 
-    // Method result/params payloads. They ride inside the envelopes' free-form
-    // `params`/`result` (typed as `serde_json::Value` on the wire), so register
-    // them explicitly to publish their shapes in `$defs` for study authors.
-    generator.subschema_for::<InitializeResult>();
-    generator.subschema_for::<ListResult>();
-    generator.subschema_for::<ListSamplesParams>();
-    generator.subschema_for::<ListSamplesResult>();
-    generator.subschema_for::<RunParams>();
-    generator.subschema_for::<RunResult>();
-    generator.subschema_for::<ExecuteResult>();
-    generator.subschema_for::<ScoreParams>();
-    generator.subschema_for::<CancelParams>();
-    generator.subschema_for::<CancelResult>();
-    // Notification payloads: `event`/`log` ride inside the notification's
-    // free-form `params`, so publish their typed shapes in `$defs` too.
-    generator.subschema_for::<EventParams>();
-    generator.subschema_for::<LogParams>();
-
-    let defs = generator.take_definitions(true);
+    // Payloads: from the declaration, via the `schema_document()` the
+    // `protocol!` macro generates. They ride inside the envelopes' free-form
+    // `params`/`result` (typed as `serde_json::Value` on the wire), so their
+    // shapes have to be published for study authors some other way.
+    //
+    // This used to be a hand-written list of `subschema_for::<T>()` calls, and
+    // it had drifted: `InitializeParams` was missing, so `meta.json` named a
+    // payload type that `schema.json` did not define. Registering them from the
+    // declaration makes the set exhaustive by construction — a method cannot be
+    // added to the protocol without its payloads appearing here.
+    let declared = protocol::schema_document().schema();
+    if let Some(declared_defs) = declared.get("$defs").and_then(|d| d.as_object()) {
+        for (name, schema) in declared_defs {
+            defs.entry(name.clone()).or_insert_with(|| schema.clone());
+        }
+    }
 
     serde_json::json!({
         "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -70,6 +66,10 @@ pub fn build_schema() -> serde_json::Value {
             protocol::PROTOCOL_VERSION,
         ),
         "anyOf": [request, response, notification],
+        // Per-method payload shapes, keyed by wire method name: what an SDK
+        // generator reads to emit a typed method. `meta.json` names the types;
+        // this is where those names resolve.
+        "messages": declared.get("messages").cloned().unwrap_or(serde_json::json!({})),
         "$defs": defs,
     })
 }

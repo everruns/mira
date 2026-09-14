@@ -25,6 +25,7 @@ const HERE = dirname(fileURLToPath(import.meta.url));
 const SCHEMA = join(HERE, "../../schema/v1/schema.json");
 const META = join(HERE, "../../schema/v1/meta.json");
 const OUT_WIRE = join(HERE, "src", "wire.ts");
+const OUT_PROTOCOL = join(HERE, "src", "protocol.ts");
 const OUT_META = join(HERE, "src", "meta.ts");
 
 const SCALAR = { string: "string", integer: "number", number: "number", boolean: "boolean" };
@@ -204,10 +205,94 @@ function renderMeta(meta) {
   ].join("\n");
 }
 
+// The typed study surface and the dispatcher, from the method table plus the
+// payload types it now names. With only a name list a generator can emit string
+// constants and leave the author a `Record<string, unknown>`; with the types it
+// can emit `run(params: RunParams): Promise<RunResult>`, and do the cast and
+// the `toWire` encode once here instead of once per branch of a hand-written
+// switch.
+function renderProtocol(meta) {
+  const served = meta.methods.filter((m) => m.direction === "initiator");
+  const used = [...new Set(served.flatMap((m) => [m.params, m.result].filter(Boolean)))].sort();
+  const doc = (m) => (m.doc ? `  /** ${m.doc} */\n` : "");
+
+  const members = served
+    .map((m) => {
+      const arg = m.params ? `params: ${m.params}` : "";
+      const ret = m.result ?? "void";
+      return `${doc(m)}  ${m.name}?(${arg}): ${ret} | Promise<${ret}>;`;
+    })
+    .join("\n");
+
+  const arms = served
+    .map((m) => {
+      const arg = m.params ? `params as unknown as ${m.params}` : "";
+      const call = `handler.${m.name}(${arg})`;
+      const encode = m.result
+        ? `toWire(${JSON.stringify(m.result)}, (await ${call}) as unknown as Record<string, unknown>)`
+        : `((await ${call}), {})`;
+      return [
+        `    case ${JSON.stringify(m.name)}:`,
+        `      if (!handler.${m.name}) break;`,
+        `      return ${encode};`,
+      ].join("\n");
+    })
+    .join("\n");
+
+  return [
+    "// Typed study surface and dispatch — GENERATED, do not edit.",
+    "//",
+    "// Regenerate with `node codegen.mjs` from schema/v1/. CI runs",
+    "// `node codegen.mjs --check` to fail on drift.",
+    "",
+    'import { toWire } from "./codec.js";',
+    `import type { ${used.join(", ")} } from "./wire.js";`,
+    "",
+    "/** A method this study does not answer. Becomes a -32601 response. */",
+    "export class MethodNotFound extends Error {",
+    "  constructor(public readonly method: string) {",
+    "    super(`unknown method: ${method}`);",
+    "  }",
+    "}",
+    "",
+    "/**",
+    " * What a study answers: the methods the host sends.",
+    " *",
+    " * Every method is optional, so a study implements only what it actually",
+    " * handles and an unimplemented one refuses politely. Adding a method to the",
+    " * protocol adds it here, which is how an unhandled one shows up as a refusal",
+    " * rather than as a silently missing branch in a hand-written switch.",
+    " */",
+    "export interface StudyHandler {",
+    members,
+    "}",
+    "",
+    "/**",
+    " * Call the handler for `method` and encode its result.",
+    " *",
+    " * Exhaustive over the declaration: a method that is not in it, or one the",
+    " * handler leaves unimplemented, throws `MethodNotFound`.",
+    " */",
+    "export async function dispatch(",
+    "  handler: StudyHandler,",
+    "  method: string,",
+    "  params: Record<string, unknown>,",
+    "): Promise<Record<string, unknown>> {",
+    "  switch (method) {",
+    arms,
+    "  }",
+    "  throw new MethodNotFound(method);",
+    "}",
+    "",
+  ].join("\n");
+}
+
 function artifacts() {
+  const meta = JSON.parse(readFileSync(META, "utf8"));
   return [
     [OUT_WIRE, renderWire(JSON.parse(readFileSync(SCHEMA, "utf8")))],
-    [OUT_META, renderMeta(JSON.parse(readFileSync(META, "utf8")))],
+    [OUT_META, renderMeta(meta)],
+    [OUT_PROTOCOL, renderProtocol(meta)],
   ];
 }
 
