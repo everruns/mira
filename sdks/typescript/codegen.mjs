@@ -25,6 +25,7 @@ const HERE = dirname(fileURLToPath(import.meta.url));
 const SCHEMA = join(HERE, "../../schema/v1/schema.json");
 const META = join(HERE, "../../schema/v1/meta.json");
 const OUT_WIRE = join(HERE, "src", "wire.ts");
+const OUT_PROTOCOL = join(HERE, "src", "protocol.ts");
 const OUT_META = join(HERE, "src", "meta.ts");
 
 const SCALAR = { string: "string", integer: "number", number: "number", boolean: "boolean" };
@@ -170,8 +171,19 @@ function renderWire(schemaDoc) {
 
 function renderMeta(meta) {
   const tuple = (xs) => `[${xs.map((x) => JSON.stringify(x)).join(", ")}] as const`;
+  // meta.json describes each method, not just its name: which side sends it,
+  // whether it expects a response, and the capability it needs. That is what
+  // lets the serve loop derive the set it dispatches (the methods a *host*
+  // sends) instead of keeping a hand-written list beside it, and what makes the
+  // coverage test direction-aware — a study answers requests, it does not
+  // answer its own event/log notifications.
+  const named = (direction) =>
+    meta.methods.filter((m) => m.direction === direction).map((m) => m.name);
+  const requires = Object.fromEntries(
+    meta.methods.filter((m) => m.requires).map((m) => [m.name, m.requires]),
+  );
   return [
-    "// Protocol version, methods, and capability tokens — GENERATED, do not edit.",
+    "// Protocol vocabulary — GENERATED, do not edit.",
     "//",
     "// Regenerate with `node codegen.mjs` from schema/v1/meta.json. CI runs",
     "// `node codegen.mjs --check` to fail on drift.",
@@ -179,16 +191,108 @@ function renderMeta(meta) {
     `export const PROTOCOL_VERSION = ${JSON.stringify(meta.version)};`,
     `export const MIN_PROTOCOL_VERSION = ${JSON.stringify(meta.min_version)};`,
     "",
-    `export const METHODS = ${tuple(meta.methods)};`,
+    "// Every method in the protocol, either direction.",
+    `export const METHODS = ${tuple(meta.methods.map((m) => m.name))};`,
     `export const CAPABILITIES = ${tuple(meta.capabilities)};`,
+    "",
+    "// What a study answers: the methods the host sends.",
+    `export const SERVED_METHODS = ${tuple(named("initiator"))};`,
+    "// What a study may send back: the notifications.",
+    `export const EMITTED_METHODS = ${tuple(named("responder"))};`,
+    "// The capability a method needs, for the methods that need one.",
+    `export const REQUIRES: Readonly<Record<string, string>> = ${JSON.stringify(requires, null, 2)};`,
+    "",
+  ].join("\n");
+}
+
+// The typed study surface and the dispatcher, from the method table plus the
+// payload types it now names. With only a name list a generator can emit string
+// constants and leave the author a `Record<string, unknown>`; with the types it
+// can emit `run(params: RunParams): Promise<RunResult>`, and do the cast and
+// the `toWire` encode once here instead of once per branch of a hand-written
+// switch.
+function renderProtocol(meta) {
+  const served = meta.methods.filter((m) => m.direction === "initiator");
+  const used = [...new Set(served.flatMap((m) => [m.params, m.result].filter(Boolean)))].sort();
+  const doc = (m) => (m.doc ? `  /** ${m.doc} */\n` : "");
+
+  const members = served
+    .map((m) => {
+      const arg = m.params ? `params: ${m.params}` : "";
+      const ret = m.result ?? "void";
+      return `${doc(m)}  ${m.name}?(${arg}): ${ret} | Promise<${ret}>;`;
+    })
+    .join("\n");
+
+  const arms = served
+    .map((m) => {
+      const arg = m.params ? `params as unknown as ${m.params}` : "";
+      const call = `handler.${m.name}(${arg})`;
+      const encode = m.result
+        ? `toWire(${JSON.stringify(m.result)}, (await ${call}) as unknown as Record<string, unknown>)`
+        : `((await ${call}), {})`;
+      return [
+        `    case ${JSON.stringify(m.name)}:`,
+        `      if (!handler.${m.name}) break;`,
+        `      return ${encode};`,
+      ].join("\n");
+    })
+    .join("\n");
+
+  return [
+    "// Typed study surface and dispatch — GENERATED, do not edit.",
+    "//",
+    "// Regenerate with `node codegen.mjs` from schema/v1/. CI runs",
+    "// `node codegen.mjs --check` to fail on drift.",
+    "",
+    'import { toWire } from "./codec.js";',
+    `import type { ${used.join(", ")} } from "./wire.js";`,
+    "",
+    "/** A method this study does not answer. Becomes a -32601 response. */",
+    "export class MethodNotFound extends Error {",
+    "  constructor(public readonly method: string) {",
+    "    super(`unknown method: ${method}`);",
+    "  }",
+    "}",
+    "",
+    "/**",
+    " * What a study answers: the methods the host sends.",
+    " *",
+    " * Every method is optional, so a study implements only what it actually",
+    " * handles and an unimplemented one refuses politely. Adding a method to the",
+    " * protocol adds it here, which is how an unhandled one shows up as a refusal",
+    " * rather than as a silently missing branch in a hand-written switch.",
+    " */",
+    "export interface StudyHandler {",
+    members,
+    "}",
+    "",
+    "/**",
+    " * Call the handler for `method` and encode its result.",
+    " *",
+    " * Exhaustive over the declaration: a method that is not in it, or one the",
+    " * handler leaves unimplemented, throws `MethodNotFound`.",
+    " */",
+    "export async function dispatch(",
+    "  handler: StudyHandler,",
+    "  method: string,",
+    "  params: Record<string, unknown>,",
+    "): Promise<Record<string, unknown>> {",
+    "  switch (method) {",
+    arms,
+    "  }",
+    "  throw new MethodNotFound(method);",
+    "}",
     "",
   ].join("\n");
 }
 
 function artifacts() {
+  const meta = JSON.parse(readFileSync(META, "utf8"));
   return [
     [OUT_WIRE, renderWire(JSON.parse(readFileSync(SCHEMA, "utf8")))],
-    [OUT_META, renderMeta(JSON.parse(readFileSync(META, "utf8")))],
+    [OUT_META, renderMeta(meta)],
+    [OUT_PROTOCOL, renderProtocol(meta)],
   ];
 }
 
