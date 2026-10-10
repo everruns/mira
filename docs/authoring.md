@@ -33,7 +33,7 @@ let eval = Eval::new("greet")
     .subject(subject_fn(|s, _| async move { mira::Transcript::response("hi") }))
     .scorer(succeeded())
     .scorer(contains("hi"))
-    .targets([Target::sim(), Target::anthropic("claude-opus-4-8")])
+    .targets([Target::sim(), Target::anthropic("claude-opus-5-5")])
     .max_turns(8)
     .build();
 ```
@@ -87,8 +87,8 @@ samples` into independently-addressable cases (`greet/hi@sim`).
 ```rust
 .targets([
     Target::sim(),                            // offline, always available
-    Target::anthropic("claude-opus-4-8"),     // gated on ANTHROPIC_API_KEY
-    Target::openai("gpt-5.5"),                // gated on OPENAI_API_KEY
+    Target::anthropic("claude-opus-5-5"),     // gated on ANTHROPIC_API_KEY
+    Target::openai("gpt-6.1-sol"),                // gated on OPENAI_API_KEY
     Target::new("local", "ollama", "llama3")  // custom provider, always available
         .meta("endpoint", "http://localhost:11434"),
 ])
@@ -147,7 +147,7 @@ subject reads the chosen value per case via `cx.param(name)`:
 let eval = Eval::new("reasoning")
     .sample("puzzle", "What is 17 * 23?")
     .axis("effort", ["low", "high"])             // a second axis
-    .targets([Target::sim(), Target::anthropic("claude-opus-4-8")])
+    .targets([Target::sim(), Target::anthropic("claude-opus-5-5")])
     .subject(subject_fn(|_s, cx| async move {
         let effort = cx.param("effort").unwrap_or("low");
         // …vary behaviour by effort…
@@ -214,7 +214,7 @@ Sample::new("hi", "…")
     .meta("difficulty", "hard");
 
 // Per-model config riding the model column (agent, effort, price, sandbox, …):
-Target::anthropic("claude-opus-4-8")
+Target::anthropic("claude-opus-5-5")
     .meta("agent", "swe-agent")
     .meta("effort", "high");
 ```

@@ -44,7 +44,7 @@ fn coding() -> Eval {
         .scorer(file_contains("lib.rs", "fn greet"))
         .scorer(tokens_within(4_000))
         .scorer(latency_within(5_000))
-        .targets([Target::sim(), Target::anthropic("claude-opus-4-8")])
+        .targets([Target::sim(), Target::anthropic("claude-opus-5-5")])
         .build()
 }
 

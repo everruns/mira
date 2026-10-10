@@ -33,8 +33,8 @@ fn reasoning() -> Eval {
         .axis("effort", ["low", "high"])
         .targets([
             Target::sim(),
-            Target::anthropic("claude-opus-4-8"),
-            Target::openai("gpt-5"),
+            Target::anthropic("claude-opus-5-5"),
+            Target::openai("gpt-6.1-sol"),
         ])
         .subject(subject_fn(|_sample, cx| async move {
             // "low" effort answers fast but sometimes wrong; "high" reasons more.

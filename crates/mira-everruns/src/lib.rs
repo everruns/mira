@@ -735,9 +735,9 @@ mod tests {
 
     #[test]
     fn maps_known_providers() {
-        let r = target_to_resolved(&Target::new("a", "anthropic", "claude-opus-4-8"));
+        let r = target_to_resolved(&Target::new("a", "anthropic", "claude-opus-5-5"));
         assert_eq!(r.provider_type, DriverId::Anthropic);
-        assert_eq!(r.model, "claude-opus-4-8");
+        assert_eq!(r.model, "claude-opus-5-5");
     }
 
     #[test]

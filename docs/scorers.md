@@ -237,7 +237,7 @@ let eval = Eval::new("qa")
     .subject(/* … */)
     .scorer(succeeded())
     .scorer(
-        LlmJudge::claude("claude-haiku-4-5")
+        LlmJudge::claude("claude-haiku-5-5")
             .include(Include::Transcript) // Response | Transcript | Full
             .threshold(0.7)
             .scorer("Is the answer correct, concise, and free of tool misuse?"),

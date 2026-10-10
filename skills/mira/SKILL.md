@@ -85,7 +85,7 @@ fn coding() -> Eval {
         }))
         .scorer(succeeded())
         .scorer(file_contains("lib.rs", "fn greet"))
-        .targets([Target::sim(), Target::anthropic("claude-opus-4-8")])
+        .targets([Target::sim(), Target::anthropic("claude-opus-5-5")])
         .build()
 }
 

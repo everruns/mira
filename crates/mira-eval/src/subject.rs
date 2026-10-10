@@ -27,6 +27,8 @@ use async_trait::async_trait;
 use crate::{RunCx, Sample, Transcript, Usage};
 
 /// The thing being evaluated.
+// async_trait marks the boxed future it returns #[must_use]; clippy 1.99 flags that.
+#[allow(clippy::double_must_use)]
 #[async_trait]
 pub trait Subject: Send + Sync {
     async fn run(&self, sample: &Sample, cx: &RunCx) -> Transcript;

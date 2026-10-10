@@ -36,7 +36,7 @@
 //!     // ... .subject(...) ...
 //!     .scorer(succeeded())
 //!     .scorer(
-//!         LlmJudge::claude("claude-haiku-4-5")
+//!         LlmJudge::claude("claude-haiku-5-5")
 //!             .include(Include::Transcript)
 //!             .scorer("Is the answer correct, concise, and free of tool misuse?"),
 //!     );
@@ -556,6 +556,6 @@ mod tests {
     #[tokio::test]
     #[ignore = "hits the Anthropic Messages API; needs ANTHROPIC_API_KEY"]
     async fn claude_grades_correct_answer() {
-        integration_smoke(LlmJudge::claude("claude-haiku-4-5")).await;
+        integration_smoke(LlmJudge::claude("claude-haiku-5-5")).await;
     }
 }

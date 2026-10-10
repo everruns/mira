@@ -53,5 +53,5 @@ axes = { effort = ["low"] }
 # wall-clock budget for one case against that target: when exceeded, the host
 # cancels the in-flight run and records the case failed. `mira run --timeout`
 # overrides this; it in turn overrides a preset's timeout.
-# [targets."anthropic/claude-opus-4-8"]
+# [targets."anthropic/claude-opus-5-5"]
 # timeout = 300

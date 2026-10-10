@@ -73,7 +73,7 @@ fn coding() -> Eval {
         .scorer(turns_within(5))
         .scorer(cost_within(0.05))
         .scorer(file_contains("lib.rs", "fn greet"))
-        .targets([Target::sim(), Target::anthropic("claude-opus-4-8")])
+        .targets([Target::sim(), Target::anthropic("claude-opus-5-5")])
         .max_turns(8)
         .build()
 }
