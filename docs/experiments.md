@@ -10,7 +10,7 @@ preset = "prompt-regression"
 
 [slice]
 samples = ["approval", "instruction-precedence", "add-fn"]
-targets = ["openai/gpt-5.5"]
+targets = ["openai/gpt-6.1-sol"]
 trials = 3
 
 [[treatments]]

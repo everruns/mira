@@ -88,7 +88,7 @@ samples` into independently-addressable cases (`greet/hi@sim`).
 .targets([
     Target::sim(),                            // offline, always available
     Target::anthropic("claude-opus-4-8"),     // gated on ANTHROPIC_API_KEY
-    Target::openai("gpt-5.5"),                // gated on OPENAI_API_KEY
+    Target::openai("gpt-6.1-sol"),                // gated on OPENAI_API_KEY
     Target::new("local", "ollama", "llama3")  // custom provider, always available
         .meta("endpoint", "http://localhost:11434"),
 ])
