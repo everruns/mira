@@ -111,7 +111,7 @@ pub struct Preset {
 /// target, so they live in host config rather than being advertised by the study.
 ///
 /// ```toml
-/// [targets."anthropic/claude-opus-4-8"]
+/// [targets."anthropic/claude-opus-5-5"]
 /// timeout = 300   # give up on a case for this target after 5 minutes
 /// ```
 #[derive(Debug, Default, Clone, Deserialize)]

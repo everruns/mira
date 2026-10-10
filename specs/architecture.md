@@ -567,7 +567,7 @@ pub struct Target {
 }
 
 Target::sim()                          // offline default
-Target::anthropic("claude-opus-4-8")   // gated on ANTHROPIC_API_KEY (unchanged)
+Target::anthropic("claude-opus-5-5")   // gated on ANTHROPIC_API_KEY (unchanged)
 Target::cli("yolop")                   // harness target; provider="cli", available
 ```
 

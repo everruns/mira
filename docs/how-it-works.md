@@ -197,7 +197,7 @@ Set it three ways, first set wins:
 - `mira.toml` `[presets.NAME].timeout`, a preset default.
 
 ```toml
-[targets."anthropic/claude-opus-4-8"]
+[targets."anthropic/claude-opus-5-5"]
 timeout = 300            # give up on a case for this target after 5 minutes
 
 [presets.smoke]

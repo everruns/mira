@@ -58,7 +58,7 @@ fn greet() -> Eval {
                 })
             }),
         ))
-        .targets([Target::sim(), Target::anthropic("claude-haiku-4-5")])
+        .targets([Target::sim(), Target::anthropic("claude-haiku-5-5")])
         .build()
 }
 

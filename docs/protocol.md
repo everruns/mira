@@ -203,7 +203,7 @@ eval carries the first page inline and a `next_cursor` the host follows with
       "scorers": ["succeeded", "contains(\"42\")"],
       "targets": [
         { "label": "sim", "provider": "sim", "available": true },
-        { "label": "anthropic/claude-opus-4-8", "provider": "anthropic", "available": false,
+        { "label": "anthropic/claude-opus-5-5", "provider": "anthropic", "available": false,
           "metadata": { "agent": "swe-agent", "effort": "high", "price_tier": "premium" } }
       ],
       "axes": [ { "name": "effort", "values": ["low", "high"] } ],

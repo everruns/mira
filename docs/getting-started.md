@@ -57,7 +57,7 @@ fn capital() -> Eval {
         }))
         .scorer(succeeded())
         .scorer(mira::scorer::matches_expected()) // compares to Sample.expected
-        .targets([Target::sim(), Target::anthropic("claude-opus-4-8")])
+        .targets([Target::sim(), Target::anthropic("claude-opus-5-5")])
         .build()
 }
 
@@ -83,7 +83,7 @@ mira list --study study.rs
 capital — Knows world capitals  (max_turns=12)
   samples: france, japan
   scorers: succeeded, matches_expected
-  targets:  sim, anthropic/claude-opus-4-8 (unavailable)
+  targets:  sim, anthropic/claude-opus-5-5 (unavailable)
 ```
 
 The cloud case is **unavailable** because `ANTHROPIC_API_KEY` isn't set, it will
@@ -95,7 +95,7 @@ mira run --study study.rs
 
 ```text
 ── matrix (passed/ran) ──
-  eval         sim  anthropic/claude-opus-4-8
+  eval         sim  anthropic/claude-opus-5-5
   capital      2/2                          —
 
 2 passed / 2 scored (0 failed, 0 n/a, 2 skipped)

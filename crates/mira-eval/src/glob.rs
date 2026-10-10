@@ -245,7 +245,7 @@ mod tests {
         assert!(glob_match("anthropic/*", "anthropic/")); // empty run
         assert!(glob_match("*", "anything"));
         assert!(glob_match("*opus*", "anthropic/opus@x"));
-        assert!(glob_match("claude-*", "claude-opus-4-8"));
+        assert!(glob_match("claude-*", "claude-opus-5-5"));
         assert!(!glob_match("anthropic/*", "openai/gpt"));
         assert!(glob_match("a*b*c", "axxbyyc"));
         assert!(!glob_match("a*b*c", "axxbyy"));

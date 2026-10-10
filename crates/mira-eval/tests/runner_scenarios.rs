@@ -121,7 +121,7 @@ async fn unavailable_cases_skip_and_stay_green() {
     let eval = Eval::new("cloud")
         .sample("a", "x")
         // An unavailable cloud case (no key) alongside the always-on sim.
-        .targets([Target::sim(), Target::anthropic("claude-opus-4-8")])
+        .targets([Target::sim(), Target::anthropic("claude-opus-5-5")])
         .subject(subject_fn(|_, _| async { Transcript::response("x") }))
         .scorer(contains("x"))
         .build();

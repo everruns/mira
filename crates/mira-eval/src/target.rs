@@ -35,7 +35,7 @@ pub struct Target {
     /// Provider id (e.g. `sim`, `anthropic`, `openai`, `cli`). Subjects route on
     /// this; the host buckets per-provider concurrency on it.
     pub provider: String,
-    /// Underlying model id passed to the provider (e.g. `claude-opus-4-8`).
+    /// Underlying model id passed to the provider (e.g. `claude-opus-5-5`).
     /// Empty for a pure harness target whose model is irrelevant or implicit.
     pub model: String,
     /// Whether this case can run. `false` (e.g. missing API key) ⇒ skipped.
@@ -164,8 +164,8 @@ mod tests {
         assert_eq!(t.label, "yolop");
         assert_eq!(t.provider, CLI_PROVIDER);
         assert_eq!(t.model, "");
-        let wrapped = Target::cli("codex").with_model("claude-opus-4-8");
-        assert_eq!(wrapped.model, "claude-opus-4-8");
+        let wrapped = Target::cli("codex").with_model("claude-opus-5-5");
+        assert_eq!(wrapped.model, "claude-opus-5-5");
     }
 
     #[test]
