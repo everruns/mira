@@ -28,6 +28,8 @@ use async_trait::async_trait;
 use crate::{Sample, Score, Transcript};
 
 /// Grades a [`Transcript`] for one [`Sample`] into a [`Score`].
+// async_trait marks the boxed future it returns #[must_use]; clippy 1.99 flags that.
+#[allow(clippy::double_must_use)]
 #[async_trait]
 pub trait Scorer: Send + Sync {
     /// A stable, human-readable name (shown in reports).
