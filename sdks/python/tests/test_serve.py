@@ -83,7 +83,9 @@ def test_list_samples_rejects_unknown_eval_and_bad_cursor():
     s = _paged_study(10, 5)
     for params in ({"eval": "nope", "cursor": "0"}, {"eval": "big", "cursor": "xyz"}):
         try:
-            s._list_samples(params)
+            # Through the public surface: the generated dispatch decodes these
+            # into `ListSamplesParams` before the study sees them.
+            s.handle("list_samples", params)
             assert False, "expected error"
         except ValueError:
             pass

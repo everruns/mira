@@ -259,3 +259,38 @@ fn unstable_field_absent_from_stable_schema() {
         "Part/Source content defs should be present once output is promoted",
     );
 }
+
+/// Every payload type `meta.json` names must be defined in `schema.json`.
+///
+/// The two artifacts are one contract: `meta.json` says `run` takes
+/// `RunParams`, and an SDK generator resolves that name in `schema.json`'s
+/// `$defs` to emit the type. A name with nothing behind it is a generator
+/// crash or, worse, a silently untyped method. This caught exactly that:
+/// `InitializeParams` was named by the declaration but missing from the
+/// hand-written registration list `build_schema` used to keep.
+#[test]
+fn every_payload_type_named_in_meta_is_defined_in_the_schema() {
+    let meta = mira_schema_gen::build_meta();
+    let schema = mira_schema_gen::build_schema();
+    let defs = schema["$defs"].as_object().expect("$defs is an object");
+    let messages = schema["messages"]
+        .as_object()
+        .expect("messages is an object");
+
+    for method in meta["methods"].as_array().expect("methods is an array") {
+        let name = method["name"].as_str().expect("method has a name");
+        assert!(
+            messages.contains_key(name),
+            "`{name}` is in meta.json but has no entry in schema.json's `messages`"
+        );
+        for key in ["params", "result"] {
+            let Some(ty) = method.get(key).and_then(|t| t.as_str()) else {
+                continue;
+            };
+            assert!(
+                defs.contains_key(ty),
+                "`{name}.{key}` names `{ty}`, which is not defined in `$defs`"
+            );
+        }
+    }
+}

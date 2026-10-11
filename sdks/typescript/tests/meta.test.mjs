@@ -9,7 +9,15 @@ import { dirname, join } from "node:path";
 
 import { Study, sample, target, succeeded, axis, transcript, usage } from "../dist/index.js";
 import { HANDLED_METHODS } from "../dist/study.js";
-import { PROTOCOL_VERSION, MIN_PROTOCOL_VERSION, METHODS, CAPABILITIES } from "../dist/meta.js";
+import {
+  PROTOCOL_VERSION,
+  MIN_PROTOCOL_VERSION,
+  METHODS,
+  CAPABILITIES,
+  SERVED_METHODS,
+  EMITTED_METHODS,
+  REQUIRES,
+} from "../dist/meta.js";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const META = JSON.parse(readFileSync(join(HERE, "../../../schema/v1/meta.json"), "utf8"));
@@ -17,15 +25,26 @@ const META = JSON.parse(readFileSync(join(HERE, "../../../schema/v1/meta.json"),
 test("generated meta matches source", () => {
   assert.equal(PROTOCOL_VERSION, META.version);
   assert.equal(MIN_PROTOCOL_VERSION, META.min_version);
-  assert.deepEqual(new Set(METHODS), new Set(META.methods));
+  assert.deepEqual(new Set(METHODS), new Set(META.methods.map((m) => m.name)));
   assert.deepEqual(new Set(CAPABILITIES), new Set(META.capabilities));
 });
 
 test("serve handles every protocol method", () => {
   // A new method in the protocol must be dispatched by the serve loop — not
   // silently unhandled. (`events` is a notification kind, not a method.)
+  // `event`/`log` are the study's own notifications, not methods it answers;
+  // before meta.json carried directions, the flat list could not tell the
+  // difference.
   const handled = new Set(HANDLED_METHODS);
-  for (const m of METHODS) assert.ok(handled.has(m), `unhandled method: ${m}`);
+  for (const m of SERVED_METHODS) assert.ok(handled.has(m), `unhandled method: ${m}`);
+  const served = META.methods.filter((m) => m.direction === "initiator").map((m) => m.name);
+  const emitted = META.methods.filter((m) => m.direction === "responder").map((m) => m.name);
+  assert.deepEqual(new Set(SERVED_METHODS), new Set(served));
+  assert.deepEqual(new Set(EMITTED_METHODS), new Set(emitted));
+  assert.deepEqual(
+    REQUIRES,
+    Object.fromEntries(META.methods.filter((m) => m.requires).map((m) => [m.name, m.requires])),
+  );
 });
 
 test("handled methods actually dispatch", async () => {
