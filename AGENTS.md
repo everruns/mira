@@ -18,7 +18,7 @@ stop and ask.
 - Code testable, smoke-testable, runnable locally.
 - Small, incremental, PR-sized changes.
 - Changelog is part of done. A PR that completes a user-facing feature or fix adds a public changelog entry on
-  docs.everruns.com: a companion PR in everruns/everruns adds `docs/changelog/<date>-<slug>/`,
+  everruns.com/docs: a companion PR in everruns/everruns adds `docs/changelog/<date>-<slug>/`,
   merged right after this one. Fill the PR template's `Changelog:` line (companion PR, the
   program it is part of, or `not user-facing`). Rules: https://github.com/everruns/everruns/blob/main/knowledge/docs/changelog.md
 - No backward-compat needed pre-1.0 (internal code).
