@@ -12,17 +12,23 @@ from dataclasses import dataclass, field
 from typing import Any, Callable, Dict, List, Optional, Sequence
 
 from . import _codec
-from ._meta import PROTOCOL_VERSION
+from ._meta import PROTOCOL_VERSION, SERVED_METHODS
+from ._protocol import MethodNotFound, StudyHandler, dispatch
 from ._wire import (
     AxisInfo,
+    CancelParams,
     CancelResult,
     EvalInfo,
     ExecuteResult,
+    InitializeParams,
     InitializeResult,
     ListResult,
+    ListSamplesParams,
     ListSamplesResult,
     TargetInfo,
+    RunParams,
     RunResult,
+    ScoreParams,
     SampleInfo,
     Score,
     Transcript,
@@ -40,12 +46,12 @@ _CODE_METHOD_NOT_FOUND = -32601
 _CODE_INVALID_PARAMS = -32602
 _CODE_INTERNAL_ERROR = -32603
 
-# The protocol methods this SDK dispatches in `Study.handle`. Kept explicit so a
-# test can assert it covers every method in the generated `_meta.METHODS` — a new
-# protocol method then fails CI until the serve loop handles it.
-HANDLED_METHODS = (
-    "initialize", "list", "list_samples", "run", "execute", "score", "cancel",
-)
+# What `Study.handle` dispatches: the methods a host sends, from the generated
+# `_meta.SERVED_METHODS`. It used to be a hand-written tuple here with a test
+# asserting it covered the protocol; the list is now the declaration's, so a new
+# method arrives in it by regenerating and a test only has to check that each
+# one is answered.
+HANDLED_METHODS = SERVED_METHODS
 
 # Samples-per-page when paginating `list`. Small studies fit in one page (`list`
 # enumerates every sample inline); a huge/lazy dataset is chunked across `list` +
@@ -172,7 +178,7 @@ def _aggregate(scores: List[Score]) -> float:
 
 # ----- study + serve loop -----------------------------------------------------
 
-class Study:
+class Study(StudyHandler):
     def __init__(self, name: str, version: Optional[str] = None,
                  page_size: Optional[int] = DEFAULT_PAGE_SIZE) -> None:
         self.name = name
@@ -220,81 +226,92 @@ class Study:
         info.samples, info.next_cursor = self._sample_page(ev, 0)
         return info
 
-    def _list_samples(self, params: dict) -> ListSamplesResult:
-        ev = self._evals.get(params["eval"])
+    def list_samples(self, params: ListSamplesParams) -> ListSamplesResult:
+        ev = self._evals.get(params.eval)
         if ev is None:
-            raise ValueError(f"no such eval: {params['eval']}")
-        cursor = params["cursor"]
+            raise ValueError(f"no such eval: {params.eval}")
         try:
-            offset = int(cursor)
+            offset = int(params.cursor)
         except (TypeError, ValueError):
-            raise ValueError(f"bad cursor: {cursor}")
+            raise ValueError(f"bad cursor: {params.cursor}")
         samples, nxt = self._sample_page(ev, offset)
         return ListSamplesResult(samples=samples, next_cursor=nxt)
 
     # --- method handlers ---
-    def _execute(self, params: dict) -> tuple[Transcript, bool]:
+    def _run_subject(self, params: RunParams) -> tuple[Transcript, bool]:
         """Run one case's subject. Returns (transcript, skipped); an unavailable
         target is skipped with an infra-error transcript (scored N/A, not failed)."""
-        ev = self._evals[params["eval"]]
-        sample = ev._sample(params["sample"])
-        m = ev._target(params["target"])
+        ev = self._evals[params.eval]
+        sample = ev._sample(params.sample)
+        m = ev._target(params.target)
         if not m.available:
             return Transcript(error=f"target unavailable: {m.label}", error_kind="infra"), True
         cx = RunCx(target=m.label, provider=m.provider, max_turns=ev.max_turns,
-                   params=params.get("params", {}))
+                   params=params.params)
         # Zero-burden trajectory contract: a subject may set only
         # `transcript.trajectory`; the flat fields are projected here
         # (fill-if-default — explicitly set fields win).
         return _normalize_trajectory(ev.subject(sample, cx)), False
 
+    def initialize(self, params: InitializeParams) -> InitializeResult:
+        return InitializeResult(
+            protocol_version=PROTOCOL_VERSION, study=self.name,
+            evals=len(self._evals), study_version=self.version,
+            capabilities=self._capabilities(),
+            capability_params={
+                # The trajectory representation this study emits (readers
+                # are more lenient — any ATIF-v1.x parses).
+                "trajectory": {"format": ATIF_FORMAT,
+                               "version": ATIF_VERSION.removeprefix("ATIF-v")},
+            })
+
+    def list(self) -> ListResult:
+        return ListResult(evals=[self._eval_info(e) for e in self._evals.values()])
+
+    def cancel(self, params: CancelParams) -> CancelResult:
+        # The serve loop is synchronous: it processes one request at a time,
+        # so there is never a concurrently in-flight run to abort. Cancel is
+        # therefore always a benign no-op (best-effort, like the protocol
+        # allows). Answered so the method isn't "unknown"; the `cancel`
+        # capability is left unadvertised since it can't do anything here.
+        return CancelResult(cancelled=False)
+
+    def execute(self, params: RunParams) -> ExecuteResult:
+        transcript, skipped = self._run_subject(params)
+        return ExecuteResult(
+            eval=params.eval, sample=params.sample, target=params.target,
+            params=params.params, transcript=transcript, skipped=skipped)
+
+    def run(self, params: RunParams) -> RunResult:
+        transcript, skipped = self._run_subject(params)
+        return self._scored(params, transcript, skipped)
+
+    def score(self, params: ScoreParams) -> RunResult:
+        # Normalize on receipt: a replayed transcript may be trajectory-only;
+        # name-based scorers then see the projections.
+        return self._scored(params, _normalize_trajectory(params.transcript), False)
+
+    def _scored(self, params, transcript: Transcript, skipped: bool) -> RunResult:
+        """Score a transcript for one case. Shared by `run` and `score`, whose
+        params types differ only in how the transcript was obtained."""
+        ev = self._evals[params.eval]
+        sample = ev._sample(params.sample)
+        scores = _score_transcript(ev, sample, transcript)
+        return RunResult(
+            eval=params.eval, sample=params.sample, target=params.target,
+            params=params.params, passed=_verdict(scores),
+            aggregate=_aggregate(scores), scores=scores,
+            transcript=_summary(transcript), skipped=skipped)
+
     def handle(self, method: str, params: dict) -> dict:
-        if method == "initialize":
-            return _codec.to_dict(InitializeResult(
-                protocol_version=PROTOCOL_VERSION, study=self.name,
-                evals=len(self._evals), study_version=self.version,
-                capabilities=self._capabilities(),
-                capability_params={
-                    # The trajectory representation this study emits (readers
-                    # are more lenient — any ATIF-v1.x parses).
-                    "trajectory": {"format": ATIF_FORMAT,
-                                   "version": ATIF_VERSION.removeprefix("ATIF-v")},
-                }))
-        if method == "list":
-            return _codec.to_dict(ListResult(
-                evals=[self._eval_info(e) for e in self._evals.values()]))
-        if method == "list_samples":
-            return _codec.to_dict(self._list_samples(params))
-        if method == "cancel":
-            # The serve loop is synchronous: it processes one request at a time,
-            # so there is never a concurrently in-flight run to abort. Cancel is
-            # therefore always a benign no-op (best-effort, like the protocol
-            # allows). Handled so the method isn't "unknown"; the `cancel`
-            # capability is left unadvertised since it can't do anything here.
-            return _codec.to_dict(CancelResult(cancelled=False))
-        if method == "execute":
-            transcript, skipped = self._execute(params)
-            return _codec.to_dict(ExecuteResult(
-                eval=params["eval"], sample=params["sample"], target=params["target"],
-                params=params.get("params", {}), transcript=transcript, skipped=skipped))
-        if method in ("run", "score"):
-            ev = self._evals[params["eval"]]
-            sample = ev._sample(params["sample"])
-            if method == "score":
-                # Normalize on receipt: a replayed transcript may be
-                # trajectory-only; name-based scorers then see the projections.
-                transcript = _normalize_trajectory(
-                    _codec.from_dict(Transcript, params["transcript"]))
-                skipped = False
-            else:
-                transcript, skipped = self._execute(params)
-            scores = _score_transcript(ev, sample, transcript)
-            return _codec.to_dict(RunResult(
-                eval=params["eval"], sample=params["sample"], target=params["target"],
-                params=params.get("params", {}), passed=_verdict(scores),
-                aggregate=_aggregate(scores), scores=scores,
-                transcript=_summary(transcript), skipped=skipped))
-        raise ValueError(f"unknown method: {method}")
+        """Answer one request, as JSON in and JSON out.
+
+        The decode/call/encode is the generated `dispatch`, which is exhaustive
+        over the declaration: this used to be a chain of `if method == "..."`
+        with its own `from_dict`/`to_dict` per branch, and a method missing from
+        it fell through to a hand-written "unknown method".
+        """
+        return dispatch(self, method, params)
 
     def serve(self, stdin=None, stdout=None) -> None:
         serve(self, stdin=stdin, stdout=stdout)
@@ -317,7 +334,9 @@ def _rpc_error(exc: Exception) -> dict:
     can distinguish a caller mistake from an internal one (mirrors the Rust side).
     All these are non-retryable, so `retryable` is left at its default `false`."""
     message = str(exc)
-    if message.startswith("unknown method"):
+    # By type, not by sniffing the message text: the generated dispatch raises
+    # `MethodNotFound` for anything outside the declaration.
+    if isinstance(exc, MethodNotFound):
         code = _CODE_METHOD_NOT_FOUND
     elif isinstance(exc, (KeyError, ValueError)):
         # Unknown eval/sample/target or a malformed request — the caller's mistake.

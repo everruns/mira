@@ -7,6 +7,60 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **The Python and TypeScript SDKs generate their typed study surface.** Each
+  had a hand-written dispatch chain — `if method == "run"` / `case "run":` —
+  doing its own decode, call and encode per branch, with the payload types
+  known only as casts. `meta.json` now names each method's params and result
+  types, so `codegen` emits a `StudyHandler` (one typed method per protocol
+  method a host sends, defaulting to method-not-found) and the `dispatch` that
+  routes to it. `Study` implements that surface: `run(params: RunParams) ->
+  RunResult` in both languages, rather than `params["eval"]` and
+  `params.eval as string`. A method missing from a serve loop is now a
+  refusal from the declaration rather than a missing branch, and
+  method-not-found is classified by type instead of by matching on the error
+  message text.
+
+- **The host runs on `lanok::Peer`.** `host.rs` carried its own JSON-RPC
+  client: a reader task, a pending-request map, id allocation, a drop guard,
+  and a hand-written `cancel` writer. None of it was specific to evals. The
+  peer owns that now, and the calls are the declaration's generated stubs
+  (`peer.run(params)`, not `request("run", ...)`), so a method's capability
+  gate is checked before the wire instead of after a round trip, and the
+  notifications arrive through the generated handler with their params already
+  typed. What stays is what is actually mira's: the `initialize` payloads, the
+  version check, that an abandoned `run` is worth an acknowledged `cancel`
+  request, and projecting a transcript from its trajectory on receipt. Net 170
+  lines lighter. `Host::shutdown` now also drains the study's stderr before
+  returning, so a crashing study's last lines are visible.
+
+- `schema/v1/meta.json` is now serialized from the `lanok::protocol!`
+  declaration instead of listing the methods and capability tokens again by
+  hand. It was a third copy of the method names, kept in step by nothing:
+  adding a method and forgetting the list published a `meta.json` describing
+  the previous protocol, and every SDK generated from it inherited the omission
+  silently. Each method now also carries its `direction`, `kind`, required
+  capability and documentation, which is what lets the Python and TypeScript
+  SDKs derive the set of methods a study *answers* (previously a hand-written
+  tuple in each serve loop) apart from the notifications it *emits*.
+
+- The eval protocol is now **declared** with `lanok::protocol!` in
+  `protocol.rs`, rather than described twice: as string literals at the host's
+  call sites and again as match arms in the study's dispatch, with nothing
+  checking that the two agreed. Method names, directions, request-versus-
+  notification, and the capability each optional method needs all come from the
+  one declaration, and `capabilities::*` is generated from it (docs included).
+  The wire is unchanged.
+
+### Fixed
+
+- `MIN_PROTOCOL_VERSION` is now enforced during the handshake. It was published
+  in `meta.json` and never checked: a study announcing a version this build had
+  dropped support for was accepted anyway and failed later at whichever method
+  it could not satisfy. A malformed version is now refused outright rather than
+  parsed as major `0`.
+
 ## [0.5.0] - 2026-07-25
 
 ### Added

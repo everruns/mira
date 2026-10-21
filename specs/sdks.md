@@ -56,9 +56,16 @@ generated from `mira::protocol` by `mira-schema-gen`). Each SDK ships a small
 codegen with a `--check` drift mode, the per-language dual of the Rust schema
 `--check`, that emits, and guards:
 
-- **wire types** from `schema.json`, the typed payload layer; and
+- **wire types** from `schema.json`, the typed payload layer;
 - **protocol metadata** from `meta.json`, the `PROTOCOL_VERSION`, the method
-  list, and the capability tokens.
+  table (each method's direction, kind, required capability, and payload
+  types), and the capability tokens; and
+- **the typed study surface and its dispatcher** from both: a handler type with
+  one method per protocol method a host sends, taking and returning the
+  declared payload types, plus the decode/call/encode that routes a request to
+  it. Each SDK's `Study` implements that surface, so the serve loop's dispatch
+  is generated rather than a hand-written `if method == …` chain with its own
+  decode and encode per branch.
 
 So the version string and method/capability vocabulary are *not* hardcoded in the
 SDK (which silently drifts on a minor bump); they are generated, and the serve
@@ -72,8 +79,9 @@ SDK adds tests that bind its *hand-written* layer to the generated metadata:
 | Drift | Guard |
 |-------|-------|
 | Field/type shape | `codegen --check` (generated wire types) ✅ |
+| Method signature (params/result type) | generated handler surface: a study implementing the wrong type fails its own type check ✅ |
 | Protocol version string | generated `_meta`, derived by the serve loop ✅ |
-| New method unhandled | test: `meta` methods ⊆ the serve loop's handled set ✅ |
+| New method unhandled | generated `SERVED_METHODS` *is* the serve loop's dispatch set, plus a test that each one is answered ✅ |
 | Capability typo / unknown token | test: advertised capabilities ⊆ `meta` tokens ✅ |
 | Emitted messages malformed | conformance test validates them against `schema.json` ✅ |
 | **Scoring semantics** (verdict/aggregate/NA) | **not** codegen-able, covered only by behaviour tests + the cross-language golden (`greet` vs `greet-python`) ⚠️ |

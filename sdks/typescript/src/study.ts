@@ -7,14 +7,24 @@ import { createInterface } from "node:readline";
 import type { Readable, Writable } from "node:stream";
 
 import { toWire } from "./codec.js";
-import { PROTOCOL_VERSION } from "./meta.js";
+import { PROTOCOL_VERSION, SERVED_METHODS } from "./meta.js";
+import { MethodNotFound, dispatch, type StudyHandler } from "./protocol.js";
 import { makeScore, type Scorer } from "./scorers.js";
 import { ATIF_FORMAT, ATIF_VERSION, normalizeTrajectory } from "./trajectory.js";
 import type {
   AxisInfo,
+  CancelResult,
   EvalInfo,
+  ExecuteResult,
+  InitializeResult,
+  ListResult,
+  ListSamplesParams,
+  ListSamplesResult,
+  RunParams,
+  RunResult,
   SampleInfo,
   Score,
+  ScoreParams,
   TargetInfo,
   Transcript,
   TranscriptSummary,
@@ -28,18 +38,12 @@ const CODE_METHOD_NOT_FOUND = -32601;
 const CODE_INVALID_PARAMS = -32602;
 const CODE_INTERNAL_ERROR = -32603;
 
-// The protocol methods this SDK dispatches in `Study.handle`. Kept explicit so a
-// test can assert it covers every method in the generated `METHODS` — a new
-// protocol method then fails CI until the serve loop handles it.
-export const HANDLED_METHODS = [
-  "initialize",
-  "list",
-  "list_samples",
-  "run",
-  "execute",
-  "score",
-  "cancel",
-] as const;
+// What `Study.handle` dispatches: the methods a host sends, from the generated
+// `SERVED_METHODS`. It used to be a hand-written list here with a test asserting
+// it covered the protocol; the list is now the declaration's, so a new method
+// arrives in it by regenerating and a test only has to check that each one is
+// answered.
+export const HANDLED_METHODS = SERVED_METHODS;
 
 // Samples-per-page when paginating `list`. Small studies fit in one page (`list`
 // enumerates every sample inline); a huge/lazy dataset is chunked across `list` +
@@ -246,7 +250,7 @@ export interface ServeOptions {
   output?: Writable;
 }
 
-export class Study {
+export class Study implements StudyHandler {
   readonly name: string;
   readonly version?: string;
   private readonly pageSize: number | null;
@@ -295,20 +299,20 @@ export class Study {
     return ev;
   }
 
-  private listSamples(params: Record<string, unknown>): Record<string, unknown> {
-    const ev = this.getEval(params.eval as string);
+  list_samples(params: ListSamplesParams): ListSamplesResult {
+    const ev = this.getEval(params.eval);
     const offset = Number(params.cursor);
     if (!Number.isInteger(offset)) throw new Error(`bad cursor: ${params.cursor}`);
     const [samples, next] = this.samplePage(ev, offset);
-    return toWire("ListSamplesResult", { samples, next_cursor: next });
+    return { samples, next_cursor: next } as ListSamplesResult;
   }
 
   /** Run one case's subject. Returns [transcript, skipped]; an unavailable target
    * is skipped with an infra-error transcript (scored N/A, not failed). */
-  private async execute(params: Record<string, unknown>): Promise<[Transcript, boolean]> {
-    const ev = this.getEval(params.eval as string);
-    const s = ev.sample(params.sample as string);
-    const m = ev.target(params.target as string);
+  private async runSubject(params: RunParams): Promise<[Transcript, boolean]> {
+    const ev = this.getEval(params.eval);
+    const s = ev.sample(params.sample);
+    const m = ev.target(params.target);
     if (!m.available) {
       return [
         {
@@ -322,87 +326,99 @@ export class Study {
         true,
       ];
     }
-    const cx = new RunCx(
-      m.label,
-      m.provider,
-      ev.maxTurns,
-      (params.params as Record<string, string>) ?? {},
-    );
+    const cx = new RunCx(m.label, m.provider, ev.maxTurns, params.params ?? {});
     // Zero-burden trajectory contract: a subject may set only
     // `transcript.trajectory`; the flat fields are projected here
     // (fill-if-default — explicitly set fields win).
     return [normalizeTrajectory(await ev.subject(s, cx)), false];
   }
 
-  /** Dispatch one protocol request, returning the JSON-ready result. */
-  async handle(method: string, params: Record<string, unknown> = {}): Promise<Record<string, unknown>> {
-    switch (method) {
-      case "initialize":
-        return toWire("InitializeResult", {
-          protocol_version: PROTOCOL_VERSION,
-          study: this.name,
-          evals: this.evals.size,
-          study_version: this.version,
-          capabilities: this.capabilities(),
-          capability_params: {
-            // The trajectory representation this study emits (readers are
-            // more lenient — any ATIF-v1.x parses).
-            trajectory: { format: ATIF_FORMAT, version: ATIF_VERSION.replace(/^ATIF-v/, "") },
-          },
-        });
-      case "list":
-        return toWire("ListResult", {
-          evals: [...this.evals.values()].map((e) => this.evalInfo(e)),
-        });
-      case "list_samples":
-        return this.listSamples(params);
-      case "cancel":
-        // The serve loop is synchronous per request: there is never a
-        // concurrently in-flight run to abort, so cancel is a benign no-op
-        // (best-effort, like the protocol allows). Handled so the method isn't
-        // "unknown"; the `cancel` capability is left unadvertised.
-        return toWire("CancelResult", { cancelled: false });
-      case "execute": {
-        const [transcript, skipped] = await this.execute(params);
-        return toWire("ExecuteResult", {
-          eval: params.eval,
-          sample: params.sample,
-          target: params.target,
-          params: params.params ?? {},
-          transcript,
-          skipped,
-        });
-      }
-      case "run":
-      case "score": {
-        const ev = this.getEval(params.eval as string);
-        const s = ev.sample(params.sample as string);
-        let transcript: Transcript;
-        let skipped: boolean;
-        if (method === "score") {
-          // Normalize on receipt: a replayed transcript may be
-          // trajectory-only; name-based scorers then see the projections.
-          transcript = normalizeTrajectory(params.transcript as Transcript);
-          skipped = false;
-        } else {
-          [transcript, skipped] = await this.execute(params);
-        }
-        const scores = scoreTranscript(ev, s, transcript);
-        return toWire("RunResult", {
-          eval: params.eval,
-          sample: params.sample,
-          target: params.target,
-          params: params.params ?? {},
-          passed: verdict(scores),
-          aggregate: aggregate(scores),
-          scores,
-          transcript: summary(transcript),
-          skipped,
-        });
-      }
-      default:
-        throw new Error(`unknown method: ${method}`);
-    }
+  initialize(): InitializeResult {
+    return {
+      protocol_version: PROTOCOL_VERSION,
+      study: this.name,
+      evals: this.evals.size,
+      study_version: this.version,
+      capabilities: this.capabilities(),
+      capability_params: {
+        // The trajectory representation this study emits (readers are
+        // more lenient — any ATIF-v1.x parses).
+        trajectory: { format: ATIF_FORMAT, version: ATIF_VERSION.replace(/^ATIF-v/, "") },
+      },
+    } as InitializeResult;
+  }
+
+  list(): ListResult {
+    return { evals: [...this.evals.values()].map((e) => this.evalInfo(e)) } as ListResult;
+  }
+
+  cancel(): CancelResult {
+    // The serve loop is synchronous per request: there is never a
+    // concurrently in-flight run to abort, so cancel is a benign no-op
+    // (best-effort, like the protocol allows). Answered so the method isn't
+    // "unknown"; the `cancel` capability is left unadvertised.
+    return { cancelled: false };
+  }
+
+  async execute(params: RunParams): Promise<ExecuteResult> {
+    const [transcript, skipped] = await this.runSubject(params);
+    return {
+      eval: params.eval,
+      sample: params.sample,
+      target: params.target,
+      params: params.params ?? {},
+      transcript,
+      skipped,
+    } as ExecuteResult;
+  }
+
+  async run(params: RunParams): Promise<RunResult> {
+    const [transcript, skipped] = await this.runSubject(params);
+    return this.scored(params, transcript, skipped);
+  }
+
+  score(params: ScoreParams): RunResult {
+    // Normalize on receipt: a replayed transcript may be trajectory-only;
+    // name-based scorers then see the projections.
+    return this.scored(params, normalizeTrajectory(params.transcript as Transcript), false);
+  }
+
+  /** Score a transcript for one case. Shared by `run` and `score`, whose params
+   * types differ only in how the transcript was obtained. */
+  private scored(
+    params: RunParams | ScoreParams,
+    transcript: Transcript,
+    skipped: boolean,
+  ): RunResult {
+    const ev = this.getEval(params.eval);
+    const s = ev.sample(params.sample);
+    const scores = scoreTranscript(ev, s, transcript);
+    return {
+      eval: params.eval,
+      sample: params.sample,
+      target: params.target,
+      params: params.params ?? {},
+      passed: verdict(scores),
+      aggregate: aggregate(scores),
+      scores,
+      transcript: summary(transcript),
+      skipped,
+    } as RunResult;
+  }
+
+  /**
+   * Answer one request, as JSON in and JSON out.
+   *
+   * The cast/call/encode is the generated `dispatch`, which is exhaustive over
+   * the declaration: this used to be a `switch` with its own `toWire("...")`
+   * literal and `as string` casts per branch, and a method missing from it fell
+   * through to a hand-written "unknown method".
+   */
+  async handle(
+    method: string,
+    params: Record<string, unknown> = {},
+  ): Promise<Record<string, unknown>> {
+    return dispatch(this, method, params);
   }
 
   /** Drive this study over newline-delimited JSON until stdin EOF. */
@@ -413,7 +429,9 @@ export class Study {
 
 function rpcError(err: unknown): { code: number; message: string } {
   const message = err instanceof Error ? err.message : String(err);
-  if (message.startsWith("unknown method")) return { code: CODE_METHOD_NOT_FOUND, message };
+  // By type, not by sniffing the message text: the generated dispatch throws
+  // `MethodNotFound` for anything outside the declaration.
+  if (err instanceof MethodNotFound) return { code: CODE_METHOD_NOT_FOUND, message };
   if (message.startsWith("no such ") || message.startsWith("bad cursor")) {
     return { code: CODE_INVALID_PARAMS, message };
   }

@@ -1,15 +1,19 @@
 #!/usr/bin/env python3
-"""Generate the protocol layer (mira/_wire.py, mira/_meta.py) from schema/v1/.
+"""Generate the protocol layer (mira/_wire.py, _meta.py, _protocol.py) from schema/v1/.
 
 The protocol layer is *derived* from the language-neutral contract the Rust host
 is generated from (mira-schema-gen):
 
 - `_wire.py` — the wire types, from `schema/v1/schema.json`.
-- `_meta.py` — the protocol version, method list, and capability tokens, from
+- `_meta.py` — the protocol version, method table, and capability tokens, from
   `schema/v1/meta.json`.
+- `_protocol.py` — the typed handler base and the dispatcher, from both: the
+  method table says which methods a study answers and what each one carries,
+  and the schema defines those payload types.
 
-So the SDK never hand-mirrors the Rust types, the protocol version, or the method
-set, and can't drift from the wire. Mirrors the Rust `--check` drift guard.
+So the SDK never hand-mirrors the Rust types, the protocol version, the method
+set, or the decode/call/encode dance, and can't drift from the wire. Mirrors the
+Rust `--check` drift guard.
 
     python3 codegen.py            # rewrite the generated files
     python3 codegen.py --check    # exit 1 if any is stale (CI)
@@ -26,6 +30,7 @@ SCHEMA = HERE / "../../schema/v1/schema.json"
 META = HERE / "../../schema/v1/meta.json"
 OUT_WIRE = HERE / "mira" / "_wire.py"
 OUT_META = HERE / "mira" / "_meta.py"
+OUT_PROTOCOL = HERE / "mira" / "_protocol.py"
 
 SCALAR = {"string": "str", "integer": "int", "number": "float", "boolean": "bool"}
 SCALAR_DEFAULT = {"str": '""', "int": "0", "float": "0.0", "bool": "False"}
@@ -190,10 +195,23 @@ def _str_tuple(items: list) -> str:
 
 
 def render_meta(meta_doc: dict) -> str:
-    """The protocol version, methods, and capability tokens — so the SDK derives
-    them from meta.json instead of hardcoding (which drifts on a minor bump)."""
+    """The protocol vocabulary — version, methods, capability tokens — so the SDK
+    derives them from meta.json instead of hardcoding (which drifts on a minor
+    bump).
+
+    `meta.json` describes each method, not just its name: which side sends it,
+    whether it expects a response, and the capability it needs. That is what
+    lets the serve loop derive the set it dispatches (the methods a *host*
+    sends) instead of keeping a hand-written list beside it, and what makes the
+    coverage test direction-aware — a study answers requests, it does not answer
+    its own `event`/`log` notifications.
+    """
+    methods = meta_doc["methods"]
+    served = [m["name"] for m in methods if m["direction"] == "initiator"]
+    emitted = [m["name"] for m in methods if m["direction"] == "responder"]
+    requires = {m["name"]: m["requires"] for m in methods if m.get("requires")}
     return "\n".join([
-        '"""Protocol version, methods, and capability tokens — GENERATED, do not edit.',
+        '"""Protocol vocabulary — GENERATED, do not edit.',
         "",
         "Regenerate with `python3 codegen.py` from schema/v1/meta.json. CI runs",
         "`codegen.py --check` to fail on drift.",
@@ -202,16 +220,112 @@ def render_meta(meta_doc: dict) -> str:
         f"PROTOCOL_VERSION = {json.dumps(meta_doc['version'])}",
         f"MIN_PROTOCOL_VERSION = {json.dumps(meta_doc['min_version'])}",
         "",
-        f"METHODS = {_str_tuple(meta_doc['methods'])}",
+        "# Every method in the protocol, either direction.",
+        f"METHODS = {_str_tuple([m['name'] for m in methods])}",
         f"CAPABILITIES = {_str_tuple(meta_doc['capabilities'])}",
+        "",
+        "# What a study answers: the methods the host sends.",
+        f"SERVED_METHODS = {_str_tuple(served)}",
+        "# What a study may send back: the notifications.",
+        f"EMITTED_METHODS = {_str_tuple(emitted)}",
+        "# The capability a method needs, for the methods that need one.",
+        f"REQUIRES = {json.dumps(requires, indent=4, sort_keys=True)}",
     ]) + "\n"
+
+
+def render_protocol(meta_doc: dict) -> str:
+    """The typed study surface: one method per protocol method a host sends, and
+    the dispatcher that decodes params, calls it, and encodes the result.
+
+    This is what `meta.json` carrying each method's payload *types* buys. With
+    only a name list a generator can emit string constants and leave the author
+    a dict; with the types it can emit `def run(self, params: RunParams) ->
+    RunResult`, and do the decode/encode once here instead of once per method in
+    a hand-written dispatch chain.
+
+    Every method defaults to raising `MethodNotFound`, so a study implements
+    only what it answers and an unimplemented method refuses politely rather
+    than looking like a crash.
+    """
+    served = [m for m in meta_doc["methods"] if m["direction"] == "initiator"]
+    used = sorted({t for m in served for t in (m.get("params"), m.get("result")) if t})
+
+    out = [
+        '"""Typed study surface and dispatch — GENERATED, do not edit.',
+        "",
+        "Regenerate with `python3 codegen.py` from schema/v1/. CI runs",
+        "`codegen.py --check` to fail on drift.",
+        '"""',
+        "from __future__ import annotations",
+        "",
+        "from typing import Any, Dict",
+        "",
+        "from . import _codec",
+        f"from ._wire import {', '.join(used)}",
+        "",
+        "",
+        "class MethodNotFound(Exception):",
+        '    """A method this study does not answer. Becomes a -32601 response."""',
+        "",
+        "    def __init__(self, method: str) -> None:",
+        '        super().__init__(f"unknown method: {method}")',
+        "        self.method = method",
+        "",
+        "",
+        "class StudyHandler:",
+        '    """What a study answers: the methods the host sends.',
+        "",
+        "    Every method defaults to `MethodNotFound`, so a study implements only",
+        "    what it actually handles. Adding a method to the protocol adds it here,",
+        "    which is how an unhandled one shows up as a refusal rather than as a",
+        "    silently missing branch in a hand-written dispatch chain.",
+        '    """',
+    ]
+    for m in served:
+        name, ident = m["name"], m["name"]
+        result = m.get("result")
+        sig_params = f", params: {m['params']}" if m.get("params") else ""
+        ret = result or "None"
+        doc = m.get("doc", "").strip()
+        out += [
+            "",
+            f"    def {ident}(self{sig_params}) -> {ret}:",
+            f'        """{doc}"""' if doc else None,
+            f'        raise MethodNotFound("{name}")',
+        ]
+
+    out += [
+        "",
+        "",
+        "def dispatch(handler: StudyHandler, method: str, params: Dict[str, Any]) -> Any:",
+        '    """Decode `params`, call the handler, encode the result.',
+        "",
+        "    Exhaustive over the declaration: a method that is not in it raises",
+        "    `MethodNotFound` rather than falling through to something else.",
+        '    """',
+    ]
+    for m in served:
+        name = m["name"]
+        if m.get("params"):
+            call = f"handler.{name}(_codec.from_dict({m['params']}, params or {{}}))"
+        else:
+            call = f"handler.{name}()"
+        out += [
+            f'    if method == "{name}":',
+            f"        return _codec.to_dict({call})",
+        ]
+    out += ["    raise MethodNotFound(method)"]
+
+    return "\n".join(line for line in out if line is not None) + "\n"
 
 
 def artifacts() -> list:
     """The (path, body) pairs that make up the generated protocol layer."""
+    meta_doc = json.loads(META.read_text())
     return [
         (OUT_WIRE, render_wire(json.loads(SCHEMA.read_text()))),
-        (OUT_META, render_meta(json.loads(META.read_text()))),
+        (OUT_META, render_meta(meta_doc)),
+        (OUT_PROTOCOL, render_protocol(meta_doc)),
     ]
 
 

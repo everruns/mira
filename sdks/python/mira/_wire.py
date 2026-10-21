@@ -102,6 +102,12 @@ class ImageSource:
     __required__ = ("media_type", "path")
 
 @dataclass
+class InitializeParams:
+    host: str = ""
+    protocol_version: str = ""
+    __required__ = ()
+
+@dataclass
 class InitializeResult:
     capabilities: List[str] = field(default_factory=list)
     capability_params: Dict[str, Any] = field(default_factory=dict)

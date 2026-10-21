@@ -66,6 +66,12 @@ toml = "0.8"
 # Distributed eval registration (the `register_eval!` macro / `#[eval]` attribute).
 inventory = "0.3"
 
+# The lanok protocol kit: JSON-RPC 2.0 wire types, shared with the yolop
+# extension protocol. A git dependency only while lanok is unpublished; this
+# must become a version dependency before mira can be released again.
+lanok-core = { git = "https://github.com/everruns/lanok", rev = "e9669aa" }
+lanok = { git = "https://github.com/everruns/lanok", rev = "e9669aa" }
+
 # Proc-macro toolchain (used by mira-macros).
 syn = "2"
 quote = "1"

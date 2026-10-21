@@ -48,7 +48,8 @@ use crate::{Metadata, Params, Score, Timing, Transcript, Usage};
 /// **Compatibility contract** (so old and new peers interoperate):
 /// * The **major** version changes only on a breaking wire change. Peers with
 ///   different majors are incompatible — [`version_compatible`] returns false
-///   and the host warns.
+///   and the host warns. A peer older than [`MIN_PROTOCOL_VERSION`] is refused
+///   for the same reason.
 /// * The **minor** version increments for backwards-compatible additions (new
 ///   methods, new optional fields). A newer peer talking to an older one must
 ///   tolerate missing additions; an older peer must ignore unknown fields.
@@ -78,18 +79,37 @@ pub const PROTOCOL_VERSION: &str = "1.1";
 /// The oldest protocol version this build can still talk to.
 pub const MIN_PROTOCOL_VERSION: &str = "1.0";
 
+/// What this build implements and the oldest peer it accepts, as one value.
+///
+/// Backed by [`lanok_core::Negotiation`], which is the shared implementation of
+/// the same `MAJOR.MINOR` contract the yolop extension protocol follows. Using
+/// it here means the rule is written once rather than reimplemented per
+/// protocol, and it is what makes [`MIN_PROTOCOL_VERSION`] load-bearing:
+/// mira published that constant in `meta.json` but never checked it.
+pub fn negotiation() -> lanok_core::Negotiation {
+    declaration::NEGOTIATION
+}
+
 /// The major component of a `MAJOR.MINOR` version string (0 if malformed).
 pub fn version_major(v: &str) -> u32 {
-    v.split('.')
-        .next()
-        .and_then(|s| s.parse().ok())
+    v.parse::<lanok_core::Version>()
+        .map(|version| version.major)
         .unwrap_or(0)
 }
 
-/// Whether this build can talk to a peer advertising version `other`. Same major
-/// ⇒ compatible (minor differences are additive by contract).
+/// Whether this build can talk to a peer advertising version `other`.
+///
+/// Same major, and not older than [`MIN_PROTOCOL_VERSION`]. The minimum used to
+/// be advertised and ignored: a study announcing a version this build had
+/// dropped support for was accepted anyway, and failed later at whichever
+/// method it could not satisfy. A malformed version is refused rather than
+/// treated as major `0`, which previously made `"not-a-version"` merely
+/// incompatible instead of invalid.
 pub fn version_compatible(other: &str) -> bool {
-    version_major(other) == version_major(PROTOCOL_VERSION)
+    match other.parse::<lanok_core::Version>() {
+        Ok(peer) => negotiation().accepts(peer).is_ok(),
+        Err(_) => false,
+    }
 }
 
 /// host → study.
@@ -125,7 +145,7 @@ impl Response {
     /// [`codes::INTERNAL_ERROR`]). Use [`Response::err_with`] to attach a
     /// specific code, the `retryable` hint, or structured `data`.
     pub fn err(id: u64, message: impl Into<String>) -> Self {
-        Self::err_with(id, RpcError::new(message))
+        Self::err_with(id, RpcError::internal(message))
     }
 
     /// An error response carrying a fully-formed [`RpcError`].
@@ -138,88 +158,21 @@ impl Response {
     }
 }
 
-/// A structured, JSON-RPC-shaped protocol-level error.
+/// A JSON-RPC error object, re-exported from [`lanok_core`].
 ///
-/// Distinct from a transcript's `error`/`error_kind`, which classify a *subject*
-/// failure (the target under test got it wrong). An [`RpcError`] is the failure of
-/// the RPC itself — bad params, an unknown method, a study-side crash, a provider
-/// outage surfaced at the transport. `code` and `retryable` let the host classify
-/// and retry the request **without parsing the human `message`**, and `data`
-/// carries optional structured context.
+/// Lanok implements exactly the shape this protocol already used: `code`,
+/// `message`, a top-level `retryable` hint omitted when false, and optional
+/// `data`, with everything beyond `message` defaulted so a peer sending bare
+/// `{ "message": "…" }` still parses. The wire is unchanged. The definition
+/// simply stopped existing twice, here and in the yolop extension protocol.
+pub use lanok_core::RpcError;
+
+/// Error codes, from [`lanok_core`].
 ///
-/// All fields beyond `message` are optional and defaulted, so a peer that sends
-/// bare `{ "message": "…" }` still parses (forward/backward compat).
-#[derive(Clone, Debug, Serialize, Deserialize)]
-#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
-pub struct RpcError {
-    /// Numeric class of the failure (JSON-RPC convention; see [`codes`]). `0`
-    /// when unclassified. Defaulted so older peers that omit it still parse.
-    #[serde(default)]
-    pub code: i32,
-    /// Human-readable description. The only required field.
-    pub message: String,
-    /// Hint that retrying the identical request may succeed — a *transient
-    /// infrastructure* fault (provider outage, timeout, rate limit), not the
-    /// caller's mistake. Defaulted `false` so older peers parse and unknown
-    /// failures aren't retried blindly.
-    #[serde(default)]
-    pub retryable: bool,
-    /// Optional structured payload for programmatic handling (JSON-RPC `data`).
-    /// Omitted from the wire when absent.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub data: Option<serde_json::Value>,
-}
-
-/// JSON-RPC error codes used by [`RpcError::code`]. The negative range mirrors
-/// the JSON-RPC 2.0 reserved codes; `0` means unclassified.
-pub mod codes {
-    /// Invalid method parameters (e.g. a malformed `RunParams`, an unknown
-    /// eval/sample/target). The caller's mistake — not retryable.
-    pub const INVALID_PARAMS: i32 = -32602;
-    /// Method not found / unsupported.
-    pub const METHOD_NOT_FOUND: i32 = -32601;
-    /// Internal study-side error. The default for [`super::RpcError::new`].
-    pub const INTERNAL_ERROR: i32 = -32603;
-}
-
-impl RpcError {
-    /// A non-retryable internal error ([`codes::INTERNAL_ERROR`]).
-    pub fn new(message: impl Into<String>) -> Self {
-        Self {
-            code: codes::INTERNAL_ERROR,
-            message: message.into(),
-            retryable: false,
-            data: None,
-        }
-    }
-
-    /// Set the error [`code`](RpcError::code).
-    pub fn with_code(mut self, code: i32) -> Self {
-        self.code = code;
-        self
-    }
-
-    /// Mark this error as [`retryable`](RpcError::retryable) — a transient infra
-    /// fault the host may re-attempt.
-    pub fn retryable(mut self) -> Self {
-        self.retryable = true;
-        self
-    }
-
-    /// Attach a structured [`data`](RpcError::data) payload.
-    pub fn with_data(mut self, data: serde_json::Value) -> Self {
-        self.data = Some(data);
-        self
-    }
-}
-
-impl std::fmt::Display for RpcError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.message)
-    }
-}
-
-impl std::error::Error for RpcError {}
+/// The three mira defined are the JSON-RPC reserved values and keep their
+/// meanings. Lanok adds the rest outside the reserved range: cancelled,
+/// timeout, capability-unsupported, version-incompatible, transport-closed.
+pub use lanok_core::codes;
 
 /// study → host, fire-and-forget progress (no `id`). Carries live events (a
 /// turn started, a tool was called, tokens spent) so the host can render
@@ -233,10 +186,10 @@ pub struct Notification {
 }
 
 impl Notification {
-    /// The `method` of a progress `event` notification.
-    pub const EVENT: &'static str = "event";
-    /// The `method` of a free-form `log` notification.
-    pub const LOG: &'static str = "log";
+    /// The `method` of a progress `event` notification, from the declaration.
+    pub const EVENT: &'static str = method::EVENT;
+    /// The `method` of a free-form `log` notification, from the declaration.
+    pub const LOG: &'static str = method::LOG;
 
     /// Build a typed `event` progress notification.
     pub fn event(params: EventParams) -> Self {
@@ -324,6 +277,21 @@ pub struct LogParams {
 
 // ----- method payloads ------------------------------------------------------
 
+/// `initialize` params: what the host tells the study about itself.
+///
+/// Both fields are defaulted: a study SDK calling `handle("initialize", {})`
+/// (which the Python and TypeScript conformance suites do) must still parse.
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+pub struct InitializeParams {
+    /// The protocol version the host speaks, as `MAJOR.MINOR`.
+    #[serde(default)]
+    pub protocol_version: String,
+    /// The host's name, for the study's diagnostics.
+    #[serde(default)]
+    pub host: String,
+}
+
 /// `initialize` result.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
@@ -358,50 +326,138 @@ impl InitializeResult {
     }
 }
 
-/// Capability tokens a study may advertise in [`InitializeResult::capabilities`].
+/// The eval protocol, declared once.
 ///
-/// # Reserved (not yet implemented)
-/// `host_requests` is the negotiation handle for the **reverse channel** — a
+/// Everything below this point, method names, directions, which are requests
+/// and which are notifications, the capability tokens and what each promises,
+/// used to be written twice: as string literals in [`crate::host`]'s call sites
+/// and again as match arms in [`crate::study`]'s dispatch, with nothing
+/// checking that the two lists agreed. The declaration is now the single
+/// source, and both sides are generated from it.
+///
+/// It lives in a private module because two of the constants the macro emits
+/// (`PROTOCOL_VERSION`, `MIN_PROTOCOL_VERSION`) are typed
+/// [`lanok::Version`]s, while mira publishes the same two as strings in
+/// `meta.json` and across its SDKs. The strings above stay the public spelling;
+/// `versions_agree` below is the guard that keeps them equal.
+///
+/// # Reserved (not yet declared)
+/// `host_requests` is the negotiation handle for the **reverse channel**, a
 /// study→host request direction (host-brokered model access, shared resources,
-/// human-in-the-loop). It is *reserved*, not defined here: no const is minted and
-/// it is absent from the generated `meta.json` until the channel actually lands
-/// (then as a minor bump). The framing already accommodates it without a breaking
-/// change — see the `Inbound` classifier in [`crate::host`] and the
-/// reverse-channel seam in `docs/protocol.md` / `specs/architecture.md`.
-pub mod capabilities {
-    /// Study advertises extra matrix axes in `list` and honours `run.params`.
-    pub const AXES: &str = "axes";
-    /// Study emits `event` progress notifications during `run`.
-    pub const EVENTS: &str = "events";
-    /// Study reports token/cost usage and timing in transcripts.
-    pub const USAGE: &str = "usage";
-    /// Study answers `execute` (run the subject only, returning a full
-    /// transcript) for run-now-score-later workflows.
-    pub const EXECUTE: &str = "execute";
-    /// Study answers `score` (run scorers over a supplied transcript) for
-    /// deferred scoring and re-scoring of stored transcripts.
-    pub const SCORE: &str = "score";
-    /// Study honours the `trial`/`seed` run params — it threads the seed into the
-    /// subject so repetitions are reproducible. Trials run regardless (the host
-    /// drives the repetition); this advertises that seeding actually takes
-    /// effect, not just that the case is re-run.
-    pub const TRIALS: &str = "trials";
-    /// Study answers `cancel` (abort one in-flight run by its request `id`).
-    /// Without it, a host can only stop work by closing stdin, which ends every
-    /// in-flight run at once.
-    pub const CANCEL: &str = "cancel";
-    /// Study answers `list_samples` and may return a non-empty
-    /// `EvalInfo.next_cursor` from `list`, so the host pages large or lazily
-    /// generated sample sets instead of receiving them all in one `list`.
-    pub const PAGINATE: &str = "paginate";
-    /// Study attaches a structured ATIF trajectory to transcripts
-    /// (`Transcript::trajectory` on `execute` results / `score` params), and
-    /// its scorers can grade trajectory structure. The format/version pair
-    /// rides `capability_params` (`{"trajectory": {"format": "ATIF",
-    /// "version": "1.7"}}`), so a non-ATIF or ATIF-v2 representation needs no
-    /// new token. See [`crate::trajectory`].
-    pub const TRAJECTORY: &str = "trajectory";
+/// human-in-the-loop). It is *reserved*, not declared: no token is minted and
+/// it is absent from `meta.json` until the channel lands (then as a minor
+/// bump). Declaring it is additive when the time comes, because a method's
+/// direction is a property of the method rather than of the process: see the
+/// reverse-channel seam in `docs/protocol.md`.
+mod declaration {
+    use super::{
+        CancelParams, CancelResult, EventParams, ExecuteResult, InitializeParams, InitializeResult,
+        ListResult, ListSamplesParams, ListSamplesResult, LogParams, RunParams, RunResult,
+        ScoreParams,
+    };
+
+    lanok::protocol! {
+        name    = "mira";
+        version = "1.1";
+        min     = "1.0";
+
+        /// Announce the host and learn what the study is and can do.
+        initiator fn initialize(InitializeParams) -> InitializeResult;
+
+        /// The eval catalogue, with the first page of each eval's samples
+        /// inline.
+        initiator fn list() -> ListResult;
+
+        /// The next page of one eval's samples, for datasets too large (or too
+        /// lazy) to enumerate in one `list`.
+        initiator fn list_samples(ListSamplesParams) -> ListSamplesResult
+            requires "paginate";
+
+        /// Execute and score one matrix case in a single call.
+        initiator fn run(RunParams) -> RunResult;
+
+        /// Execute one case's subject without scoring, returning the full
+        /// transcript, for run-now-score-later workflows.
+        initiator fn execute(RunParams) -> ExecuteResult requires "execute";
+
+        /// Score a supplied transcript without re-executing the subject, for
+        /// deferred scoring and re-scoring.
+        initiator fn score(ScoreParams) -> RunResult requires "score";
+
+        /// Abort one in-flight `run`/`execute`/`score` by its request `id`.
+        ///
+        /// A request rather than a notification, and acknowledged: the host
+        /// learns whether the run was still in flight. That divergence from
+        /// other protocols, where cancel is fire-and-forget, is why lanok's
+        /// cancellation is a hook the protocol fills rather than a setting.
+        initiator fn cancel(CancelParams) -> CancelResult requires "cancel";
+
+        /// Live progress for one in-flight run, correlated to its request by
+        /// `request_id`.
+        responder notify event(EventParams) requires "events";
+
+        /// Free-form study output, for the host's log pane.
+        responder notify log(LogParams);
+
+        capabilities {
+            /// Study advertises extra matrix axes in `list` and honours
+            /// `run.params`.
+            axes,
+            /// Study emits `event` progress notifications during `run`.
+            events,
+            /// Study reports token/cost usage and timing in transcripts.
+            usage,
+            /// Study answers `execute` (run the subject only, returning a full
+            /// transcript) for run-now-score-later workflows.
+            execute,
+            /// Study answers `score` (run scorers over a supplied transcript)
+            /// for deferred scoring and re-scoring of stored transcripts.
+            score,
+            /// Study honours the `trial`/`seed` run params: it threads the seed
+            /// into the subject so repetitions are reproducible. Trials run
+            /// regardless (the host drives the repetition); this advertises
+            /// that seeding actually takes effect, not just that the case is
+            /// re-run.
+            trials,
+            /// Study answers `cancel` (abort one in-flight run by its request
+            /// `id`). Without it, a host can only stop work by closing stdin,
+            /// which ends every in-flight run at once.
+            cancel,
+            /// Study answers `list_samples` and may return a non-empty
+            /// `EvalInfo.next_cursor` from `list`, so the host pages large or
+            /// lazily generated sample sets instead of receiving them all in
+            /// one `list`.
+            paginate,
+            /// Study attaches a structured ATIF trajectory to transcripts
+            /// (`Transcript::trajectory` on `execute` results / `score`
+            /// params), and its scorers can grade trajectory structure. The
+            /// format/version pair rides `capability_params`
+            /// (`{"trajectory": {"format": "ATIF", "version": "1.7"}}`), so a
+            /// non-ATIF or ATIF-v2 representation needs no new token. See
+            /// [`crate::trajectory`].
+            trajectory,
+        }
+    }
 }
+
+/// The protocol's vocabulary as data: methods, directions, capability tokens.
+pub use declaration::META;
+/// Wire method names, so no call site spells one as a string literal.
+pub use declaration::method;
+/// Typed stubs for the host side, implemented for [`lanok::Peer`].
+pub use declaration::{InitiatorApi, InitiatorDispatch, InitiatorHandler};
+/// Typed handlers and dispatch for the study side.
+pub use declaration::{ResponderDispatch, ResponderHandler};
+
+/// The protocol's JSON Schema, built from the declaration so the artifact lists
+/// exactly the declared methods and their payload types. Fed to
+/// `mira-schema-gen`; see [`crate::protocol`].
+#[cfg(feature = "schema")]
+pub use declaration::schema_document;
+
+/// Capability tokens a study may advertise in [`InitializeResult::capabilities`],
+/// generated from the `capabilities` block of the declaration above.
+pub use declaration::capability as capabilities;
 
 /// Defined `event` notification kinds — the value of [`EventParams::kind`].
 ///
@@ -802,6 +858,71 @@ impl RunResult {
 mod tests {
     use super::*;
 
+    /// The declaration owns the version; these two strings are the published
+    /// spelling of it (`meta.json`, the Python and TypeScript SDKs). They are
+    /// separate values, so this is the guard that keeps them one fact.
+    #[test]
+    fn versions_agree_with_the_declaration() {
+        assert_eq!(PROTOCOL_VERSION, declaration::PROTOCOL_VERSION.to_string());
+        assert_eq!(
+            MIN_PROTOCOL_VERSION,
+            declaration::MIN_PROTOCOL_VERSION.to_string()
+        );
+    }
+
+    /// The method list is what the SDKs, the conformance vectors and
+    /// `meta.json` are all built against, so a method added to the declaration
+    /// without being published is worth catching here rather than in a study.
+    #[test]
+    fn the_declaration_carries_the_whole_method_surface() {
+        let declared: Vec<&str> = META.methods.iter().map(|m| m.name).collect();
+        assert_eq!(
+            declared,
+            [
+                "initialize",
+                "list",
+                "list_samples",
+                "run",
+                "execute",
+                "score",
+                "cancel",
+                "event",
+                "log",
+            ]
+        );
+
+        // Directions are the point: everything the host calls is `initiator`,
+        // and the two notifications come back the other way. A reverse request
+        // would be an additive `responder fn`, not a redesign.
+        use lanok::{Direction, MethodKind};
+        for name in ["initialize", "list", "run", "cancel"] {
+            let method = META.method(name).unwrap();
+            assert_eq!(method.direction, Direction::Initiator);
+            assert_eq!(method.kind, MethodKind::Request);
+        }
+        for name in ["event", "log"] {
+            let method = META.method(name).unwrap();
+            assert_eq!(method.direction, Direction::Responder);
+            assert_eq!(method.kind, MethodKind::Notification);
+        }
+    }
+
+    /// Gating is declared, not remembered at each call site. `run` and `list`
+    /// are the base surface every study answers; the rest are opt-in.
+    #[test]
+    fn optional_methods_declare_the_capability_they_need() {
+        assert_eq!(META.method("run").unwrap().requires, None);
+        assert_eq!(META.method("list").unwrap().requires, None);
+        assert_eq!(META.method("execute").unwrap().requires, Some("execute"));
+        assert_eq!(META.method("score").unwrap().requires, Some("score"));
+        assert_eq!(META.method("cancel").unwrap().requires, Some("cancel"));
+        assert_eq!(
+            META.method("list_samples").unwrap().requires,
+            Some("paginate")
+        );
+        assert_eq!(META.method("event").unwrap().requires, Some("events"));
+    }
+
     // Exercises the `protocol-unstable` staging mechanism: when the feature is
     // on, the experimental field is part of the wire type and round-trips. The
     // committed schema (generated *without* the feature) must not contain it —
@@ -817,6 +938,37 @@ mod tests {
         assert!(line.contains("experimental"));
         let back: TranscriptSummary = serde_json::from_str(&line).unwrap();
         assert_eq!(back.experimental.as_deref(), Some("staged"));
+    }
+
+    #[test]
+    fn a_peer_older_than_the_minimum_is_refused() {
+        // The regression this adoption fixes: MIN_PROTOCOL_VERSION was
+        // published in meta.json and never checked, so a peer below it was
+        // accepted and failed later at whichever method it could not satisfy.
+        let build =
+            lanok_core::Negotiation::with_min("1.5".parse().unwrap(), "1.2".parse().unwrap());
+        assert!(build.accepts("1.2".parse().unwrap()).is_ok());
+        assert!(
+            build.accepts("1.9".parse().unwrap()).is_ok(),
+            "a newer minor is additive"
+        );
+        assert_eq!(
+            build.accepts("1.1".parse().unwrap()),
+            Err(lanok_core::Incompatible::TooOld)
+        );
+        assert_eq!(
+            build.accepts("2.0".parse().unwrap()),
+            Err(lanok_core::Incompatible::MajorMismatch)
+        );
+    }
+
+    #[test]
+    fn a_malformed_version_is_invalid_rather_than_major_zero() {
+        // Previously these parsed as major 0 and were merely "incompatible".
+        assert!(!version_compatible("not-a-version"));
+        assert!(!version_compatible("1"));
+        assert!(!version_compatible("1.2.3"));
+        assert_eq!(version_major("not-a-version"), 0);
     }
 
     #[test]
@@ -1049,7 +1201,7 @@ mod tests {
 
     #[test]
     fn rpc_error_is_classifiable_and_roundtrips() {
-        let err = RpcError::new("provider 503")
+        let err = RpcError::internal("provider 503")
             .with_code(codes::INTERNAL_ERROR)
             .retryable()
             .with_data(serde_json::json!({ "provider": "anthropic" }));
@@ -1062,9 +1214,66 @@ mod tests {
             Some(serde_json::json!({ "provider": "anthropic" }))
         );
         // Default constructor is non-retryable and carries no data.
-        let plain = RpcError::new("nope");
+        let plain = RpcError::internal("nope");
         assert!(!plain.retryable);
         assert!(!serde_json::to_string(&plain).unwrap().contains("data"));
+    }
+
+    #[test]
+    fn the_error_wire_shape_is_what_studies_parse() {
+        // Byte-level, because the Python and TypeScript study SDKs parse this
+        // and neither knows lanok exists. The one difference from before the
+        // adoption is recorded here deliberately: `retryable` used to be
+        // written even when false, and is now omitted. Every mira
+        // implementation defaults it (`retryable: bool = False` in Python,
+        // `retryable?: boolean` in TypeScript, `#[serde(default)]` here), and
+        // the published schema has only `message` required, so absence is
+        // inside the protocol's own forward-compatibility contract.
+        assert_eq!(
+            serde_json::to_string(&RpcError::internal("boom")).unwrap(),
+            r#"{"code":-32603,"message":"boom"}"#
+        );
+        assert_eq!(
+            serde_json::to_string(&RpcError::internal("busy").retryable()).unwrap(),
+            r#"{"code":-32603,"message":"busy","retryable":true}"#
+        );
+
+        // Everything else on the wire is byte-identical to before.
+        let request = Request {
+            id: 7,
+            method: "run".into(),
+            params: serde_json::json!({ "a": 1 }),
+        };
+        assert_eq!(
+            serde_json::to_string(&request).unwrap(),
+            r#"{"id":7,"method":"run","params":{"a":1}}"#
+        );
+        assert_eq!(
+            serde_json::to_string(&Response::ok(7, serde_json::json!({ "ok": true }))).unwrap(),
+            r#"{"id":7,"result":{"ok":true}}"#
+        );
+        let notification = Notification {
+            method: "event".into(),
+            params: serde_json::json!({ "k": 1 }),
+        };
+        assert_eq!(
+            serde_json::to_string(&notification).unwrap(),
+            r#"{"method":"event","params":{"k":1}}"#
+        );
+    }
+
+    #[test]
+    fn a_study_that_omits_retryable_still_parses() {
+        // The other half of the same contract: an older study that never sends
+        // the field, and one that sends it explicitly false, both read as
+        // not-retryable.
+        for line in [
+            r#"{"code":-32603,"message":"x"}"#,
+            r#"{"code":-32603,"message":"x","retryable":false}"#,
+        ] {
+            let error: RpcError = serde_json::from_str(line).unwrap();
+            assert!(!error.retryable, "{line}");
+        }
     }
 
     #[test]
@@ -1072,7 +1281,12 @@ mod tests {
         // A peer sends only `message`; the optional fields default.
         let back: RpcError = serde_json::from_str(r#"{"message":"no such eval"}"#).unwrap();
         assert_eq!(back.message, "no such eval");
-        assert_eq!(back.code, 0);
+        // A missing code now reads as INTERNAL_ERROR rather than 0. Nothing on
+        // the wire changed: this is how an error that declines to classify
+        // itself is interpreted, and 0 is not a JSON-RPC code, so it said
+        // nothing. Retry behaviour keys on `retryable` and the message, not on
+        // this value.
+        assert_eq!(back.code, codes::INTERNAL_ERROR);
         assert!(!back.retryable);
         assert!(back.data.is_none());
     }

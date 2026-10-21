@@ -86,6 +86,11 @@ export interface ImageSource {
   path: string;
 }
 
+export interface InitializeParams {
+  host?: string;
+  protocol_version?: string;
+}
+
 export interface InitializeResult {
   capabilities?: string[];
   capability_params?: Record<string, unknown>;
@@ -391,6 +396,10 @@ export const WIRE_FIELDS: Record<string, Record<string, FieldMeta>> = {
   ImageSource: {
     "media_type": { required: true },
     "path": { required: true },
+  },
+  InitializeParams: {
+    "host": { required: false },
+    "protocol_version": { required: false },
   },
   InitializeResult: {
     "capabilities": { required: false },
