@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Security
+
+- Refresh the native TLS and transport dependency resolution to reject compromised emSign certificate paths.
+- Update the TypeScript SDK development dependency `fast-uri` to its patched release.
+
 ## [0.5.0] - 2026-07-25
 
 ### Added
