@@ -512,10 +512,10 @@ impl Host {
 enum Inbound {
     Response(Response),
     Notification(Notification),
-    /// A study→host request. Reserved seam — no reverse method is supported
+    /// A study→host request. No reverse method is supported
     /// today (the host advertises no such capability, so a conforming study
-    /// never sends one). Carried so a future host can answer it instead of
-    /// misrouting it; for now it is logged and ignored.
+    /// never sends one). Classified separately from responses to avoid misrouting it;
+    /// logged and ignored.
     Request(Request),
     /// Unparseable / neither shape; ignored.
     Junk,
