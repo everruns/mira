@@ -253,8 +253,9 @@ let eval = Eval::new("qa")
   an unparseable reply all yield **N/A**: never a crash or a spurious fail. A
   key-free run stays green.
 - The judge keeps its model independent of the model under test, requests
-  deterministic JSON (`temperature: 0`, JSON output mode), and tolerates replies
-  wrapped in prose or code fences.
+  JSON verdicts, and tolerates replies wrapped in prose or code fences. OpenAI
+  transports request JSON output mode with `temperature: 0`. Claude uses the
+  model's sampling defaults so models that reject sampling overrides work too.
 
 Integration tests that hit the live APIs are `#[ignore]`d (they cost money); CI
 runs them with `--ignored` after injecting keys from Doppler.

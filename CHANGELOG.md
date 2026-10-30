@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- Claude judges use provider sampling defaults, avoiding HTTP 400 errors on models that reject `temperature` overrides.
+
 ### Security
 
 - Refresh the native TLS and transport dependency resolution to reject compromised emSign certificate paths.

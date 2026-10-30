@@ -20,4 +20,4 @@ serde_json = { workspace = true }
 reqwest = { workspace = true }
 
 [dev-dependencies]
-tokio = { workspace = true }
+tokio = { workspace = true, features = ["net"] }

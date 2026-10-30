@@ -273,7 +273,7 @@ impl LlmJudge {
         let body = serde_json::json!({
             "model": self.model,
             "max_tokens": 1024,
-            "temperature": 0,
+            // Newer Claude models reject sampling overrides. Use provider defaults.
             "system": system,
             "messages": [{"role": "user", "content": user}],
         });
@@ -443,6 +443,76 @@ impl Scorer for LlmJudgeScorer {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn claude_judge_uses_provider_sampling_defaults() {
+        use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
+
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move {
+            tokio::time::timeout(std::time::Duration::from_secs(5), async {
+                let (stream, _) = listener.accept().await.unwrap();
+                let mut reader = BufReader::new(stream);
+                let mut request = String::new();
+                reader.read_line(&mut request).await.unwrap();
+                let mut headers = String::new();
+                let mut length = None;
+                loop {
+                    let mut line = String::new();
+                    assert_ne!(reader.read_line(&mut line).await.unwrap(), 0);
+                    if line == "\r\n" {
+                        break;
+                    }
+                    if let Some(value) = line.to_ascii_lowercase().strip_prefix("content-length:") {
+                        length = Some(value.trim().parse::<usize>().unwrap());
+                    }
+                    headers.push_str(&line.to_ascii_lowercase());
+                }
+                let mut body = vec![0; length.unwrap()];
+                reader.read_exact(&mut body).await.unwrap();
+                let response = serde_json::json!({
+                    "content": [{"type": "text", "text": r#"{"score":1.0,"reason":"correct"}"#}]
+                })
+                .to_string();
+                let response = format!(
+                    "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+                    response.len(), response
+                );
+                reader.get_mut().write_all(response.as_bytes()).await.unwrap();
+                (request, headers, serde_json::from_slice::<serde_json::Value>(&body).unwrap())
+            })
+            .await
+            .expect("Claude request did not finish")
+        });
+
+        let mut judge = LlmJudge::claude("claude-haiku-5-5")
+            .api_key("test-key")
+            .base_url(format!("http://{address}"));
+        judge.client = reqwest::Client::builder()
+            .no_proxy()
+            .timeout(std::time::Duration::from_secs(5))
+            .build()
+            .unwrap();
+        let score = judge
+            .scorer("The answer names the capital of France.")
+            .score(
+                &Sample::new("capital", "What is France's capital?"),
+                &transcript(),
+            )
+            .await;
+        let (request, headers, body) = server.await.unwrap();
+        assert_eq!(request, "POST /v1/messages HTTP/1.1\r\n");
+        assert!(headers.contains("x-api-key: test-key\r\n"));
+        assert!(headers.contains("anthropic-version: 2023-06-01\r\n"));
+        assert_eq!(body["model"], "claude-haiku-5-5");
+        assert_eq!(body["max_tokens"], 1024);
+        assert_eq!(body["system"], SYSTEM);
+        assert_eq!(body["messages"][0]["role"], "user");
+        assert!(!body.as_object().unwrap().contains_key("temperature"));
+        assert!(!score.is_na(), "{}", score.reason);
+        assert!(score.pass, "{}", score.reason);
+    }
 
     fn transcript() -> Transcript {
         let mut t = Transcript::response("Paris is the capital of France.");
