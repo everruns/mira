@@ -129,8 +129,7 @@ impl Subject for RuntimeSubject {
 
         if let Ok(events) = runtime.events().await {
             // The primary structured contract: fold the typed event stream
-            // into an ATIF trajectory. The raw `events` channel stays as-is
-            // for now (debugging; its retirement is a later decision).
+            // into an ATIF trajectory. The raw `events` channel is retained for debugging.
             let mut trajectory = atif_from_events(&events);
             if trajectory.agent.model_name.is_none() {
                 trajectory.agent.model_name = Some(cx.target.model.clone());
