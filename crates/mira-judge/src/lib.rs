@@ -205,7 +205,8 @@ impl LlmJudge {
     ) -> Result<String, String> {
         let body = serde_json::json!({
             "model": self.model,
-            "temperature": 0,
+            // Current OpenAI models (GPT-5 and later) reject any temperature
+            // other than the default with a 400. Use provider defaults.
             "response_format": {"type": "json_object"},
             "messages": [
                 {"role": "system", "content": system},
@@ -236,7 +237,7 @@ impl LlmJudge {
         // the system prompt rides along as an input message like Completions.
         let body = serde_json::json!({
             "model": self.model,
-            "temperature": 0,
+            // See Completions: current models reject sampling overrides.
             "input": [
                 {"role": "system", "content": system},
                 {"role": "user", "content": user},
@@ -514,6 +515,98 @@ mod tests {
         assert!(score.pass, "{}", score.reason);
     }
 
+    /// Accepts one HTTP request, answers it with `response`, and returns the
+    /// request's JSON body.
+    async fn serve_once(
+        response: serde_json::Value,
+    ) -> (
+        std::net::SocketAddr,
+        tokio::task::JoinHandle<serde_json::Value>,
+    ) {
+        use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
+
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let handle = tokio::spawn(async move {
+            let (stream, _) = listener.accept().await.unwrap();
+            let mut reader = BufReader::new(stream);
+            let mut length = None;
+            loop {
+                let mut line = String::new();
+                assert_ne!(reader.read_line(&mut line).await.unwrap(), 0);
+                if line == "\r\n" {
+                    break;
+                }
+                if let Some(value) = line.to_ascii_lowercase().strip_prefix("content-length:") {
+                    length = Some(value.trim().parse::<usize>().unwrap());
+                }
+            }
+            let mut body = vec![0; length.unwrap_or(0)];
+            reader.read_exact(&mut body).await.unwrap();
+            let response = response.to_string();
+            let response = format!(
+                "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+                response.len(),
+                response
+            );
+            reader
+                .get_mut()
+                .write_all(response.as_bytes())
+                .await
+                .unwrap();
+            serde_json::from_slice::<serde_json::Value>(&body).unwrap()
+        });
+        (address, handle)
+    }
+
+    async fn grade_with(mut judge: LlmJudge, address: std::net::SocketAddr) -> Score {
+        judge = judge
+            .api_key("test-key")
+            .base_url(format!("http://{address}"));
+        judge.client = reqwest::Client::builder()
+            .no_proxy()
+            .timeout(std::time::Duration::from_secs(5))
+            .build()
+            .unwrap();
+        judge
+            .scorer("The answer names the capital of France.")
+            .score(
+                &Sample::new("capital", "What is France's capital?"),
+                &transcript(),
+            )
+            .await
+    }
+
+    // GPT-5 and later answer `temperature: 0` with a 400, so a judge on a
+    // current model must leave sampling at the provider default.
+    #[tokio::test]
+    async fn openai_completions_judge_uses_provider_sampling_defaults() {
+        let verdict = r#"{"score":1.0,"reason":"correct"}"#;
+        let (address, server) = serve_once(serde_json::json!({
+            "choices": [{"message": {"content": verdict}}]
+        }))
+        .await;
+        let score = grade_with(LlmJudge::openai_completions("gpt-6-luna"), address).await;
+        let body = server.await.unwrap();
+        assert_eq!(body["model"], "gpt-6-luna");
+        assert!(!body.as_object().unwrap().contains_key("temperature"));
+        assert!(score.pass, "{}", score.reason);
+    }
+
+    #[tokio::test]
+    async fn openai_responses_judge_uses_provider_sampling_defaults() {
+        let verdict = r#"{"score":1.0,"reason":"correct"}"#;
+        let (address, server) = serve_once(serde_json::json!({
+            "output": [{"type": "message", "content": [{"type": "output_text", "text": verdict}]}]
+        }))
+        .await;
+        let score = grade_with(LlmJudge::openai_responses("gpt-6-luna"), address).await;
+        let body = server.await.unwrap();
+        assert_eq!(body["model"], "gpt-6-luna");
+        assert!(!body.as_object().unwrap().contains_key("temperature"));
+        assert!(score.pass, "{}", score.reason);
+    }
+
     fn transcript() -> Transcript {
         let mut t = Transcript::response("Paris is the capital of France.");
         t.tool_calls = vec!["search".into(), "read".into()];
@@ -584,7 +677,7 @@ mod tests {
     #[tokio::test]
     async fn unconfigured_judge_scores_na_not_fail() {
         // Force no key regardless of the environment.
-        let judge = LlmJudge::openai_completions("gpt-4o-mini").api_key("");
+        let judge = LlmJudge::openai_completions("gpt-6-luna").api_key("");
         assert!(!judge.is_configured());
         let scorer = judge.scorer("anything");
         let s = scorer
@@ -614,13 +707,13 @@ mod tests {
     #[tokio::test]
     #[ignore = "hits the OpenAI Chat Completions API; needs OPENAI_API_KEY"]
     async fn openai_completions_grades_correct_answer() {
-        integration_smoke(LlmJudge::openai_completions("gpt-4o-mini")).await;
+        integration_smoke(LlmJudge::openai_completions("gpt-6-luna")).await;
     }
 
     #[tokio::test]
     #[ignore = "hits the OpenAI Responses API; needs OPENAI_API_KEY"]
     async fn openai_responses_grades_correct_answer() {
-        integration_smoke(LlmJudge::openai_responses("gpt-4o-mini")).await;
+        integration_smoke(LlmJudge::openai_responses("gpt-6-luna")).await;
     }
 
     #[tokio::test]

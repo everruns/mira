@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - Claude judges use provider sampling defaults, avoiding HTTP 400 errors on models that reject `temperature` overrides.
+- OpenAI judges (Chat Completions and Responses) use provider sampling defaults too. GPT-5 and later answer `temperature: 0` with HTTP 400, so the judge returned N/A on every current OpenAI model. Examples and docs now use `gpt-6-luna`.
 
 ### Security
 

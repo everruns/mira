@@ -55,7 +55,7 @@ call:
 study.eval({
   name: "qa",
   samples: [sample("capital", { prompt: "Capital of France?" })],
-  targets: [target("gpt-4o-mini", { provider: "openai" })],
+  targets: [target("gpt-6-luna", { provider: "openai" })],
   scorers: [contains("Paris")],
   run: async (s, cx) => {
     const reply = await myModel(cx.provider, cx.target, s.text);
