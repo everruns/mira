@@ -49,7 +49,7 @@ fn llm_judge() -> Eval {
         // LLM-as-judge over the transcript (response + tool calls). Swap in
         // `openai_responses` / `claude` to grade with a different provider.
         .scorer(
-            LlmJudge::openai_completions("gpt-4o-mini")
+            LlmJudge::openai_completions("gpt-6-luna")
                 .include(Include::Transcript)
                 .scorer("Does the response correctly and concisely name the capital of France?"),
         )

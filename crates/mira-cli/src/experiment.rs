@@ -144,7 +144,7 @@ preset = "regression"
 
 [slice]
 samples = ["approval", "add-fn"]
-targets = ["openai/gpt-5.5"]
+targets = ["openai/gpt-6-luna"]
 trials = 3
 
 [[treatments]]
@@ -167,7 +167,7 @@ baseline = "baseline"
         assert_eq!(plan.launcher.as_deref(), Some("harness-basic"));
         assert_eq!(plan.preset.as_deref(), Some("regression"));
         assert_eq!(plan.slice.samples, vec!["approval", "add-fn"]);
-        assert_eq!(plan.slice.targets, vec!["openai/gpt-5.5"]);
+        assert_eq!(plan.slice.targets, vec!["openai/gpt-6-luna"]);
         assert_eq!(plan.slice.trials, Some(3));
         assert_eq!(plan.treatments[0].name, "baseline");
         assert_eq!(
