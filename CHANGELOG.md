@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- `HostedAgent` (in `mira-publish-everruns`) runs samples against an agent deployed on Everruns through its Agent Execution API, one session per sample, with per-target routing for model matrices.
+- `--everruns-experiment NAME` publishes a run into an Everruns experiment, one variant per target, compared there case by case with the experiment's other variants.
+
 ### Fixed
 
 - Claude judges use provider sampling defaults, avoiding HTTP 400 errors on models that reject `temperature` overrides.

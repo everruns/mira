@@ -21,6 +21,9 @@
 use std::collections::BTreeMap;
 use std::path::PathBuf;
 
+mod hosted;
+pub use hosted::HostedAgent;
+
 use anyhow::{Context, Result, bail};
 use mira::Score;
 use mira::protocol::RunResult;
@@ -52,6 +55,10 @@ pub struct PublishOptions {
     pub org_id: Option<String>,
     /// everruns credentials profile to read (defaults to its `current_profile`).
     pub profile: Option<String>,
+    /// Publish into the everruns experiment with this name: each target of
+    /// the run becomes one variant, labelled with the target, compared with
+    /// the experiment's other variants.
+    pub experiment: Option<String>,
 }
 
 /// What `GET /v1/evals/import/preflight` reports.
@@ -174,7 +181,18 @@ fn everruns_credentials_path() -> Option<PathBuf> {
 struct ImportRequest {
     source: ImportSource,
     evals: Vec<ImportGroup>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    experiment: Option<ImportExperiment>,
 }
+
+#[derive(Serialize)]
+struct ImportExperiment {
+    name: String,
+    variant: String,
+}
+
+/// Longest variant label everruns takes.
+const MAX_VARIANT_CHARS: usize = 40;
 
 #[derive(Serialize)]
 struct ImportSource {
@@ -275,7 +293,37 @@ fn build_payload(meta: &RunMeta, results: &[RunResult]) -> ImportRequest {
             metadata: Some(metadata),
         },
         evals,
+        experiment: None,
     }
+}
+
+/// One import per target, each the variant named after its target in
+/// `experiment`. Each gets its own external run id, so publishing again
+/// replaces only that target's variant.
+fn build_experiment_payloads(
+    meta: &RunMeta,
+    results: &[RunResult],
+    experiment: &str,
+) -> Vec<ImportRequest> {
+    let mut by_target: BTreeMap<String, Vec<RunResult>> = BTreeMap::new();
+    for r in results {
+        by_target
+            .entry(r.target.clone())
+            .or_default()
+            .push(r.clone());
+    }
+    by_target
+        .into_iter()
+        .map(|(target, rs)| {
+            let mut payload = build_payload(meta, &rs);
+            payload.source.run_id = format!("{}@{target}", meta.run_id);
+            payload.experiment = Some(ImportExperiment {
+                name: experiment.to_string(),
+                variant: target.chars().take(MAX_VARIANT_CHARS).collect(),
+            });
+            payload
+        })
+        .collect()
 }
 
 fn import_case(r: &RunResult) -> ImportCase {
@@ -427,7 +475,37 @@ pub async fn publish(
     opts: &PublishOptions,
 ) -> Result<PublishOutcome> {
     let target = resolve_target(opts)?;
-    publish_to(&target, meta, results).await
+    match opts.experiment.as_deref().map(str::trim) {
+        Some(name) if !name.is_empty() => publish_experiment_to(&target, meta, results, name).await,
+        _ => publish_to(&target, meta, results).await,
+    }
+}
+
+/// Publish a finished run into an everruns experiment: one variant per
+/// target, labelled with the target (cut to 40 characters). The experiment is
+/// created on each eval the first time it is named.
+pub async fn publish_experiment_to(
+    target: &EverrunsTarget,
+    meta: &RunMeta,
+    results: &[RunResult],
+    experiment: &str,
+) -> Result<PublishOutcome> {
+    let payloads = build_experiment_payloads(meta, results, experiment);
+    if payloads.is_empty() {
+        bail!("nothing to publish: the run has no case results");
+    }
+    let mut outcome = PublishOutcome {
+        run_ids: Vec::new(),
+        evals: 0,
+        cases: 0,
+    };
+    for payload in payloads {
+        let published = send_import(target, &payload).await?;
+        outcome.run_ids.extend(published.run_ids);
+        outcome.evals = outcome.evals.max(published.evals);
+        outcome.cases += published.cases;
+    }
+    Ok(outcome)
 }
 
 /// Publish to an already-resolved target. Separated so callers that already have
@@ -437,7 +515,10 @@ pub async fn publish_to(
     meta: &RunMeta,
     results: &[RunResult],
 ) -> Result<PublishOutcome> {
-    let payload = build_payload(meta, results);
+    send_import(target, &build_payload(meta, results)).await
+}
+
+async fn send_import(target: &EverrunsTarget, payload: &ImportRequest) -> Result<PublishOutcome> {
     let evals = payload.evals.len();
     let cases: usize = payload.evals.iter().map(|e| e.cases.len()).sum();
     if evals == 0 {
@@ -446,7 +527,7 @@ pub async fn publish_to(
 
     let url = format!("{}/v1/evals/import", target.base_url);
     let resp = authed(reqwest::Client::new().post(&url), target)
-        .json(&payload)
+        .json(payload)
         .send()
         .await
         .context("import request to everruns failed")?;
@@ -576,6 +657,37 @@ mod tests {
         let geo = payload.evals.iter().find(|e| e.name == "geo").unwrap();
         assert_eq!(geo.cases[0].target.provider, "sim");
         assert_eq!(geo.cases[0].target.model, "");
+    }
+
+    #[test]
+    fn experiment_publish_sends_one_variant_per_target() {
+        let results = vec![
+            result("arith", "add", "anthropic/opus", true),
+            result("arith", "add", "openai/gpt-6.1-sol", false),
+            result("geo", "capital", "openai/gpt-6.1-sol", true),
+        ];
+        let payloads = build_experiment_payloads(&meta(), &results, "Opus vs Sol");
+        assert_eq!(payloads.len(), 2);
+        let sol = payloads
+            .iter()
+            .find(|p| p.source.run_id.ends_with("@openai/gpt-6.1-sol"))
+            .unwrap();
+        let experiment = sol.experiment.as_ref().unwrap();
+        assert_eq!(experiment.name, "Opus vs Sol");
+        assert_eq!(experiment.variant, "openai/gpt-6.1-sol");
+        // Both evals the target ran, and only its own cases.
+        assert_eq!(sol.evals.len(), 2);
+        assert!(
+            sol.evals
+                .iter()
+                .flat_map(|e| &e.cases)
+                .all(|c| c.target.model == "gpt-6.1-sol")
+        );
+        let json = serde_json::to_value(sol).unwrap();
+        assert_eq!(json["experiment"]["variant"], "openai/gpt-6.1-sol");
+        // A plain publish names no experiment.
+        let plain = serde_json::to_value(build_payload(&meta(), &results)).unwrap();
+        assert!(plain.get("experiment").is_none());
     }
 
     #[test]

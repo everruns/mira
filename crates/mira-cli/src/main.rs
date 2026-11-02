@@ -323,6 +323,10 @@ struct PublishConn {
     /// everruns credentials profile (else its `current_profile`).
     #[arg(long = "everruns-profile")]
     profile: Option<String>,
+    /// Publish into the everruns experiment with this name: each target
+    /// becomes one variant, compared with the experiment's other variants.
+    #[arg(long = "everruns-experiment")]
+    everruns_experiment: Option<String>,
 }
 
 impl PublishConn {
@@ -332,6 +336,7 @@ impl PublishConn {
             api_key: self.api_key.clone(),
             org_id: self.org_id.clone(),
             profile: self.profile.clone(),
+            experiment: self.everruns_experiment.clone(),
         }
     }
 }

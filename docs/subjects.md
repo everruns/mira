@@ -142,6 +142,34 @@ let subject = RuntimeSubject::new(|model| Box::pin(async move {
 See the [`mira-everruns` crate docs](https://docs.rs/mira-everruns) for the full
 factory contract.
 
+## Hosted agents: `HostedAgent`
+
+`mira_publish_everruns::HostedAgent` runs each sample against an agent deployed
+on Everruns, through the agent's Execution API: the same base URL and agent key
+an application calling the agent uses. Every sample gets a fresh session; its
+turns are sent in order, each after the previous one finished, and the
+session's events fold into the transcript (final reply, tools called, token
+usage and cost, plus the raw events).
+
+```rust
+use mira_publish_everruns::HostedAgent;
+
+// EVERRUNS_AGENT_URL (e.g. https://app.everruns.com/api/v1/channels/chan_…)
+// and EVERRUNS_AGENT_KEY (an agent key or a personal access token).
+let subject = HostedAgent::from_env()?
+    // A hosted agent runs its own model. For a model matrix, point each
+    // target at an agent configured with that model.
+    .route("openai/gpt-6.1-sol", "https://app.everruns.com/api/v1/channels/chan_sol");
+```
+
+A turn the agent failed counts against the agent. A refused request, a dropped
+connection, or a turn that outlives `turn_timeout` (five minutes by default) is
+an infrastructure error: scored N/A and retried with `--max-retries`.
+
+Datasets move between Mira and Everruns unchanged: `everruns evals samples
+export` writes an eval's cases as Mira samples, and `everruns evals samples
+import` loads a Mira JSONL file as cases.
+
 ## Multimodal inputs
 
 A `Sample` carries text turns in `input`; attach non-text input (images, audio,

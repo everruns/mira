@@ -39,3 +39,21 @@ Publishing is idempotent on the run id: re-publishing replaces the prior run.
 
 everruns trusts Mira's verdict, it stores and displays the scores, it does not
 re-grade.
+
+## Publishing into an experiment
+
+`--everruns-experiment NAME` publishes each target of the run as one variant
+of the everruns experiment `NAME`, labelled with the target. The experiment is
+created on each eval the first time it is named, and its page compares the
+variants case by case with a verdict, marking these as run in Mira. Publishing
+the same target again replaces its variant.
+
+```bash
+mira run --publish everruns --everruns-experiment "Opus vs Sol"
+```
+
+## Running hosted agents
+
+`HostedAgent` is a Mira subject that runs samples against an agent deployed on
+everruns, through its Agent Execution API (`EVERRUNS_AGENT_URL`,
+`EVERRUNS_AGENT_KEY`). See [Subjects](../../docs/subjects.md).
