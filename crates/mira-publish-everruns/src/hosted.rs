@@ -118,6 +118,7 @@ impl HostedAgent {
     }
 
     async fn post(&self, url: String, body: Value) -> Result<Value, String> {
+        require_tls(&url)?;
         let resp = self
             .client
             .post(&url)
@@ -130,6 +131,7 @@ impl HostedAgent {
     }
 
     async fn get(&self, url: String) -> Result<Value, String> {
+        require_tls(&url)?;
         let resp = self
             .client
             .get(&url)
@@ -338,6 +340,26 @@ async fn read_json(resp: reqwest::Response, url: &str) -> Result<Value, String> 
     serde_json::from_str(&body).map_err(|e| format!("{url}: unreadable response: {e}"))
 }
 
+/// The credential and session ids travel with every request, so plain HTTP is
+/// refused except to this machine (a local server under test or development).
+fn require_tls(url: &str) -> Result<(), String> {
+    let parsed = reqwest::Url::parse(url).map_err(|e| format!("bad agent URL {url}: {e}"))?;
+    let host = parsed.host_str().unwrap_or_default();
+    let local = host == "localhost"
+        || host
+            .trim_start_matches('[')
+            .trim_end_matches(']')
+            .parse::<std::net::IpAddr>()
+            .is_ok_and(|ip| ip.is_loopback());
+    if parsed.scheme() == "https" || (parsed.scheme() == "http" && local) {
+        Ok(())
+    } else {
+        Err(format!(
+            "refusing to send an agent credential to {url}: use https"
+        ))
+    }
+}
+
 fn trim_url(url: String) -> String {
     url.trim().trim_end_matches('/').to_string()
 }
@@ -445,6 +467,16 @@ mod tests {
             trial: mira::Trial::single(),
             conversation: Vec::new(),
         }
+    }
+
+    #[test]
+    fn plain_http_is_refused_except_to_this_machine() {
+        assert!(require_tls("https://app.everruns.com/api/v1/agents/a").is_ok());
+        assert!(require_tls("http://127.0.0.1:8080/x").is_ok());
+        assert!(require_tls("http://localhost/x").is_ok());
+        assert!(require_tls("http://[::1]:9/x").is_ok());
+        assert!(require_tls("http://app.everruns.com/x").is_err());
+        assert!(require_tls("ftp://localhost/x").is_err());
     }
 
     #[tokio::test]
