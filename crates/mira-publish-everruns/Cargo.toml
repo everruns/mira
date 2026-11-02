@@ -19,6 +19,8 @@ serde.workspace = true
 serde_json.workspace = true
 reqwest.workspace = true
 anyhow = "1"
+async-trait.workspace = true
+tokio = { workspace = true, features = ["time"] }
 
 [dev-dependencies]
 # `net` for the in-test mock HTTP server; `macros`/`rt` for `#[tokio::test]`.
