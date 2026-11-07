@@ -254,11 +254,15 @@ let eval = Eval::new("qa")
   key-free run stays green.
 - The judge keeps its model independent of the model under test, requests
   JSON verdicts, and tolerates replies wrapped in prose or code fences. OpenAI
-  transports request JSON output mode with `temperature: 0`. Claude uses the
-  model's sampling defaults so models that reject sampling overrides work too.
+  transports request JSON output mode. Every transport uses the model's
+  sampling defaults, so models that reject sampling overrides work too.
 
-Integration tests that hit the live APIs are `#[ignore]`d (they cost money); CI
-runs them with `--ignored` after injecting keys from Doppler.
+Tests that hit the live APIs cost money, so they sit in a separate test target
+behind the `live-tests` feature. A weekly workflow runs them with real keys, and
+a missing key fails the run:
+`cargo test -p mira-judge --features live-tests --test live_judges`. To try a
+judge by hand, run the [`llm_judge`](../examples/llm_judge.rs) example with a
+key set.
 
 ## Custom scorer types
 
