@@ -21,3 +21,12 @@ reqwest = { workspace = true }
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["net"] }
+
+[features]
+# Builds the live provider tests (tests/live_judges.rs). They cost money and
+# need real keys, so only the weekly Live judges workflow enables this.
+live-tests = []
+
+[[test]]
+name = "live_judges"
+required-features = ["live-tests"]

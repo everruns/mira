@@ -686,39 +686,4 @@ mod tests {
         assert!(s.is_na());
         assert!(!s.pass);
     }
-
-    // Integration tests hit real provider endpoints and cost money, so they are
-    // `#[ignore]`d in the normal suite. CI runs them with `--ignored` after
-    // injecting keys from Doppler. Without a key they no-op (the case is N/A),
-    // so running them locally is always safe.
-    async fn integration_smoke(judge: LlmJudge) {
-        if !judge.is_configured() {
-            eprintln!("skipping: no API key for {}", judge.name());
-            return;
-        }
-        let scorer = judge.scorer("Does the response correctly name the capital of France?");
-        let sample = Sample::new("capital", "What is the capital of France?").expected("Paris");
-        let t = Transcript::response("The capital of France is Paris.");
-        let s = scorer.score(&sample, &t).await;
-        assert!(!s.is_na(), "judge returned N/A: {}", s.reason);
-        assert!(s.pass, "expected pass, got {} ({})", s.value, s.reason);
-    }
-
-    #[tokio::test]
-    #[ignore = "hits the OpenAI Chat Completions API; needs OPENAI_API_KEY"]
-    async fn openai_completions_grades_correct_answer() {
-        integration_smoke(LlmJudge::openai_completions("gpt-6-luna")).await;
-    }
-
-    #[tokio::test]
-    #[ignore = "hits the OpenAI Responses API; needs OPENAI_API_KEY"]
-    async fn openai_responses_grades_correct_answer() {
-        integration_smoke(LlmJudge::openai_responses("gpt-6-luna")).await;
-    }
-
-    #[tokio::test]
-    #[ignore = "hits the Anthropic Messages API; needs ANTHROPIC_API_KEY"]
-    async fn claude_grades_correct_answer() {
-        integration_smoke(LlmJudge::claude("claude-haiku-5-5")).await;
-    }
 }
