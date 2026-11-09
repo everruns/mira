@@ -174,9 +174,11 @@ somewhere else. Mira is the one framework they can converge on:
 | [`crates/mira-cli`](crates/mira-cli) | `mira-cli` (bin `mira`) | The host CLI that drives eval studies. |
 | [`crates/mira-macros`](crates/mira-macros) | `mira-macros` | The `#[eval]` attribute macro (re-exported as `mira::eval`). |
 | [`crates/mira-everruns`](crates/mira-everruns) | `mira-everruns` | `RuntimeSubject` over the published `everruns-runtime`. |
+| [`crates/mira-judge`](crates/mira-judge) | `mira-judge` | `LlmJudge` scorers (OpenAI completions and responses, Claude). |
+| [`crates/mira-publish-everruns`](crates/mira-publish-everruns) | `mira-publish-everruns` | Publishes eval run results to an Everruns instance. |
+| [`sdks/`](sdks) | per-language packages | Native Python and TypeScript study SDKs over the protocol. |
 | [`examples/`](examples) | per-example crates | Runnable, offline example studies (one self-contained folder each; Rust + a Python study). |
 | [`docs/`](docs) | — | Public docs: [how it works](docs/how-it-works.md), [getting started](docs/getting-started.md), [extensibility](docs/extensibility.md), and the [protocol reference](docs/protocol.md). |
-| [`Formula/`](Formula) | — | The Homebrew formula (mirrored to the tap on release). |
 
 ## Documentation
 
