@@ -4,7 +4,7 @@ A non-Rust eval study, written with the [Mira Python SDK](../../sdks/python). It
 has **no Rust dependency**: the SDK is a native Python library over the
 [Mira eval protocol](../../docs/protocol.md) (newline-delimited JSON over stdio),
 whose wire types are generated from the protocol JSON Schema. It mirrors the Rust
-[`greet`](../greet) example so you can compare them side by side.
+[`greet`](../greet.rs) example so you can compare them side by side.
 
 The host drives it with the `--study-python` launcher (or `--study study.py` /
 `--study-uv` for uv, or an explicit `--study-cmd "..."`):

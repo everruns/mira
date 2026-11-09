@@ -4,7 +4,7 @@ A non-Rust eval study, written with the [Mira TypeScript SDK](../../sdks/typescr
 It has **no Rust dependency**: the SDK is a native TypeScript/Node library over
 the [Mira eval protocol](../../docs/protocol.md) (newline-delimited JSON over
 stdio), whose wire types are generated from the protocol JSON Schema. It mirrors
-the Rust [`greet`](../greet) example so you can compare them side by side.
+the Rust [`greet`](../greet.rs) example so you can compare them side by side.
 
 The host drives it with `--study-cmd`:
 
