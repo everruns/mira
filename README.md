@@ -14,7 +14,7 @@ for multi-turn, tool-using, long-running agent trajectories.**
 [![MSRV](https://img.shields.io/badge/MSRV-1.85-blue.svg)](rust-toolchain.toml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
-Part of the [Everruns](https://everruns.com) ecosystem.
+Part of the [Everruns](https://everruns.com/projects/) community ecosystem.
 
 </div>
 
@@ -195,10 +195,14 @@ Indexed in [`docs/`](docs/README.md):
 
 ## Ecosystem
 
-Mira is part of [Everruns](https://everruns.com), a platform for building,
-running, and evaluating agents:
+Mira is part of [Everruns](https://everruns.com/projects/), a free, non-commercial
+community ecosystem of open-source AI projects by
+[Mykhailo Chalyi](https://chaliy.name) and contributors. Questions, ideas and
+research discussion are welcome on [Discord](https://everruns.com/discord).
 
-- [everruns.com](https://everruns.com), the platform.
+Related:
+
+- [everruns.com](https://everruns.com), the Everruns agent runtime.
 - [`everruns-runtime`](https://crates.io/crates/everruns-runtime), the embeddable
   in-process agent runtime that `mira-everruns` drives.
 - [github.com/everruns](https://github.com/everruns), the rest of the ecosystem.
