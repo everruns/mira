@@ -159,7 +159,7 @@ use mira_publish_everruns::HostedAgent;
 let subject = HostedAgent::from_env()?
     // A hosted agent runs its own model. For a model matrix, point each
     // target at an agent configured with that model.
-    .route("openai/gpt-6.1-sol", "https://app.everruns.com/api/v1/channels/chan_sol");
+    .route("openai/gpt-6.2-sol", "https://app.everruns.com/api/v1/channels/chan_sol");
 ```
 
 A turn the agent failed counts against the agent. A refused request, a dropped
