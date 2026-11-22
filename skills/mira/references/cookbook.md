@@ -118,3 +118,18 @@ let s = scorer("nonempty", |_, t| {
 
 Full scorer catalog: [`scorers.md`](scorers.md). Custom subjects/scorers as
 crates: <https://github.com/everruns/mira/blob/main/docs/extensibility.md>.
+
+## Evidence and regression loop
+
+```bash
+mira run --study study.rs --min-coverage 1 --require-scorer 'llm_judge:*'
+mira compare BASELINE CANDIDATE --max-regressions 0
+mira score --study study.rs --run-id RUN
+mira calibrate RUN --labels human-labels.jsonl --scorer 'llm_judge:*' --min-agreement 0.9
+mira failures RUN --out review.jsonl
+```
+
+Labels use exact `case_key` and boolean `pass`. Review exported records before
+extracting their nested `sample` into a dataset. `score` uses original samples;
+`--use-current-samples` explicitly changes reference data. Required evidence
+failures exit 2, separate from quality failures (1).

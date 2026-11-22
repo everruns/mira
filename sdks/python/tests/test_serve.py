@@ -133,3 +133,72 @@ def test_forward_compat_ignores_unknown_fields():
     })
     assert decoded.final_response == "hi"
     assert decoded.usage.input_tokens == 1
+
+
+def test_rescore_preserves_archived_sample_after_catalog_changes():
+    original = mira.Sample("s", prompt="original prompt", expected="42")
+    study = mira.Study("snapshot")
+
+    @study.eval(name="e", samples=[original], targets=[mira.target("sim")],
+                scorers=[mira.matches_expected()])
+    def subject(sample, cx):
+        return mira.transcript("42")
+
+    params = {"eval": "e", "sample": "s", "target": "sim"}
+    captured = study.handle("execute", params)
+    original.expected = "changed"
+    original.prompt = "changed prompt"
+    rescored = study.handle("score", {**params, "transcript": captured["transcript"]})
+    assert rescored["passed"] is True
+    assert rescored["input"] == ["original prompt"]
+    assert rescored["expected"] == "42"
+    assert captured["transcript"]["metadata"]["mira.execution_sha256"].startswith("sha256:")
+
+
+def test_custom_scorer_configuration_is_archived_after_execution():
+    study = mira.Study("configuration")
+    correct = mira.scorer("correctness:v1", lambda s, t: t.final_response == s.expected,
+                          configuration={"rubric": "reference", "version": 1})
+
+    @study.eval(name="e", samples=[mira.Sample("s", prompt="p", expected="42")],
+                targets=[mira.target("sim")], scorers=[correct])
+    def subject(sample, cx):
+        return mira.transcript("42")
+
+    listing = study.handle("list", {})
+    assert listing["evals"][0]["metadata"]["mira.scorer_definitions"][0]["rubric"] == "reference"
+    params = {"eval": "e", "sample": "s", "target": "sim"}
+    captured = study.handle("execute", params)
+    assert "mira.scorer_definitions" not in captured["transcript"]["metadata"]
+    result = study.handle("score", {**params, "transcript": captured["transcript"]})
+    assert result["transcript"]["metadata"]["mira.scorer_definitions"][0]["version"] == 1
+    assert result["transcript"]["metadata"]["mira.execution_sha256"] == captured["transcript"]["metadata"]["mira.execution_sha256"]
+
+
+def test_current_reference_rescoring_archives_the_new_sample():
+    study = _study()
+    params = {"eval": "e", "sample": "s", "target": "sim"}
+    captured = study.handle("execute", params)
+    captured["transcript"]["metadata"].pop("mira.sample")
+    captured["transcript"]["metadata"].pop("mira.sample_sha256")
+    result = study.handle("score", {**params, "transcript": captured["transcript"]})
+    assert result["transcript"]["metadata"]["mira.sample"]["id"] == "s"
+    assert result["transcript"]["metadata"]["mira.sample_sha256"].startswith("sha256:")
+
+
+def test_trial_identity_and_seed_reach_subject_and_rescoring():
+    study = mira.Study("trials")
+
+    @study.eval(name="e", samples=[mira.Sample("s", prompt="p")],
+                targets=[mira.target("sim")], scorers=[mira.succeeded()])
+    def subject(sample, cx):
+        assert (cx.trial, cx.trials, cx.seed) == (1, 3, 11)
+        return mira.transcript(str(cx.seed))
+
+    params = {"eval":"e", "sample":"s", "target":"sim", "trial":1, "trials":3, "seed":11}
+    assert "trials" in study.handle("initialize",{})["capabilities"]
+    captured = study.handle("execute",params)
+    for method in ("run","score"):
+        result = study.handle(method,{**params,"transcript":captured["transcript"]})
+        assert (result["trial"],result["trials"],result["seed"]) == (1,3,11)
+        assert result["transcript"]["final_response"] == "11"

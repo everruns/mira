@@ -19,7 +19,7 @@ from __future__ import annotations
 import json
 import re
 from dataclasses import dataclass
-from typing import Any, Callable, Iterator, List, Optional, Sequence, Tuple, Union
+from typing import Any, Callable, Dict, Iterator, List, Optional, Sequence, Tuple, Union
 
 from ._wire import Score, Trajectory
 from .trajectory import _content_text
@@ -35,6 +35,11 @@ class Scorer:
 
     name: str
     fn: Callable[["object", "object"], Score]
+    configuration: Optional[Dict[str, Any]] = None
+
+    def definition(self) -> Dict[str, Any]:
+        """Public configuration for archived provenance; never include secrets."""
+        return {**(self.configuration or {}), "name": self.name}
 
     def score(self, sample, transcript) -> Score:
         return self.fn(sample, transcript)
@@ -531,7 +536,7 @@ def not_(inner: Scorer) -> Scorer:
 
 # ----- escape hatch ---------------------------------------------------------
 
-def scorer(name: str, fn: Callable[["object", "object"], Union[bool, Score]]) -> Scorer:
+def scorer(name: str, fn: Callable[["object", "object"], Union[bool, Score]], *, configuration: Optional[Dict[str, Any]] = None) -> Scorer:
     """Wrap an arbitrary predicate. The callable may return a bool (turned into a
     pass/fail Score) or a fully-formed Score for graded/NA control. This is a
     language-local escape hatch and intentionally has no cross-SDK parity."""
@@ -541,4 +546,4 @@ def scorer(name: str, fn: Callable[["object", "object"], Union[bool, Score]]) ->
         if isinstance(out, Score):
             return out
         return make_score(name, 1.0 if out else 0.0, bool(out), "ok" if out else "failed")
-    return Scorer(name, wrapped)
+    return Scorer(name, wrapped, configuration)

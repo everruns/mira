@@ -26,3 +26,9 @@ response plus its tool calls, or the full picture including operational metrics
 
 See the runnable [`examples/llm_judge`](https://github.com/everruns/mira/tree/main/examples/llm_judge)
 for a full wiring alongside deterministic scorers. Licensed under MIT.
+
+`Include::Transcript` and `Full` include structured ATIF steps, arguments, and
+observations. `max_evidence_chars` bounds whole-step evidence (default 64,000);
+omitted steps are reported. Judge names fingerprint their rubric and configuration,
+and credential-free definitions are archived by the host. See
+[Evaluation quality](../../docs/evaluation-quality.md) for coverage and calibration.

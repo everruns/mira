@@ -90,7 +90,41 @@ Do not place secrets directly in an experiment plan. Mira archives both the sour
 
 ## Current scope
 
-Experiment plans designate and record a baseline, but Mira does not yet evaluate automated comparison gates. Mira also does not hash files or binaries named in treatment configuration; archive those separately when byte-for-byte input provenance is required.
+Mira attempts every treatment, including when the baseline has quality failures.
+With `[compare]`, it pairs each candidate with the baseline after execution and
+writes `results/experiments/<experiment_id>/comparison.json`. A baseline quality
+failure is comparison data; missing runs, incomplete evaluation, and failed
+comparison gates fail the experiment. Without `[compare]`, any unsuccessful
+treatment fails the experiment after all treatments have been attempted.
+
+The default comparison gate allows zero logical-case pass-rate regressions.
+Configure score and operational limits explicitly:
+
+```toml
+[compare.gates]
+max_regressions = 0
+max_score_drop = 0.02
+max_cost_increase = 0.10
+max_latency_increase = 0.20
+```
+
+An explicit `[compare.gates]` replaces the default gate set. Set
+`compare.filter` to a case-key glob and `compare.scorer` to a scorer glob for a
+slice-specific comparison. See [Evaluation quality](../evaluation-quality.md)
+for pairing rules, uncertainty estimates, and exit behavior.
+
+Declare treatment inputs alongside its environment to fingerprint their bytes:
+
+```toml
+[[treatments]]
+name = "candidate"
+files = ["./bin/candidate", "./prompts/system.txt"]
+```
+
+File paths resolve relative to the manifest. Each treatment run writes
+`treatment-files.json` with SHA-256 fingerprints. Opaque environment values are
+not scanned for files. Fingerprints verify identity; archive input files and
+binaries separately when you need to reproduce their bytes.
 
 For the complete manifest field reference, see [Experiment plan reference](../experiments.md).
 

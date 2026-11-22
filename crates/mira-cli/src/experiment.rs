@@ -37,6 +37,9 @@ pub(crate) struct Treatment {
     pub(crate) name: String,
     #[serde(default)]
     pub(crate) env: BTreeMap<String, String>,
+    /// Explicit input files/binaries to fingerprint; no opaque env scanning.
+    #[serde(default)]
+    pub(crate) files: Vec<String>,
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
@@ -45,6 +48,19 @@ pub(crate) struct Comparison {
     #[serde(default = "treatment_group")]
     pub(crate) group_by: String,
     pub(crate) baseline: String,
+    #[serde(default)]
+    pub(crate) filter: Option<String>,
+    #[serde(default)]
+    pub(crate) scorer: Option<String>,
+    #[serde(default = "default_gates")]
+    pub(crate) gates: crate::compare::Limits,
+}
+
+fn default_gates() -> crate::compare::Limits {
+    crate::compare::Limits {
+        max_regressions: Some(0),
+        ..Default::default()
+    }
 }
 
 fn treatment_group() -> String {
@@ -82,6 +98,7 @@ impl ExperimentPlan {
             }
         }
         if let Some(compare) = &self.compare {
+            compare.gates.validate()?;
             if compare.group_by != "treatment" {
                 return Err("compare.group_by must be `treatment`".to_owned());
             }
@@ -99,6 +116,11 @@ impl ExperimentPlan {
     // treatment execution never depends on the caller's working directory.
     fn resolve_paths(&mut self, base: &Path) {
         for treatment in &mut self.treatments {
+            for value in &mut treatment.files {
+                if Path::new(value).is_relative() {
+                    *value = base.join(&*value).to_string_lossy().into_owned();
+                }
+            }
             for value in treatment.env.values_mut() {
                 let path = PathBuf::from(value.as_str());
                 if path.is_relative() && (value.starts_with("./") || value.starts_with("../")) {
@@ -115,7 +137,35 @@ impl ExperimentPlan {
     }
 
     pub(crate) fn archive(source: &Path, run_dir: &Path) -> Result<(), String> {
-        let resolved = Self::load(source)?.resolved_toml()?;
+        let plan = Self::load(source)?;
+        let resolved = plan.resolved_toml()?;
+        let selected = std::env::var("MIRA_EXPERIMENT_TREATMENT").ok();
+        let files = plan
+            .treatments
+            .iter()
+            .filter(|t| selected.as_ref().is_none_or(|name| name == &t.name))
+            .flat_map(|t| t.files.clone())
+            .collect::<Vec<_>>();
+        let fingerprints = crate::provenance::files(&files).map_err(|e| e.to_string())?;
+        for (name, bytes) in [
+            (
+                "treatment-files.json",
+                serde_json::to_vec_pretty(&fingerprints).unwrap(),
+            ),
+            ("experiment.toml", resolved.as_bytes().to_vec()),
+        ] {
+            let path = run_dir.join(name);
+            if path.exists() && std::fs::read(&path).map_err(|e| e.to_string())? != bytes {
+                return Err(format!(
+                    "{name} changed; start a new run instead of resuming"
+                ));
+            }
+        }
+        std::fs::write(
+            run_dir.join("treatment-files.json"),
+            serde_json::to_vec_pretty(&fingerprints).unwrap(),
+        )
+        .map_err(|e| e.to_string())?;
         std::fs::copy(source, run_dir.join("experiment-source.toml"))
             .map_err(|e| format!("cannot archive experiment plan {}: {e}", source.display()))?;
         std::fs::write(run_dir.join("experiment.toml"), resolved)

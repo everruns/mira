@@ -50,11 +50,16 @@ use clap::{Args, CommandFactory, Parser, Subcommand};
 use indicatif::{ProgressBar, ProgressDrawTarget, ProgressStyle};
 use tokio::process::Command;
 
+mod calibrate;
+mod compare;
 mod config;
+mod coverage;
 mod doctor;
 mod env;
 mod experiment;
 mod export;
+mod failures;
+mod provenance;
 
 use mira::Host;
 use mira::Trial;
@@ -92,6 +97,10 @@ const GUIDES: &[(&str, &str)] = &[
     (
         "scorers",
         "built-ins, budgets, combinators, closures, LLM-judge",
+    ),
+    (
+        "evaluation-quality",
+        "coverage gates, comparisons, provenance, calibration, regression datasets",
     ),
     ("metrics", "tokens/cost/latency and custom numeric metrics"),
     ("subjects", "in-process, CLI/polyglot, and runtime sessions"),
@@ -279,6 +288,12 @@ fn merge_launch(study: &StudyArgs, dep: &DeprecatedLaunch) -> Result<Launcher, S
 enum Cmd {
     /// List the evals, samples, scorers, and targets the study advertises.
     List(ListArgs),
+    /// Compare saved runs and apply regression, score, cost, or latency gates.
+    Compare(compare::CompareArgs),
+    /// Measure grader agreement with human labels and compare grader versions.
+    Calibrate(calibrate::CalibrateArgs),
+    /// Export failed cases as review records for regression datasets.
+    Failures(failures::FailureArgs),
     /// Run selected cases and report.
     // Boxed: `RunArgs` is much larger than the other variants, so boxing keeps
     // the enum small (clippy large_enum_variant).
@@ -378,8 +393,10 @@ struct HelpArgs {
 
 #[derive(Args)]
 struct RunArgs {
+    #[command(flatten)]
+    gates: coverage::Policy,
     /// Execute the treatments declared by an external TOML experiment plan.
-    #[arg(long, value_name = "PATH")]
+    #[arg(long, value_name = "PATH", conflicts_with_all = ["filter", "tag", "targets", "samples", "evals", "axes", "preset", "trials", "seed", "group_by", "out", "dry_run", "resume", "execute_only", "artifacts", "publish", "study_mode", "launcher", "package", "manifest_path", "max_concurrent", "provider_concurrency", "no_adaptive", "max_retries", "timeout"])]
     experiment: Option<PathBuf>,
     #[command(flatten)]
     study: StudyArgs,
@@ -483,12 +500,20 @@ struct RunArgs {
 #[derive(Args)]
 struct ScoreArgs {
     #[command(flatten)]
+    gates: coverage::Policy,
+    #[command(flatten)]
     study: StudyArgs,
     /// Substring filter on the case key `eval/sample@target`.
     filter: Option<String>,
     /// Directory of execution artifacts written by `run --execute-only`.
+    #[arg(long, required_unless_present = "run_id", conflicts_with = "run_id")]
+    artifacts: Option<String>,
+    /// Saved run whose full execution artifacts should be re-scored.
+    #[arg(long, conflicts_with = "artifacts")]
+    run_id: Option<String>,
+    /// Explicitly grade against current dataset rows instead of archived samples.
     #[arg(long)]
-    artifacts: String,
+    use_current_samples: bool,
     /// Break resolve-rate down by a metadata key (see `run --group-by`).
     #[arg(long)]
     group_by: Option<String>,
@@ -547,8 +572,8 @@ struct ExportArgs {
     out: Option<String>,
     /// Directory of execution artifacts (`run --execute-only --artifacts DIR`).
     /// When a case's artifact carries a real `trajectory`, it is exported
-    /// verbatim; without this, every document is synthesized from the saved
-    /// summary.
+    /// verbatim. Defaults to the saved run's artifacts/ directory; summary-only
+    /// runs synthesize documents from their saved summaries.
     #[arg(long)]
     artifacts: Option<String>,
 }
@@ -562,7 +587,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // the `mira help --full` breadcrumb instead of an opaque error.
     match &cli.cmd {
         Some(Cmd::Run(args)) if args.experiment.is_some() => {
-            return run_experiment(args.experiment.as_deref().unwrap()).await;
+            return run_experiment(args.experiment.as_deref().unwrap(), &args.gates).await;
         }
         None => {
             Cli::command().print_help()?;
@@ -579,6 +604,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         // `report` re-renders a saved run from disk — no study process needed, so
         // handle it before spawning the host.
         Some(Cmd::Report(args)) => return report(args),
+        Some(Cmd::Compare(args)) => std::process::exit(compare::run(args)?),
+        Some(Cmd::Calibrate(args)) => std::process::exit(calibrate::run(args)?),
+        Some(Cmd::Failures(args)) => return failures::run(args),
         // `export` reads a saved run from disk and emits ATIF docs — no study.
         Some(Cmd::Export(args)) => {
             return export::run(
@@ -654,6 +682,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         // spawned.
         None
         | Some(Cmd::Help(_))
+        | Some(Cmd::Calibrate(_))
+        | Some(Cmd::Failures(_))
+        | Some(Cmd::Compare(_))
         | Some(Cmd::Report(_))
         | Some(Cmd::Export(_))
         | Some(Cmd::Publish(_))
@@ -1083,7 +1114,11 @@ fn write_if_changed(path: &Path, content: &str) -> Result<(), String> {
     std::fs::write(path, content).map_err(|e| format!("cannot write {}: {e}", path.display()))
 }
 
-async fn run_experiment(path: &Path) -> Result<(), Box<dyn std::error::Error>> {
+async fn run_experiment(
+    path: &Path,
+    gates: &coverage::Policy,
+) -> Result<(), Box<dyn std::error::Error>> {
+    gates.validate()?;
     let plan = experiment::ExperimentPlan::load(path)
         .map_err(|e| -> Box<dyn std::error::Error> { e.into() })?;
     let experiment_id = format!(
@@ -1093,10 +1128,28 @@ async fn run_experiment(path: &Path) -> Result<(), Box<dyn std::error::Error>> {
     );
     let executable = std::env::current_exe()?;
 
+    let experiment_dir = PathBuf::from(config::Config::load().results_dir())
+        .join("experiments")
+        .join(&experiment_id);
+    std::fs::create_dir_all(&experiment_dir)?;
+    let mut runs = BTreeMap::new();
+    let mut failures = Vec::new();
+    let mut execution_incomplete = false;
     for treatment in &plan.treatments {
+        let result_path =
+            experiment_dir.join(format!("{}.json", config::encode_key(&treatment.name)));
         eprintln!("experiment {experiment_id} · treatment {}", treatment.name);
         let mut command = tokio::process::Command::new(&executable);
         command.arg("run");
+        if let Some(value) = gates.min_coverage {
+            command.args(["--min-coverage", &value.to_string()]);
+        }
+        if let Some(value) = gates.max_infra_rate {
+            command.args(["--max-infra-rate", &value.to_string()]);
+        }
+        for scorer in &gates.require_scorer {
+            command.args(["--require-scorer", scorer]);
+        }
         if let Some(launcher) = &plan.launcher {
             command.args(["--launcher", launcher]);
         }
@@ -1117,7 +1170,9 @@ async fn run_experiment(path: &Path) -> Result<(), Box<dyn std::error::Error>> {
             .env("MIRA_EXPERIMENT_ID", &experiment_id)
             .env("MIRA_EXPERIMENT_TREATMENT", &treatment.name)
             .env("MIRA_EXPERIMENT_STUDY", &plan.study)
-            .env("MIRA_EXPERIMENT_PLAN", path);
+            .env("MIRA_EXPERIMENT_PLAN", path)
+            .env("MIRA_EXPERIMENT_RESULT", &result_path)
+            .env_remove("MIRA_EXPERIMENT_BASELINE");
         if plan
             .compare
             .as_ref()
@@ -1127,9 +1182,72 @@ async fn run_experiment(path: &Path) -> Result<(), Box<dyn std::error::Error>> {
         }
         let status = command.status().await?;
         if !status.success() {
-            return Err(format!("treatment `{}` failed with {status}", treatment.name).into());
+            failures.push(format!("{}: {status}", treatment.name));
+        }
+        execution_incomplete |= !matches!(status.code(), Some(0 | 1));
+        if let Ok(bytes) = std::fs::read(&result_path) {
+            let record: serde_json::Value = serde_json::from_slice(&bytes)?;
+            if let Some(dir) = record["dir"].as_str() {
+                runs.insert(treatment.name.clone(), dir.to_owned());
+            }
         }
     }
+    let mut comparisons = BTreeMap::new();
+    if let Some(settings) = &plan.compare {
+        let baseline = runs
+            .get(&settings.baseline)
+            .ok_or("baseline did not produce a saved run; all treatments were attempted")?;
+        let baseline = compare::load(baseline)?;
+        let mut failed = false;
+        for treatment in &plan.treatments {
+            if treatment.name == settings.baseline {
+                continue;
+            }
+            let Some(dir) = runs.get(&treatment.name) else {
+                failed = true;
+                continue;
+            };
+            let comparison = compare::compare(
+                &baseline,
+                &compare::load(dir)?,
+                settings.filter.as_deref(),
+                settings.scorer.as_deref(),
+                &settings.gates,
+            );
+            eprintln!(
+                "{}: {} regressions; {} improvements; {} incomplete",
+                treatment.name,
+                comparison.regressions,
+                comparison.improvements,
+                comparison.incomplete.len()
+            );
+            failed |= comparison.exit_code() != 0;
+            comparisons.insert(treatment.name.clone(), comparison);
+        }
+        // Eval failures are comparison data. Missing runs / incomplete coverage
+        // still fail the experiment independently of relative quality.
+        failed |= execution_incomplete;
+        std::fs::write(
+            experiment_dir.join("comparison.json"),
+            serde_json::to_vec_pretty(
+                &serde_json::json!({"runs":runs,"comparisons":comparisons,"execution_failures":failures}),
+            )?,
+        )?;
+        if failed {
+            return Err(format!(
+                "experiment comparison failed; results in {}",
+                experiment_dir.display()
+            )
+            .into());
+        }
+    } else if !failures.is_empty() {
+        return Err(format!(
+            "all treatments attempted; failures: {}",
+            failures.join("; ")
+        )
+        .into());
+    }
+    eprintln!("experiment results: {}", experiment_dir.display());
     Ok(())
 }
 
@@ -1156,10 +1274,28 @@ async fn run(
         eprintln!("no cases matched the selection");
     }
 
+    let gates = resolve_gates(&args.gates, args.preset.as_deref())?;
     // Execute-only: run subjects, persist full transcripts, defer scoring.
     if args.execute_only {
         require_capability(&info, capabilities::EXECUTE, "--execute-only")?;
         let dir = args.artifacts.as_ref().expect("clap requires artifacts");
+        let manifest = Path::new(dir).join(".mira");
+        if Path::new(dir).is_dir() && !manifest.exists() && std::fs::read_dir(dir)?.next().is_some()
+        {
+            return Err(
+                "existing artifacts have no verifiable provenance; use a new directory".into(),
+            );
+        }
+        provenance::catalog(
+            &manifest,
+            &info,
+            &listing,
+            &plan
+                .iter()
+                .map(|c| format!("{};seed={:?}", c.key(), c.trial.seed))
+                .collect::<Vec<_>>(),
+            manifest.exists(),
+        )?;
         return execute_only(host, &plan, dir).await;
     }
 
@@ -1210,8 +1346,14 @@ async fn run(
             started_unix: *started,
             finished_unix: 0,
             environment: environment.clone(),
+            evaluation: None,
             summary: RunSummary::default(),
         };
+        let selection = plan
+            .iter()
+            .map(|c| format!("{};seed={:?}", c.key(), c.trial.seed))
+            .collect::<Vec<_>>();
+        provenance::catalog(dir, &info, &listing, &selection, args.resume.is_some())?;
         config::init_run(dir, &header)?;
         if let Ok(path) = std::env::var("MIRA_EXPERIMENT_PLAN") {
             experiment::ExperimentPlan::archive(Path::new(&path), dir)
@@ -1245,6 +1387,7 @@ async fn run(
         .collect();
 
     let cfg = concurrency(&args);
+    let mut write_errors = Vec::new();
 
     // Run cases concurrently under the bounded, provider-aware policy. Each
     // finished case advances the bar and is written to its own
@@ -1252,12 +1395,40 @@ async fn run(
     {
         let handle = host.handle();
         let write_dir = run_store.as_ref().map(|(_, dir, _)| dir.clone());
+        let artifact_dir = args
+            .artifacts
+            .clone()
+            .map(PathBuf::from)
+            .or_else(|| write_dir.as_ref().map(|dir| dir.join("artifacts")));
+        let split = info.capabilities.iter().any(|c| c == capabilities::EXECUTE)
+            && info.capabilities.iter().any(|c| c == capabilities::SCORE);
+        if split && let Some(dir) = &artifact_dir {
+            std::fs::create_dir_all(dir)?;
+        }
         exec::run_cases(
             todo,
             &cfg,
             |case| {
                 let handle = handle.clone();
+                let artifact_dir = artifact_dir.clone();
                 async move {
+                    if split && let Some(dir) = artifact_dir {
+                        let captured = handle
+                            .execute(
+                                &case.eval,
+                                &case.sample,
+                                &case.target,
+                                &case.params,
+                                case.trial,
+                            )
+                            .await?;
+                        write_artifact(&dir, &captured)
+                            .map_err(|e| mira::protocol::RpcError::new(e.to_string()))?;
+                        if captured.skipped {
+                            return Ok(skipped_result(&captured));
+                        }
+                        return handle.score(&captured).await;
+                    }
                     handle
                         .run(
                             &case.eval,
@@ -1275,7 +1446,7 @@ async fn run(
                 if let Some(dir) = &write_dir
                     && let Err(e) = config::write_case_result(dir, &key, &result)
                 {
-                    progress.suspend(|| eprintln!("warning: failed to write case result: {e}"));
+                    write_errors.push(format!("{key}: {e}"));
                 }
                 done.insert(key, result);
                 progress.inc(1);
@@ -1285,6 +1456,9 @@ async fn run(
     }
     progress.finish_and_clear();
     host.shutdown().await?;
+    if !write_errors.is_empty() {
+        return Err(format!("cannot persist case results: {}", write_errors.join("; ")).into());
+    }
 
     // Report only the planned cases, in plan order.
     let results: Vec<RunResult> = plan
@@ -1292,6 +1466,7 @@ async fn run(
         .filter_map(|case| done.get(&case.key()).cloned())
         .collect();
 
+    let outcome = gates.evaluate(&results);
     report::print_results(&results);
 
     // Resolve the --group-by breakdown once; reused by the terminal, file, and
@@ -1309,7 +1484,10 @@ async fn run(
     };
 
     if let Some(path) = &args.out {
-        std::fs::write(path, report::render_with_group(&results, format, group))?;
+        std::fs::write(
+            path,
+            report::render_with_evaluation(&results, format, group, Some(&outcome)),
+        )?;
         eprintln!("\nwrote {path} ({:?})", format);
     }
 
@@ -1324,9 +1502,16 @@ async fn run(
             started_unix: *started,
             finished_unix: now_unix(),
             environment,
+            evaluation: Some(outcome.clone()),
             summary: RunSummary::of(&results),
         };
         config::finalize_run(dir, &meta, &results, group)?;
+        if let Ok(path) = std::env::var("MIRA_EXPERIMENT_RESULT") {
+            std::fs::write(
+                path,
+                serde_json::to_vec(&serde_json::json!({"run_id":run_id,"dir":dir}))?,
+            )?;
+        }
         eprintln!("\nsaved run {run_id} to {}", dir.display());
 
         // Optional: publish the just-saved run to a hosted viewer.
@@ -1335,12 +1520,31 @@ async fn run(
         }
     }
 
-    // A case that's N/A (all scores N/A — e.g. an infra failure) is neither
-    // passed nor failed, so it doesn't make CI red.
-    let failed = results
-        .iter()
-        .any(|r| !r.skipped && !report::is_na(r) && !r.passed);
-    std::process::exit(if failed { 1 } else { 0 });
+    coverage::print(&outcome);
+    std::process::exit(outcome.exit_code());
+}
+
+fn resolve_gates(
+    cli: &coverage::Policy,
+    preset: Option<&str>,
+) -> Result<coverage::Policy, Box<dyn std::error::Error>> {
+    // A malformed gate configuration must not silently fall back to an
+    // ungated run. Other read-only commands retain their diagnostic fallback.
+    let cfg = if let Some(path) = config::find_config() {
+        config::Config::parse_at(
+            &std::fs::read_to_string(&path)?,
+            path.parent().unwrap_or_else(|| Path::new(".")),
+        )?
+    } else {
+        config::Config::default()
+    };
+    let defaults = preset
+        .and_then(|name| cfg.presets.get(name))
+        .map(|p| p.gates.overlay(&cfg.gates))
+        .unwrap_or(cfg.gates);
+    let policy = cli.overlay(&defaults);
+    policy.validate()?;
+    Ok(policy)
 }
 
 /// Capture environment context (commit, box, host version, labels) for a saved
@@ -1422,6 +1626,12 @@ fn report(args: &ReportArgs) -> Result<(), Box<dyn std::error::Error>> {
         );
     }
 
+    let evaluation = config::load_meta(&dir)
+        .and_then(|meta| meta.evaluation)
+        .map(|e| e.policy.evaluate(&results));
+    if let Some(evaluation) = &evaluation {
+        coverage::print(evaluation);
+    }
     report::print_results(&results);
 
     // No study process here, so group-by sees an empty listing.
@@ -1439,7 +1649,10 @@ fn report(args: &ReportArgs) -> Result<(), Box<dyn std::error::Error>> {
     };
 
     if let Some(path) = &args.out {
-        std::fs::write(path, report::render_with_group(&results, format, group))?;
+        std::fs::write(
+            path,
+            report::render_with_evaluation(&results, format, group, evaluation.as_ref()),
+        )?;
         eprintln!("\nwrote {path} ({:?})", format);
     }
 
@@ -1449,6 +1662,7 @@ fn report(args: &ReportArgs) -> Result<(), Box<dyn std::error::Error>> {
         && let Some(mut meta) = config::load_meta(&dir)
     {
         meta.summary = RunSummary::of(&results);
+        meta.evaluation = evaluation;
         config::finalize_run(&dir, &meta, &results, group)?;
     }
 
@@ -1550,7 +1764,7 @@ async fn execute_only(
                 case.trial,
             )
             .await?;
-        std::fs::write(&path, serde_json::to_string_pretty(&result)?)?;
+        write_artifact(Path::new(dir), &result)?;
         wrote += 1;
     }
     host.shutdown().await?;
@@ -1568,15 +1782,32 @@ async fn score(
     listing: ListResult,
     args: ScoreArgs,
 ) -> Result<(), Box<dyn std::error::Error>> {
+    let gates = resolve_gates(&args.gates, None)?;
     require_capability(&info, capabilities::SCORE, "mira score")?;
     let format = Format::from_str(&args.format)?;
     let started_unix = now_unix();
-    let mut artifacts = load_artifacts(&args.artifacts);
+    let source_dir = match (&args.artifacts, &args.run_id) {
+        (Some(path), _) => PathBuf::from(path),
+        (_, Some(id)) => {
+            config::run_dir(&config::Config::load().results_dir(), id).join("artifacts")
+        }
+        _ => return Err("provide --artifacts or --run-id".into()),
+    };
+    let mut artifacts = load_artifacts_checked(&source_dir)?;
+    if args.use_current_samples {
+        for artifact in &mut artifacts {
+            artifact
+                .transcript
+                .metadata
+                .remove(mira::provenance::SAMPLE);
+            artifact.transcript.metadata.remove("mira.sample_sha256");
+        }
+    }
     if let Some(f) = &args.filter {
         artifacts.retain(|a| a.key().contains(f.as_str()));
     }
     if artifacts.is_empty() {
-        eprintln!("no artifacts in {}", args.artifacts);
+        return Err(format!("no artifacts in {}", source_dir.display()).into());
     }
 
     let mut results = Vec::with_capacity(artifacts.len());
@@ -1590,6 +1821,7 @@ async fn score(
     }
     host.shutdown().await?;
 
+    let outcome = gates.evaluate(&results);
     report::print_results(&results);
 
     // Resolve the --group-by breakdown once; reused by the terminal, file, and
@@ -1607,7 +1839,10 @@ async fn score(
     };
 
     if let Some(path) = &args.out {
-        std::fs::write(path, report::render_with_group(&results, format, group))?;
+        std::fs::write(
+            path,
+            report::render_with_evaluation(&results, format, group, Some(&outcome)),
+        )?;
         eprintln!("\nwrote {path} ({:?})", format);
     }
 
@@ -1617,7 +1852,24 @@ async fn score(
         let base = config::Config::load().results_dir();
         let run_id = new_run_id_at(started_unix);
         let dir = config::run_dir(&base, &run_id);
-        for r in &results {
+        std::fs::create_dir_all(dir.join("artifacts"))?;
+        std::fs::write(
+            dir.join("lineage.json"),
+            serde_json::to_vec_pretty(
+                &serde_json::json!({"source":source_dir,"reference_mode":if args.use_current_samples {"current"} else {"archived"}}),
+            )?,
+        )?;
+        provenance::catalog(
+            &dir,
+            &info,
+            &listing,
+            &artifacts.iter().map(|a| a.key()).collect::<Vec<_>>(),
+            false,
+        )?;
+        for (artifact, r) in artifacts.iter().zip(&results) {
+            let mut captured = artifact.clone();
+            captured.transcript.metadata = r.transcript.metadata.clone();
+            write_artifact(&dir.join("artifacts"), &captured)?;
             config::write_case_result(&dir, &r.key(), r)?;
         }
         let meta = RunMeta {
@@ -1628,18 +1880,15 @@ async fn score(
             started_unix,
             finished_unix: now_unix(),
             environment: collect_environment(),
+            evaluation: Some(outcome.clone()),
             summary: RunSummary::of(&results),
         };
         config::finalize_run(&dir, &meta, &results, group)?;
         eprintln!("\nsaved run {run_id} to {}", dir.display());
     }
 
-    // A case that's N/A (all scores N/A — e.g. an infra failure) is neither
-    // passed nor failed, so it doesn't make CI red.
-    let failed = results
-        .iter()
-        .any(|r| !r.skipped && !report::is_na(r) && !r.passed);
-    std::process::exit(if failed { 1 } else { 0 });
+    coverage::print(&outcome);
+    std::process::exit(outcome.exit_code());
 }
 
 /// A skipped (unexecuted) artifact carried straight to a `RunResult`.
@@ -1670,38 +1919,29 @@ fn artifact_path(dir: &str, key: &str) -> std::path::PathBuf {
     Path::new(dir).join(format!("{}.json", config::encode_key(key)))
 }
 
-/// Load every execution artifact in `dir`, sorted by case key for stable order.
-/// Unreadable or invalid files are skipped with a warning, so a corrupted or
-/// partially-written artifact is visible rather than silently dropped.
-pub(crate) fn load_artifacts(dir: &str) -> Vec<ExecuteResult> {
-    let mut out = Vec::new();
-    let entries = match std::fs::read_dir(dir) {
-        Ok(entries) => entries,
-        Err(e) => {
-            eprintln!("warning: cannot read artifacts dir {dir}: {e}");
-            return out;
-        }
-    };
-    for entry in entries.flatten() {
-        let path = entry.path();
-        if path.extension().and_then(|e| e.to_str()) != Some("json") {
-            continue;
-        }
-        match std::fs::read_to_string(&path) {
-            Ok(text) => match serde_json::from_str::<ExecuteResult>(&text) {
-                Ok(result) => out.push(result),
-                Err(e) => {
-                    eprintln!(
-                        "warning: skipping {}: invalid artifact JSON: {e}",
-                        path.display()
-                    )
-                }
-            },
-            Err(e) => eprintln!("warning: skipping {}: {e}", path.display()),
+fn write_artifact(dir: &Path, captured: &ExecuteResult) -> std::io::Result<()> {
+    std::fs::create_dir_all(dir)?;
+    let path = artifact_path(&dir.to_string_lossy(), &captured.key());
+    let tmp = path.with_extension("json.tmp");
+    std::fs::write(&tmp, serde_json::to_vec_pretty(captured)?)?;
+    std::fs::rename(tmp, path)
+}
+
+fn load_artifacts_checked(dir: &Path) -> Result<Vec<ExecuteResult>, Box<dyn std::error::Error>> {
+    let mut artifacts = Vec::new();
+    let mut keys = std::collections::BTreeSet::new();
+    for entry in std::fs::read_dir(dir)? {
+        let path = entry?.path();
+        if path.extension().is_some_and(|ext| ext == "json") {
+            let artifact: ExecuteResult = serde_json::from_slice(&std::fs::read(&path)?)?;
+            if !keys.insert(artifact.key()) {
+                return Err(format!("duplicate artifact {}", artifact.key()).into());
+            }
+            artifacts.push(artifact);
         }
     }
-    out.sort_by_key(|a| a.key());
-    out
+    artifacts.sort_by_key(|a| a.key());
+    Ok(artifacts)
 }
 
 /// Every combination of axis values for an eval, as `params` maps (cross
@@ -2135,6 +2375,7 @@ mod tests {
     /// A default `RunArgs` (no selection); tests tweak the fields they exercise.
     fn run_args() -> RunArgs {
         RunArgs {
+            gates: coverage::Policy::default(),
             experiment: None,
             study: StudyArgs::default(),
             filter: None,

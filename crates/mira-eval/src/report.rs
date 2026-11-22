@@ -4,6 +4,7 @@
 //! record is the machine-readable artifact the HTML viewer and trend aggregation
 //! consume.
 
+use crate::evaluation::Evaluation;
 use crate::protocol::RunResult;
 
 /// Output format selected on the CLI.
@@ -76,24 +77,56 @@ pub fn render_with_group(
     format: Format,
     group: Option<Group<'_>>,
 ) -> String {
+    render_with_evaluation(results, format, group, None)
+}
+
+/// Render target results together with run-level evaluation evidence.
+/// JSON and HTML embed `evaluation`; Markdown and HTML display it; JUnit adds
+/// a separate coverage suite. Row exports preserve their case shape and carry
+/// the outcome in `transcript.metadata["mira.evaluation"]` (CSV: `meta.*`).
+pub fn render_with_evaluation(
+    results: &[RunResult],
+    format: Format,
+    group: Option<Group<'_>>,
+    evaluation: Option<&Evaluation>,
+) -> String {
     match format {
-        Format::Json => {
-            serde_json::to_string_pretty(&results_json_with_group(results, group.as_ref()))
-                .unwrap_or_default()
-        }
-        Format::Junit => junit_xml(results),
+        Format::Json => serde_json::to_string_pretty(&record_with_evaluation(
+            results,
+            group.as_ref(),
+            evaluation,
+        ))
+        .unwrap_or_default(),
+        Format::Junit => junit_with_evaluation(results, evaluation),
         Format::Markdown => {
             let mut out = markdown(results);
             if let Some(g) = group {
                 out.push_str(&group_markdown(results, g.key, g.values));
             }
+            if let Some(evaluation) = evaluation {
+                out.push_str(&evaluation_markdown(evaluation));
+            }
             out
         }
-        Format::Html => html_with_group(results, group),
+        Format::Html => html_with_evaluation(results, group, evaluation),
         // Un-aggregated raw-data exports: a `--group-by` view is a roll-up, so it
         // has no place here — the consumer groups the rows itself.
-        Format::Jsonl => jsonl(results),
-        Format::Csv => csv(results),
+        Format::Jsonl | Format::Csv => {
+            let mut rows = results.to_vec();
+            if let Some(evaluation) = evaluation {
+                let value = serde_json::to_value(evaluation).expect("evaluation serializes");
+                for row in &mut rows {
+                    row.transcript
+                        .metadata
+                        .insert("mira.evaluation".into(), value.clone());
+                }
+            }
+            if format == Format::Jsonl {
+                jsonl(&rows)
+            } else {
+                csv(&rows)
+            }
+        }
     }
 }
 
@@ -454,6 +487,59 @@ pub fn results_json_with_group(
     record
 }
 
+fn record_with_evaluation(
+    results: &[RunResult],
+    group: Option<&Group<'_>>,
+    evaluation: Option<&Evaluation>,
+) -> serde_json::Value {
+    let mut record = results_json_with_group(results, group);
+    if let Some(evaluation) = evaluation {
+        record["evaluation"] = serde_json::to_value(evaluation).expect("evaluation serializes");
+    }
+    record
+}
+
+fn evaluation_markdown(e: &Evaluation) -> String {
+    let mut out = format!(
+        "\n### Evaluation {}\n\nEvaluated {}/{} cases. Coverage gates {}.\n",
+        if e.complete { "complete" } else { "incomplete" },
+        e.evaluated,
+        e.planned,
+        if !e.gates_configured {
+            "not configured"
+        } else if e.gates_passed {
+            "passed"
+        } else {
+            "failed"
+        }
+    );
+    for issue in &e.issues {
+        out.push_str(&format!("\n- {}\n", issue.replace('\n', " ")));
+    }
+    out
+}
+
+fn junit_with_evaluation(results: &[RunResult], evaluation: Option<&Evaluation>) -> String {
+    let xml = junit_xml(results);
+    let Some(e) = evaluation else {
+        return xml;
+    };
+    let suite = xml.split_once('\n').map(|(_, suite)| suite).unwrap_or(&xml);
+    let evidence = xml_escape(&serde_json::to_string(e).expect("evaluation serializes"));
+    let failure = if e.gates_passed {
+        String::new()
+    } else {
+        format!(
+            "<failure message=\"{}\"/>",
+            xml_escape(&e.issues.join("; "))
+        )
+    };
+    format!(
+        "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<testsuites>\n{suite}<testsuite name=\"mira.coverage\" tests=\"1\" failures=\"{}\"><testcase classname=\"mira.coverage\" name=\"evaluation coverage\">{failure}<system-out>{evidence}</system-out></testcase></testsuite>\n</testsuites>\n",
+        usize::from(!e.gates_passed)
+    )
+}
+
 /// True when a case ran but every score was N/A — nothing could be evaluated
 /// (an unreachable judge, or an infrastructure failure that short-circuited
 /// scoring). Such a case is **neither passed nor failed**: it's excluded from
@@ -744,6 +830,15 @@ pub fn html(results: &[RunResult]) -> String {
 /// [`html`] with an optional `--group-by` table and a group-aware embedded JSON
 /// record.
 pub fn html_with_group(results: &[RunResult], group: Option<Group<'_>>) -> String {
+    html_with_evaluation(results, group, None)
+}
+
+/// [`html_with_group`] including coverage evidence and the original gate policy.
+pub fn html_with_evaluation(
+    results: &[RunResult],
+    group: Option<Group<'_>>,
+    evaluation: Option<&Evaluation>,
+) -> String {
     let (evals, targets) = axes(results);
     let scored = results.iter().filter(|r| !r.skipped && !is_na(r)).count();
     let passed = results
@@ -771,6 +866,17 @@ pub fn html_with_group(results: &[RunResult], group: Option<Group<'_>>) -> Strin
     out.push_str(CSS);
     out.push_str("</style>\n</head>\n<body>\n<main>\n");
     out.push_str("<h1>Mira eval report</h1>\n");
+    if let Some(e) = evaluation {
+        out.push_str(&format!("<section class=\"card evaluation {}\" aria-label=\"Evaluation coverage\"><h2>Evaluation {}</h2><p>Evaluated {}/{} cases. Coverage gates {}.</p>",if !e.gates_passed {"bad"} else if !e.complete {"warn"} else {"ok"},if e.complete {"complete"} else {"incomplete"},e.evaluated,e.planned,if !e.gates_configured {"not configured"} else if e.gates_passed {"passed"} else {"failed"}));
+        if !e.issues.is_empty() {
+            out.push_str("<ul>");
+            for issue in &e.issues {
+                out.push_str(&format!("<li>{}</li>", html_escape(issue)));
+            }
+            out.push_str("</ul>");
+        }
+        out.push_str("</section>\n");
+    }
 
     // Summary banner.
     out.push_str("<section class=\"cards\">\n");
@@ -955,7 +1061,7 @@ pub fn html_with_group(results: &[RunResult], group: Option<Group<'_>>) -> Strin
     }
 
     // Embed the canonical JSON record for programmatic consumers.
-    let json = serde_json::to_string(&results_json_with_group(results, group.as_ref()))
+    let json = serde_json::to_string(&record_with_evaluation(results, group.as_ref(), evaluation))
         .unwrap_or_default();
     out.push_str("<script type=\"application/json\" id=\"mira-data\">\n");
     out.push_str(&json.replace("</", "<\\/"));
@@ -973,6 +1079,7 @@ h1{font-size:1.6rem;margin:0 0 1rem}h2{font-size:1.15rem;margin:2rem 0 .75rem;bo
 .cards{display:flex;flex-wrap:wrap;gap:.75rem}
 .card{flex:1;min-width:96px;border:1px solid var(--line);border-radius:8px;padding:.75rem 1rem;text-align:center}
 .card b{display:block;font-size:1.5rem}.card span{color:var(--mut);font-size:.8rem;text-transform:uppercase;letter-spacing:.04em}
+.evaluation{text-align:left;margin-bottom:1rem}.evaluation h2{margin-top:0}.evaluation.bad{border-color:var(--bad)}.evaluation.bad h2{color:var(--bad)}.evaluation.warn h2{color:var(--warn)}
 .card.ok b{color:var(--ok)}.card.bad b{color:var(--bad)}.card.warn b{color:var(--warn)}
 table.matrix{border-collapse:collapse;width:100%}table.matrix th,table.matrix td{border:1px solid var(--line);padding:.4rem .6rem;text-align:center}
 table.matrix td:first-child,table.matrix th:first-child{text-align:left}

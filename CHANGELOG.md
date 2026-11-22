@@ -7,7 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+Public entry: [Evaluation coverage, comparisons, and grader calibration](https://everruns.com/docs/changelog/2026-11-22-mira-evaluation-quality/).
+
 ### Added
+
+- Shared Rust coverage-policy API and persisted gate evidence in every run report format and publishing metadata; saved-run rendering retains the original policy.
+- Complete offline quality-workflow example and SDK custom-scorer configuration provenance, with matching SDK documentation and smoke checks.
+
+- Coverage gates (`--min-coverage`, `--max-infra-rate`, `--require-scorer`) distinguish incomplete evaluation from target failures.
+- Paired saved-run comparison with logical-case trial statistics, bootstrap intervals, per-scorer changes, and regression/cost/latency gates; experiments attempt every treatment before comparing candidates with the baseline.
+- Full execution artifacts in saved runs, archived sample snapshots across Rust/Python/TypeScript, SHA-256 provenance, declared treatment-file fingerprints, and `score --run-id` with explicit current-reference grading.
+- `mira calibrate` measures judges against human labels and compares old/new verdicts on the same executions. `mira failures` exports review records for regression datasets.
+- Offline evidence recipes for tool observations, conversation retention, retrieval, and grounding.
 
 - `HostedAgent` (in `mira-publish-everruns`) runs samples against an agent deployed on Everruns through its Agent Execution API, one session per sample, with per-target routing for model matrices.
 - `--everruns-experiment NAME` publishes a run into an Everruns experiment, one variant per target, compared there case by case with the experiment's other variants.
@@ -18,6 +29,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Breaking (`mira-everruns`):** moves from the deprecated `everruns-runtime` to the Everruns Framework (`everruns` 0.53). The `RuntimeSubject` factory now returns an `everruns::Session` instead of `(InProcessRuntime, SessionId)`, and `target_to_resolved` is replaced by `target_to_model`, which maps a provider `Target` to a live `everruns::Model`. Folded trajectories are stamped `everruns`/`0.53` and now carry the model name the session reports.
 
 ### Fixed
+
+- Python and TypeScript studies preserve trial identities and seeds through execution and rescoring, preventing repeated cases from overwriting saved artifacts.
+
+- LLM judges receive structured ATIF steps, arguments, and observations with explicit truncation reporting, structured reference values, and distinct rubric/configuration identities.
 
 - Claude judges use provider sampling defaults, avoiding HTTP 400 errors on models that reject `temperature` overrides.
 - OpenAI judges (Chat Completions and Responses) use provider sampling defaults too. GPT-5 and later answer `temperature: 0` with HTTP 400, so the judge returned N/A on every current OpenAI model. Examples and docs now use `gpt-6-luna`.

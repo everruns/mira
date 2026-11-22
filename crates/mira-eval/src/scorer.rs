@@ -34,6 +34,12 @@ use crate::{Sample, Score, Transcript};
 pub trait Scorer: Send + Sync {
     /// A stable, human-readable name (shown in reports).
     fn name(&self) -> String;
+    /// Public, credential-free scorer definition archived with study catalogs.
+    /// Custom scorers should override this when their configuration changes
+    /// independently of the study's source revision.
+    fn definition(&self) -> serde_json::Value {
+        serde_json::json!({"name":self.name()})
+    }
     async fn score(&self, sample: &Sample, transcript: &Transcript) -> Score;
 }
 

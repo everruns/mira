@@ -3,6 +3,7 @@
 // A `Study` answers `initialize`/`list`/`list_samples`/`run`/`execute`/`score`
 // over newline-delimited JSON on stdio (see docs/protocol.md). stdout carries
 // only protocol JSON; logs go to stderr.
+import { createHash } from "node:crypto";
 import { createInterface } from "node:readline";
 import type { Readable, Writable } from "node:stream";
 
@@ -118,6 +119,9 @@ export class RunCx {
     readonly provider: string = "",
     readonly maxTurns: number = 0,
     readonly params: Record<string, string> = {},
+    readonly trial: number = 0,
+    readonly trials: number = 1,
+    readonly seed?: number,
   ) {}
 
   param(name: string, dflt = ""): string {
@@ -178,7 +182,7 @@ class Eval {
       ),
       axes: this.axes.map((a): AxisInfo => ({ name: a.name, values: [...a.values] })),
       max_turns: this.maxTurns,
-      metadata: this.metadata,
+      metadata: {...this.metadata, "mira.scorer_definitions": this.scorers.map((s) => ({...s.configuration,name:s.name}))},
     };
   }
 
@@ -193,8 +197,28 @@ class Eval {
   }
 }
 
+function sampleSnapshot(s: Sample): Record<string, unknown> {
+  const value: Record<string, unknown> = { id: s.id, input: s.prompt === undefined ? s.input : [s.prompt] };
+  for (const key of ["expected", "files", "tags", "metadata"] as const) {
+    const v = s[key];
+    if (v !== undefined && (key === "expected" || Object.keys(v).length > 0)) value[key] = v;
+  }
+  return JSON.parse(JSON.stringify(value));
+}
+function canonical(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(canonical);
+  if (value !== null && typeof value === "object") return Object.fromEntries(Object.entries(value).sort(([a], [b]) => a < b ? -1 : a > b ? 1 : 0).map(([k,v]) => [k,canonical(v)]));
+  return value;
+}
+function snapshotHash(snapshot: Record<string, unknown>): string {
+  return "sha256:" + createHash("sha256").update(JSON.stringify(canonical(snapshot))).digest("hex");
+}
+function sampleMetadata(s: Sample): Record<string, unknown> {
+  return {...s.metadata, "mira.sample_sha256": snapshotHash(sampleSnapshot(s))};
+}
+
 function sampleInfo(s: Sample): SampleInfo {
-  return { id: s.id, tags: [...s.tags], metadata: s.metadata };
+  return { id: s.id, tags: [...s.tags], metadata: sampleMetadata(s) };
 }
 
 // ----- scoring (mirrors crate::runner) ---------------------------------------
@@ -266,7 +290,7 @@ export class Study {
   }
 
   private capabilities(): string[] {
-    const caps = ["usage", "execute", "score", "paginate", "trajectory"];
+    const caps = ["usage", "execute", "score", "paginate", "trajectory", "trials"];
     if ([...this.evals.values()].some((e) => e.axes.length)) caps.unshift("axes");
     return caps;
   }
@@ -327,11 +351,18 @@ export class Study {
       m.provider,
       ev.maxTurns,
       (params.params as Record<string, string>) ?? {},
+      (params.trial as number) ?? 0,
+      Math.max(1, (params.trials as number) ?? 1),
+      params.seed as number | undefined,
     );
     // Zero-burden trajectory contract: a subject may set only
     // `transcript.trajectory`; the flat fields are projected here
     // (fill-if-default — explicitly set fields win).
-    return [normalizeTrajectory(await ev.subject(s, cx)), false];
+    const snapshot = sampleSnapshot(s);
+    const transcript = normalizeTrajectory(await ev.subject(s, cx));
+    transcript.metadata = {...transcript.metadata, "mira.sample": snapshot, "mira.sample_sha256": snapshotHash(snapshot)};
+    transcript.metadata["mira.execution_sha256"] = "sha256:" + createHash("sha256").update(JSON.stringify(canonical(toWire("Transcript",{...transcript})))).digest("hex");
+    return [transcript, false];
   }
 
   /** Dispatch one protocol request, returning the JSON-ready result. */
@@ -369,6 +400,7 @@ export class Study {
           sample: params.sample,
           target: params.target,
           params: params.params ?? {},
+          trial: params.trial ?? 0, trials: params.trials ?? 0, seed: params.seed,
           transcript,
           skipped,
         });
@@ -376,7 +408,7 @@ export class Study {
       case "run":
       case "score": {
         const ev = this.getEval(params.eval as string);
-        const s = ev.sample(params.sample as string);
+        let s: Sample;
         let transcript: Transcript;
         let skipped: boolean;
         if (method === "score") {
@@ -387,12 +419,23 @@ export class Study {
         } else {
           [transcript, skipped] = await this.execute(params);
         }
+        const snapshot = transcript.metadata?.["mira.sample"] as {id: string} & SampleOptions | undefined;
+        if (snapshot) {
+          if (snapshot.id !== params.sample) throw new Error("archived sample id differs from case identity");
+          s = sample(snapshot.id, snapshot);
+        } else s = ev.sample(params.sample as string);
+        const scoredSample = sampleSnapshot(s);
+        transcript.metadata = {...transcript.metadata,"mira.sample":scoredSample,"mira.sample_sha256":snapshotHash(scoredSample)};
         const scores = scoreTranscript(ev, s, transcript);
+        transcript.metadata = {...transcript.metadata,"mira.scorer_definitions":ev.scorers.map((sc) => ({...sc.configuration,name:sc.name}))};
         return toWire("RunResult", {
           eval: params.eval,
           sample: params.sample,
           target: params.target,
           params: params.params ?? {},
+          trial: params.trial ?? 0, trials: params.trials ?? 0, seed: params.seed,
+          input: s.prompt === undefined ? s.input : [s.prompt],
+          expected: s.expected,
           passed: verdict(scores),
           aggregate: aggregate(scores),
           scores,

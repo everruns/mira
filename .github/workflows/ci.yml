@@ -103,7 +103,7 @@ jobs:
       # (`--study`), which runs on stable — no nightly toolchain needed.
       - name: Run single-file example studies via the host CLI
         run: |
-          for ex in greet coding swe_bench llm_judge; do
+          for ex in greet coding swe_bench llm_judge evidence; do
             echo "=== $ex (script) ==="
             cargo run -q -p mira-cli -- run --study "examples/$ex.rs"
           done
@@ -131,6 +131,9 @@ jobs:
       - name: Run the polyglot (TypeScript) eval study via the host CLI
         run: |
           cargo run -q -p mira-cli -- run --study-cmd "node examples/greet-typescript/study.mjs"
+
+      - name: Run evaluation quality workflow (offline)
+        run: python3 examples/quality_workflow/smoke.py --mira target/debug/mira --out "$RUNNER_TEMP/mira-quality-workflow"
 
       - name: Render an HTML report (smoke)
         run: |

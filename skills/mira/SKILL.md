@@ -200,6 +200,15 @@ cargo run -p mira-cli -- run --study-bin matrix                                 
 cargo run -p mira-cli -- run --study-cmd "python3 examples/greet-python/study.py"  # polyglot
 ```
 
+## Trust evaluation results
+
+Use `run --min-coverage 1 --require-scorer GLOB` for release evidence, `compare
+BASELINE CANDIDATE --max-regressions 0` for paired regression gates, and `score
+--run-id RUN` to regrade archived executions. `calibrate` checks judges against
+human labels; `failures` exports review records for regression datasets. See
+<https://github.com/everruns/mira/blob/main/docs/evaluation-quality.md> for exact
+semantics, provenance, thresholds, and promotion rules.
+
 ## Learn more (read on demand)
 
 Progressive disclosure: this skill is the overview. Bundled references ship with

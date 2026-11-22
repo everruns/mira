@@ -132,3 +132,41 @@ npm test                 # codegen check + build + conformance/metadata/serve te
 
 The runtime has **zero dependencies**; everything above is dev-only. See
 [`specs/sdks.md`](../../specs/sdks.md) for the design of record.
+
+## Coverage, provenance, comparison, and review
+
+These workflows run in the shared host, so this SDK receives the same coverage
+gates, experiment comparisons, calibration reports, and failure export as Rust
+studies. The SDK automatically archives the original sample and execution
+identity; `score` uses that snapshot even if the current dataset changes.
+
+```bash
+mira run --study-cmd "node study.mjs" --min-coverage 1 --require-scorer "correctness*"
+mira score --study-cmd "node study.mjs" --run-id RUN
+mira compare BASELINE CANDIDATE --max-regressions 0
+mira calibrate RUN --labels labels.jsonl --scorer 'correctness*' --min-agreement 0.9
+mira failures RUN --out review.jsonl
+```
+
+Custom scorers can supply public configuration for catalog and result
+provenance. Keep credentials out of this configuration:
+
+```ts
+const correct = scorer("correctness:v1", (s, t) => t.final_response === s.expected,
+                       { rubric: "match reviewed reference", version: 1 });
+```
+
+The host stores these definitions in catalog and result metadata and rejects
+changed grader configurations during paired comparisons. Model-backed judge
+transports remain in the Rust `mira-judge` integration; SDK studies can implement
+their own provider-backed scorers.
+
+See [Evaluation quality](../../docs/evaluation-quality.md) for the support matrix,
+report formats, reference-mode controls, and gate exit codes. The runnable
+[quality workflow](../../examples/quality_workflow) demonstrates all host
+workflows without provider credentials.
+
+Repeated runs (`mira run --trials 3 --seed 10`) preserve trial identity through
+execution artifacts, scoring, and reports. Subjects receive the zero-based
+`cx.trial`, repetition count `cx.trials`, and optional per-trial `cx.seed`.
+A subject can pass that seed to its model or local random generator.

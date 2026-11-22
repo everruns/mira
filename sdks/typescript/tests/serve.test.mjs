@@ -9,6 +9,8 @@ import {
   target,
   succeeded,
   contains,
+  matchesExpected,
+  scorer,
   transcript,
   usage,
   makeScore,
@@ -148,4 +150,67 @@ test("score path reuses a host-supplied transcript", async () => {
   const scored = await s.handle("score", { eval: "e", sample: "s", target: "sim", transcript: ex.transcript });
   assert.equal(scored.passed, true);
   assert.equal(scored.aggregate, 1.0);
+});
+
+
+test("rescoring preserves original sample after catalog changes", async () => {
+  const original = sample("s", {prompt:"original prompt", expected:"42"});
+  const study = new Study("snapshot");
+  study.eval({name:"e", samples:[original], targets:[target("sim")],
+    scorers:[matchesExpected()], run: () => transcript("42")});
+  const params = {eval:"e",sample:"s",target:"sim"};
+  const captured = await study.handle("execute",params);
+  original.expected = "changed";
+  original.prompt = "changed prompt";
+  const result = await study.handle("score", {...params,transcript:captured.transcript});
+  assert.equal(result.passed,true);
+  assert.deepEqual(result.input,["original prompt"]);
+  assert.equal(result.expected,"42");
+  assert.ok(captured.transcript.metadata["mira.execution_sha256"].startsWith("sha256:"));
+});
+
+
+test("custom scorer configuration is archived after execution", async () => {
+  const study = new Study("configuration");
+  const correct = scorer("correctness:v1", (s,t) => t.final_response === s.expected,
+                         {rubric:"reference",version:1});
+  study.eval({name:"e",samples:[sample("s",{prompt:"p",expected:"42"})],
+    targets:[target("sim")],scorers:[correct],run:() => transcript("42")});
+  const listing = await study.handle("list");
+  assert.equal(listing.evals[0].metadata["mira.scorer_definitions"][0].rubric,"reference");
+  const params = {eval:"e",sample:"s",target:"sim"};
+  const captured = await study.handle("execute",params);
+  assert.equal(captured.transcript.metadata["mira.scorer_definitions"],undefined);
+  const result = await study.handle("score",{...params,transcript:captured.transcript});
+  assert.equal(result.transcript.metadata["mira.scorer_definitions"][0].version,1);
+  assert.equal(result.transcript.metadata["mira.execution_sha256"],captured.transcript.metadata["mira.execution_sha256"]);
+});
+
+
+test("current-reference rescoring archives the new sample", async () => {
+  const study = buildStudy(); const params = {eval:"e",sample:"s",target:"sim"};
+  const captured = await study.handle("execute",params);
+  delete captured.transcript.metadata["mira.sample"];
+  delete captured.transcript.metadata["mira.sample_sha256"];
+  const result = await study.handle("score",{...params,transcript:captured.transcript});
+  assert.equal(result.transcript.metadata["mira.sample"].id,"s");
+  assert.ok(result.transcript.metadata["mira.sample_sha256"].startsWith("sha256:"));
+});
+
+
+test("trial identity and seed reach subject and rescoring", async () => {
+  const study = new Study("trials");
+  study.eval({name:"e",samples:[sample("s",{prompt:"p"})],targets:[target("sim")],
+    scorers:[succeeded()],run:(s,cx) => {
+      assert.deepEqual([cx.trial,cx.trials,cx.seed],[1,3,11]);
+      return transcript(String(cx.seed));
+    }});
+  const params = {eval:"e",sample:"s",target:"sim",trial:1,trials:3,seed:11};
+  assert.ok((await study.handle("initialize")).capabilities.includes("trials"));
+  const captured = await study.handle("execute",params);
+  for (const method of ["run","score"]) {
+    const result = await study.handle(method,{...params,transcript:captured.transcript});
+    assert.deepEqual([result.trial,result.trials,result.seed],[1,3,11]);
+    assert.equal(result.transcript.final_response,"11");
+  }
 });

@@ -32,6 +32,8 @@ cargo run -p mira-cli -- run --study-cmd "node examples/greet-typescript/study.m
 
 | Example | Form | Shows |
 |---------|------|-------|
+| [`quality_workflow`](quality_workflow) | Python + host CLI | Complete offline experiment, coverage/report, provenance, rescoring, calibration, and review loop. |
+| [`evidence`](evidence.rs) | Rust · `--study` | Tool evidence, conversation retention, retrieval precision/recall, and grounded claims. |
 | [`greet`](greet.rs) | Rust · `--study` | The smallest eval: `#[eval]`, a closure subject, text + LLM-judge scorers. |
 | [`coding`](coding.rs) | Rust · `--study` | Seeded files, a model matrix, structural + file-based scorers. |
 | [`swe_bench`](swe_bench.rs) | Rust · `--study` | A SWE-bench-style bug-fix eval with a `FAIL_TO_PASS` gate scorer. |

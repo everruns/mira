@@ -91,3 +91,14 @@ let s = scorer("nonempty", |_, t| {
 rubric. The judge is **N/A** when its API key is missing, so suites stay green
 offline. See the `llm_judge` example:
 <https://github.com/everruns/mira/tree/main/examples/llm_judge>.
+
+`mira-judge` includes structured ATIF steps, arguments, and observations when
+`Include::Transcript` or `Full` is selected. `max_evidence_chars` bounds whole
+steps and reports omissions. Judge identities cover rubric/configuration changes.
+For release evidence, require judge availability with `--require-scorer
+'llm_judge:*' --min-coverage 1`; missing keys stay N/A but fail that gate.
+
+Calibrate judges with `mira calibrate RUN --labels labels.jsonl --scorer GLOB`.
+Rust `Scorer::definition()`, Python scorer `configuration=...`, and TypeScript's
+third scorer argument archive public grader configuration. Do not put credentials
+in grader definitions.

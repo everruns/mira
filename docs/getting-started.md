@@ -258,3 +258,15 @@ Warnings never fail doctor; errors exit non-zero, so it can gate CI.
 - [Extensibility](extensibility.md), the map of every extension point: custom subjects,
   scorers, metrics, trajectories, and protocol-level extension.
 - [The protocol](protocol.md), what flows over the wire, and its versioning.
+
+## Require complete evaluation and compare versions
+
+Saved runs from studies supporting `execute` and `score` retain full execution
+artifacts under `artifacts/`, sample/scorer provenance, and `evaluation.json`.
+Use `mira score --study study.rs --run-id RUN` to regrade archived samples without
+rerunning the subject. Studies with only `run` retain summary results as before.
+
+For CI, use `--min-coverage 1 --require-scorer 'llm_judge:*'` when missing judge
+evidence must block the change. `mira compare BASELINE CANDIDATE` reports paired
+changes; add `--max-regressions 0` to gate them. See
+[Evaluation quality](evaluation-quality.md) for the complete workflow.

@@ -50,6 +50,9 @@ pub struct RunMeta {
     pub environment: Option<Environment>,
     /// Rolled-up result summary (the same shape the report JSON carries).
     pub summary: RunSummary,
+    /// Coverage policy and outcome, preserved across reporting and publishing.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub evaluation: Option<crate::evaluation::Evaluation>,
 }
 
 /// Environment a run was produced in: enough context to interpret a result and

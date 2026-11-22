@@ -40,6 +40,8 @@ pub const DEFAULT_RESULTS_DIR: &str = "./results";
 #[derive(Debug, Default, Deserialize)]
 pub struct Config {
     #[serde(default)]
+    pub gates: crate::coverage::Policy,
+    #[serde(default)]
     pub results: ResultsConfig,
     #[serde(default)]
     pub environment: EnvironmentConfig,
@@ -85,6 +87,8 @@ pub struct Config {
 /// ```
 #[derive(Debug, Default, Clone, Deserialize)]
 pub struct Preset {
+    #[serde(default)]
+    pub gates: crate::coverage::Policy,
     /// Restrict to sample ids matching these glob patterns.
     #[serde(default, deserialize_with = "string_or_seq")]
     pub samples: Vec<String>,
@@ -432,12 +436,18 @@ pub fn finalize_run(
     std::fs::create_dir_all(run_dir)?;
     std::fs::write(
         run_dir.join("report.json"),
-        report::render_with_group(results, Format::Json, group),
+        report::render_with_evaluation(results, Format::Json, group, meta.evaluation.as_ref()),
     )?;
     std::fs::write(
         run_dir.join("report.html"),
-        report::render_with_group(results, Format::Html, group),
+        report::render_with_evaluation(results, Format::Html, group, meta.evaluation.as_ref()),
     )?;
+    if let Some(evaluation) = &meta.evaluation {
+        std::fs::write(
+            run_dir.join("evaluation.json"),
+            serde_json::to_vec_pretty(evaluation)?,
+        )?;
+    }
     write_meta(run_dir, meta)
 }
 
@@ -633,6 +643,7 @@ mod tests {
             started_unix: 100,
             finished_unix: 0,
             environment: None,
+            evaluation: None,
             summary: RunSummary::default(),
         };
         init_run(&rd, &header).unwrap();
@@ -652,6 +663,7 @@ mod tests {
         // Finalize writes the reports and rewrites meta with the end time/summary.
         let final_meta = RunMeta {
             finished_unix: 200,
+            evaluation: None,
             summary: RunSummary::of(&loaded),
             ..header
         };

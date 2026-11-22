@@ -19,6 +19,8 @@ import { contentText } from "./trajectory.js";
 
 export interface Scorer {
   name: string;
+  /** Public, credential-free configuration for archived provenance. */
+  configuration?: Record<string, unknown>;
   score(sample: Sample, transcript: Transcript): Score;
 }
 
@@ -537,12 +539,15 @@ export function not(inner: Scorer): Scorer {
 export function scorer(
   name: string,
   fn: (sample: Sample, transcript: Transcript) => boolean | Score,
+  configuration?: Record<string, unknown>,
 ): Scorer {
-  return named(name, (sample, t) => {
+  const result = named(name, (sample, t) => {
     const out = fn(sample, t);
     if (typeof out === "boolean") {
       return makeScore(name, out ? 1 : 0, out, out ? "ok" : "failed");
     }
     return out;
   });
+  result.configuration = configuration;
+  return result;
 }
