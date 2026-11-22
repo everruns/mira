@@ -132,3 +132,16 @@ Run folders default to `./results/`; configure via `[results].dir` in
 - [The eval protocol](https://github.com/everruns/mira/blob/main/docs/protocol.md)
 
 Licensed under MIT, see [LICENSE](../../LICENSE).
+
+## Evaluation quality workflows
+
+```bash
+mira run --study study.rs --min-coverage 1 --require-scorer 'llm_judge:*'
+mira compare BASELINE CANDIDATE --max-regressions 0
+mira score --study study.rs --run-id RUN
+mira calibrate RUN --labels labels.jsonl --scorer 'llm_judge:*' --min-agreement 0.9
+mira failures RUN --out review.jsonl
+```
+
+See [Evaluation quality](../../docs/evaluation-quality.md) for paired trial
+statistics, provenance, calibration, review records, and coverage exit codes.

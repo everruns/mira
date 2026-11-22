@@ -167,3 +167,23 @@ can't be shared across languages, only kept in lock-step. The rule:
   npm) via OIDC trusted publishing in `publish.yml`, gated on a one-time
   trusted-publisher registration; see [`release-process`](release-process.md).
 - **Deferred:** emitting `event` progress notifications from SDK studies.
+
+## Evaluation evidence and scorer provenance
+
+Both SDKs snapshot the normalized sample before executing the subject and
+preserve `mira.sample`, `mira.sample_sha256`, and `mira.execution_sha256` in
+transcript metadata. On rescoring, the archived sample takes precedence over a
+changed catalog row. These conventions use open metadata and do not introduce
+hand-maintained wire types.
+
+Scorers optionally expose public configuration: Python
+`scorer(name, fn, configuration=...)`, TypeScript `scorer(name, fn, configuration)`.
+The catalog and scored result record `mira.scorer_definitions`; default
+configuration contains the scorer name. Definitions are recorded after execution
+and do not alter execution identity. The shared host owns coverage gates,
+comparison, calibration, and review export, so they work with either SDK without
+native host bindings. Provider judge transports remain separate integrations.
+
+Both SDKs advertise `trials`, echo trial index/count/seed in execution and scoring
+responses, and expose the per-trial values through `RunCx`. This keeps saved
+artifacts independently addressable during host-expanded repeated runs.

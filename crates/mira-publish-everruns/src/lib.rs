@@ -283,6 +283,7 @@ fn build_payload(meta: &RunMeta, results: &[RunResult]) -> ImportRequest {
         "study": meta.study,
         "study_version": meta.study_version,
         "environment": meta.environment,
+        "evaluation": meta.evaluation,
     });
 
     ImportRequest {
@@ -354,6 +355,12 @@ fn import_case(r: &RunResult) -> ImportCase {
         transcript.insert("output".to_string(), json!(t.output));
     }
     transcript.insert("iterations".to_string(), json!(t.iterations));
+    if !t.metadata.is_empty() {
+        transcript.insert("metadata".into(), json!(t.metadata));
+    }
+    if let Some(expected) = &r.expected {
+        transcript.insert("expected".into(), expected.clone());
+    }
 
     // Open-vocab metrics bag: study-supplied metrics plus the usage/timing
     // breakdowns that don't warrant top-level fields.
@@ -626,6 +633,7 @@ mod tests {
             started_unix: 0,
             finished_unix: 0,
             environment: None,
+            evaluation: None,
             summary: Default::default(),
         }
     }
@@ -688,6 +696,37 @@ mod tests {
         // A plain publish names no experiment.
         let plain = serde_json::to_value(build_payload(&meta(), &results)).unwrap();
         assert!(plain.get("experiment").is_none());
+    }
+
+    #[test]
+    fn published_source_preserves_coverage_and_case_provenance() {
+        let mut r = result("e", "s", "sim", true);
+        r.expected = Some(json!("42"));
+        r.transcript.metadata.insert(
+            "mira.sample".into(),
+            json!({"id":"s","input":["q"],"expected":"42"}),
+        );
+        let mut m = meta();
+        m.evaluation = Some(
+            mira::evaluation::CoveragePolicy {
+                require_scorer: vec!["judge:*".into()],
+                ..Default::default()
+            }
+            .evaluate(std::slice::from_ref(&r)),
+        );
+        let payload = serde_json::to_value(build_payload(&m, &[r])).unwrap();
+        assert_eq!(
+            payload["source"]["metadata"]["evaluation"]["gates_passed"],
+            false
+        );
+        assert_eq!(
+            payload["evals"][0]["cases"][0]["transcript"]["metadata"]["mira.sample"]["id"],
+            "s"
+        );
+        assert_eq!(
+            payload["evals"][0]["cases"][0]["transcript"]["expected"],
+            "42"
+        );
     }
 
     #[test]

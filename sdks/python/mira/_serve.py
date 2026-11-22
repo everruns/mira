@@ -28,6 +28,10 @@ from ._wire import (
     Transcript,
     TranscriptSummary,
 )
+import copy
+import hashlib
+import json
+
 from .scorers import Scorer, make_score
 from .trajectory import ATIF_FORMAT, ATIF_VERSION, normalize as _normalize_trajectory
 
@@ -76,6 +80,24 @@ class Sample:
         return "\n".join(self.input)
 
 
+def _sample_snapshot(s: Sample) -> dict:
+    value = {"id": s.id, "input": [s.prompt] if s.prompt is not None else list(s.input)}
+    for key in ("expected", "files", "tags", "metadata"):
+        field_value = getattr(s, key)
+        if field_value is not None and (key == "expected" or field_value):
+            value[key] = copy.deepcopy(field_value)
+    return value
+
+
+def _snapshot_hash(snapshot: dict) -> str:
+    encoded = json.dumps(snapshot, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+    return "sha256:" + hashlib.sha256(encoded.encode()).hexdigest()
+
+
+def _sample_metadata(s: Sample) -> dict:
+    return {**s.metadata, "mira.sample_sha256": _snapshot_hash(_sample_snapshot(s))}
+
+
 @dataclass
 class Target:
     label: str
@@ -103,6 +125,9 @@ class RunCx:
     provider: str = ""
     max_turns: int = 0
     params: Dict[str, str] = field(default_factory=dict)
+    trial: int = 0
+    trials: int = 1
+    seed: Optional[int] = None
 
     def param(self, name: str, default: str = "") -> str:
         return self.params.get(name, default)
@@ -127,7 +152,7 @@ class Eval:
         return EvalInfo(
             name=self.name,
             description=self.description,
-            samples=[SampleInfo(id=s.id, tags=list(s.tags), metadata=dict(s.metadata))
+            samples=[SampleInfo(id=s.id, tags=list(s.tags), metadata=_sample_metadata(s))
                      for s in self.samples],
             scorers=[sc.name for sc in self.scorers],
             targets=[TargetInfo(label=m.label, provider=m.provider, available=m.available,
@@ -135,7 +160,7 @@ class Eval:
                     for m in self.targets],
             axes=[AxisInfo(name=a.name, values=list(a.values)) for a in self.axes],
             max_turns=self.max_turns,
-            metadata=dict(self.metadata),
+            metadata={**self.metadata, "mira.scorer_definitions": [sc.definition() for sc in self.scorers]},
         )
 
     def _sample(self, sid: str) -> Sample:
@@ -197,7 +222,7 @@ class Study:
         return deco
 
     def _capabilities(self) -> List[str]:
-        caps = ["usage", "execute", "score", "paginate", "trajectory"]
+        caps = ["usage", "execute", "score", "paginate", "trajectory", "trials"]
         if any(ev.axes for ev in self._evals.values()):
             caps.insert(0, "axes")
         return caps
@@ -209,7 +234,7 @@ class Study:
         start = min(offset, len(ev.samples))
         end = len(ev.samples) if self.page_size is None \
             else min(start + self.page_size, len(ev.samples))
-        page = [SampleInfo(id=s.id, tags=list(s.tags), metadata=dict(s.metadata))
+        page = [SampleInfo(id=s.id, tags=list(s.tags), metadata=_sample_metadata(s))
                 for s in ev.samples[start:end]]
         nxt = str(end) if end < len(ev.samples) else None
         return page, nxt
@@ -242,11 +267,18 @@ class Study:
         if not m.available:
             return Transcript(error=f"target unavailable: {m.label}", error_kind="infra"), True
         cx = RunCx(target=m.label, provider=m.provider, max_turns=ev.max_turns,
-                   params=params.get("params", {}))
+                   params=params.get("params", {}), trial=params.get("trial", 0),
+                   trials=max(1, params.get("trials", 1)), seed=params.get("seed"))
         # Zero-burden trajectory contract: a subject may set only
         # `transcript.trajectory`; the flat fields are projected here
         # (fill-if-default — explicitly set fields win).
-        return _normalize_trajectory(ev.subject(sample, cx)), False
+        snapshot = _sample_snapshot(sample)
+        transcript = _normalize_trajectory(ev.subject(sample, cx))
+        transcript.metadata["mira.sample"] = snapshot
+        transcript.metadata["mira.sample_sha256"] = _snapshot_hash(snapshot)
+        encoded = json.dumps(_codec.to_dict(transcript), sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+        transcript.metadata["mira.execution_sha256"] = "sha256:" + hashlib.sha256(encoded.encode()).hexdigest()
+        return transcript, False
 
     def handle(self, method: str, params: dict) -> dict:
         if method == "initialize":
@@ -276,10 +308,11 @@ class Study:
             transcript, skipped = self._execute(params)
             return _codec.to_dict(ExecuteResult(
                 eval=params["eval"], sample=params["sample"], target=params["target"],
-                params=params.get("params", {}), transcript=transcript, skipped=skipped))
+                params=params.get("params", {}), transcript=transcript, skipped=skipped,
+                trial=params.get("trial", 0), trials=params.get("trials", 0), seed=params.get("seed")))
         if method in ("run", "score"):
             ev = self._evals[params["eval"]]
-            sample = ev._sample(params["sample"])
+            sample = None
             if method == "score":
                 # Normalize on receipt: a replayed transcript may be
                 # trajectory-only; name-based scorers then see the projections.
@@ -288,10 +321,23 @@ class Study:
                 skipped = False
             else:
                 transcript, skipped = self._execute(params)
+            snapshot = transcript.metadata.get("mira.sample")
+            if snapshot is not None:
+                if snapshot.get("id") != params["sample"]:
+                    raise ValueError("archived sample id differs from case identity")
+                sample = Sample(**snapshot)
+            else:
+                sample = ev._sample(params["sample"])
+            snapshot = _sample_snapshot(sample)
+            transcript.metadata["mira.sample"] = snapshot
+            transcript.metadata["mira.sample_sha256"] = _snapshot_hash(snapshot)
             scores = _score_transcript(ev, sample, transcript)
+            transcript.metadata["mira.scorer_definitions"] = [sc.definition() for sc in ev.scorers]
             return _codec.to_dict(RunResult(
                 eval=params["eval"], sample=params["sample"], target=params["target"],
                 params=params.get("params", {}), passed=_verdict(scores),
+                trial=params.get("trial", 0), trials=params.get("trials", 0), seed=params.get("seed"),
+                input=[sample.prompt] if sample.prompt is not None else sample.input, expected=sample.expected,
                 aggregate=_aggregate(scores), scores=scores,
                 transcript=_summary(transcript), skipped=skipped))
         raise ValueError(f"unknown method: {method}")

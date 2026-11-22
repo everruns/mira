@@ -790,3 +790,22 @@ in-flight run, a study may implement `cancel` (advertising the `cancel`
 capability): track runs by request `id`, and on `cancel` stop the named run and
 reply to it with an `error` of `cancelled`. All of these are optional: a study
 that implements only `run` is fully conforming.
+
+## Evaluation evidence metadata conventions
+
+The Rust, Python, and TypeScript studies reserve `transcript.metadata["mira.sample"]`
+for a JSON snapshot of the executed sample: `id`, `input`, and optional `expected`,
+`files`, `tags`, `metadata`, and (Rust) `attachments`. They record
+`mira.sample_sha256` and `mira.execution_sha256` as algorithm-prefixed content
+identities. The host preserves this open metadata without a wire-version change.
+
+On `score`, a valid archived sample takes precedence over the current catalog
+row. Its ID must match the requested sample. Hosts can explicitly remove the
+snapshot to request current-reference grading; `mira score --use-current-samples`
+does this and records the choice in the resulting run's lineage. Legacy
+transcripts without a snapshot use the current study row.
+
+`EvalInfo.metadata["mira.scorer_definitions"]` and scored transcript metadata
+carry public scorer definitions across Rust, Python, and TypeScript; `SampleInfo.metadata["mira.sample_sha256"]` identifies catalog rows.
+These conventions support provenance checking without exposing provider keys.
+See [Evaluation quality](evaluation-quality.md) for host persistence and gates.

@@ -372,7 +372,20 @@ impl Study {
                     max_turns: eval.max_turns,
                     trials: eval.trials,
                     seed: eval.seed,
-                    metadata: eval.metadata.clone(),
+                    metadata: {
+                        let mut metadata = eval.metadata.clone();
+                        metadata.insert(
+                            "mira.scorer_definitions".into(),
+                            serde_json::to_value(
+                                eval.scorers
+                                    .iter()
+                                    .map(|s| s.definition())
+                                    .collect::<Vec<_>>(),
+                            )
+                            .unwrap(),
+                        );
+                        metadata
+                    },
                 }
             })
             .collect();
@@ -415,7 +428,17 @@ impl Study {
             .map(|s| SampleInfo {
                 id: s.id.clone(),
                 tags: s.tags.clone(),
-                metadata: s.metadata.clone(),
+                metadata: {
+                    let mut metadata = s.metadata.clone();
+                    metadata.insert(
+                        "mira.sample_sha256".into(),
+                        crate::provenance::fingerprint(
+                            &serde_json::to_vec(&serde_json::to_value(s).unwrap()).unwrap(),
+                        )
+                        .into(),
+                    );
+                    metadata
+                },
             })
             .collect();
         let next = (end < all.len()).then(|| end.to_string());
@@ -489,12 +512,27 @@ impl Study {
             .iter()
             .find(|e| e.name == params.eval)
             .ok_or_else(|| format!("no such eval: {}", params.eval))?;
-        let sample = eval
-            .dataset
-            .samples
-            .iter()
-            .find(|s| s.id == params.sample)
-            .ok_or_else(|| format!("no such sample: {}/{}", params.eval, params.sample))?;
+        // Regrade the executed sample, even when its catalog row changed or
+        // disappeared. Choosing current data is an explicit host operation.
+        let archived: Option<crate::Sample> = params
+            .transcript
+            .metadata
+            .get(crate::provenance::SAMPLE)
+            .map(|value| {
+                serde_json::from_value(value.clone())
+                    .map_err(|e| format!("invalid archived sample: {e}"))
+            })
+            .transpose()?;
+        let sample = match &archived {
+            Some(sample) if sample.id == params.sample => sample,
+            Some(_) => return Err("archived sample id differs from case identity".into()),
+            None => eval
+                .dataset
+                .samples
+                .iter()
+                .find(|s| s.id == params.sample)
+                .ok_or_else(|| format!("no such sample: {}/{}", params.eval, params.sample))?,
+        };
 
         // Normalize on receipt: a replayed transcript may be trajectory-only
         // (a foreign study set nothing but `trajectory`). Fill-if-default, so
@@ -502,7 +540,25 @@ impl Study {
         // summary then see the projected names/usage.
         let mut transcript = params.transcript.clone();
         transcript.project_trajectory();
+        let snapshot = serde_json::to_value(sample).unwrap();
+        transcript.metadata.insert(
+            "mira.sample_sha256".into(),
+            crate::provenance::fingerprint(&serde_json::to_vec(&snapshot).unwrap()).into(),
+        );
+        transcript
+            .metadata
+            .insert(crate::provenance::SAMPLE.into(), snapshot);
         let scores = score_transcript(eval, sample, &transcript).await;
+        transcript.metadata.insert(
+            "mira.scorer_definitions".into(),
+            serde_json::to_value(
+                eval.scorers
+                    .iter()
+                    .map(|s| s.definition())
+                    .collect::<Vec<_>>(),
+            )
+            .unwrap(),
+        );
         Ok(RunResult {
             eval: params.eval.clone(),
             sample: params.sample.clone(),
@@ -983,6 +1039,38 @@ mod tests {
             split.transcript.final_response,
             fused.transcript.final_response
         );
+    }
+
+    #[tokio::test]
+    async fn rescore_uses_original_sample_even_if_catalog_changes() {
+        let s = Study::new().eval(
+            Eval::new("e")
+                .sample("s", "new prompt")
+                .subject(crate::subject::subject_fn(|_, _| async {
+                    Transcript::response("unused")
+                }))
+                .scorer(crate::scorer::matches_expected())
+                .build(),
+        );
+        let original = crate::Sample::new("s", "original prompt").expected("original answer");
+        let mut transcript = Transcript::response("original answer");
+        transcript.metadata.insert(
+            crate::provenance::SAMPLE.into(),
+            serde_json::to_value(original).unwrap(),
+        );
+        let params = ScoreParams {
+            eval: "e".into(),
+            sample: "s".into(),
+            target: "sim".into(),
+            params: Default::default(),
+            trial: 0,
+            trials: 0,
+            seed: None,
+            transcript,
+        };
+        let result = s.score(&params).await.unwrap();
+        assert!(result.passed);
+        assert_eq!(result.input, vec!["original prompt"]);
     }
 
     #[tokio::test]

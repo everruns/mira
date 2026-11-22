@@ -78,6 +78,7 @@ run-examples: build-ts-sdk
     cargo run -q -p mira-cli -- run --study examples/swe_bench.rs
     cargo run -q -p mira-cli -- run --study examples/multimodal.rs
     cargo run -q -p mira-cli -- run --study examples/interactive.rs
+    cargo run -q -p mira-cli -- run --study examples/evidence.rs
     # Crate examples (multi-file / heavy deps) via --study-bin.
     cargo run -q -p mira-cli -- run --study-bin cli_subject
     cargo run -q -p mira-cli -- run --study-bin metrics
@@ -86,6 +87,7 @@ run-examples: build-ts-sdk
     # Polyglot studies via the SDKs.
     cargo run -q -p mira-cli -- run --study-python examples/greet-python/study.py
     cargo run -q -p mira-cli -- run --study-cmd "node examples/greet-typescript/study.mjs"
+    python3 examples/quality_workflow/smoke.py --mira target/debug/mira
 
 # === Release ===
 

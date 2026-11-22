@@ -46,6 +46,18 @@ pub async fn execute_case(
     // path shares (Runner, study `run`/`execute`); the receive-side ones are
     // `Study::score` and `HostHandle::execute`.
     transcript.project_trajectory();
+    let snapshot = serde_json::to_value(sample).expect("sample is JSON serializable");
+    transcript.metadata.insert(
+        "mira.sample_sha256".into(),
+        crate::provenance::fingerprint(&serde_json::to_vec(&snapshot).unwrap()).into(),
+    );
+    transcript
+        .metadata
+        .insert(crate::provenance::SAMPLE.into(), snapshot);
+    let execution_id = crate::provenance::fingerprint(&serde_json::to_vec(&transcript).unwrap());
+    transcript
+        .metadata
+        .insert("mira.execution_sha256".into(), execution_id.into());
     transcript
 }
 
@@ -172,8 +184,18 @@ pub async fn run_case(
     params: &Params,
     trial: Trial,
 ) -> CaseOutcome {
-    let transcript = execute_case(eval, sample, target, params, trial).await;
+    let mut transcript = execute_case(eval, sample, target, params, trial).await;
     let scores = score_transcript(eval, sample, &transcript).await;
+    transcript.metadata.insert(
+        "mira.scorer_definitions".into(),
+        serde_json::to_value(
+            eval.scorers
+                .iter()
+                .map(|s| s.definition())
+                .collect::<Vec<_>>(),
+        )
+        .unwrap(),
+    );
 
     let passed = verdict(&scores);
     let aggregate = aggregate_value(&scores);

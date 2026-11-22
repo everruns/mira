@@ -331,6 +331,7 @@ fn eval_summary(eval: &EvalInfo) -> String {
 /// config structs) so a new config field shows up as a doctor false-positive in
 /// tests rather than silently un-linted.
 const TOP_KEYS: &[&str] = &[
+    "gates",
     "results",
     "environment",
     "presets",
@@ -351,7 +352,9 @@ const LAUNCHER_KEYS: &[&str] = &[
     "package",
     "manifest_path",
 ];
-const PRESET_KEYS: &[&str] = &["samples", "tag", "targets", "evals", "axes", "timeout"];
+const PRESET_KEYS: &[&str] = &[
+    "samples", "tag", "targets", "evals", "axes", "timeout", "gates",
+];
 const TARGET_KEYS: &[&str] = &["timeout"];
 
 /// Flag keys `mira.toml` carries that the config never reads — serde ignores
@@ -370,6 +373,12 @@ fn check_unknown_keys(root: &toml::Value) -> Vec<Finding> {
             "results" => check_table_keys(value, "results", RESULTS_KEYS, &mut out),
             // Only the section's own keys are checked — `[environment.labels]`
             // is free-form and check_table_keys never descends into it.
+            "gates" => check_table_keys(
+                value,
+                "gates",
+                &["min_coverage", "max_infra_rate", "require_scorer"],
+                &mut out,
+            ),
             "environment" => check_table_keys(value, "environment", ENVIRONMENT_KEYS, &mut out),
             // Named-entry tables: every entry's keys are checked against the set.
             "launchers" => check_named_tables(value, "launchers", LAUNCHER_KEYS, &mut out),
@@ -548,7 +557,13 @@ fn on_path(program: &str) -> bool {
 /// live in [`check_config_against_listing`]).
 fn check_presets(cfg: &Config) -> Vec<Finding> {
     let mut out = Vec::new();
+    if let Err(error) = cfg.gates.validate() {
+        out.push(Finding::error(format!("[gates]: {error}")));
+    }
     for (name, preset) in &cfg.presets {
+        if let Err(error) = preset.gates.validate() {
+            out.push(Finding::error(format!("[presets.{name}.gates]: {error}")));
+        }
         for (axis, values) in &preset.axes {
             if values.is_empty() {
                 out.push(Finding::warn(format!(
@@ -782,7 +797,7 @@ fn check_run_store(dir: &Path) -> (usize, Vec<Finding>) {
     let mut runs: Vec<PathBuf> = entries
         .flatten()
         .map(|e| e.path())
-        .filter(|p| p.is_dir())
+        .filter(|p| p.is_dir() && p.file_name().is_none_or(|name| name != "experiments"))
         .collect();
     runs.sort();
     for run in &runs {
@@ -1052,6 +1067,15 @@ mod tests {
     }
 
     #[test]
+    fn coverage_policy_ranges_are_diagnosed() {
+        let findings = check_presets(&cfg(
+            "[gates]\nmin_coverage = 1.1\n[presets.release.gates]\nmax_infra_rate = -1.0\n",
+        ));
+        assert_eq!(findings.len(), 2);
+        assert!(findings.iter().all(|f| f.message.contains("gates")));
+    }
+
+    #[test]
     fn healthy_listing_has_no_findings() {
         let listing = ListResult {
             evals: vec![eval("greet")],
@@ -1154,6 +1178,7 @@ mod tests {
             started_unix: 100,
             finished_unix: finished,
             environment: None,
+            evaluation: None,
             summary: RunSummary::default(),
         }
     }

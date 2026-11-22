@@ -1,0 +1,19 @@
+study = "quality-workflow"
+launcher = "quality-workflow"
+
+[[treatments]]
+name = "baseline"
+env.MIRA_EXAMPLE_VARIANT = "baseline"
+files = ["./study.py"]
+
+[[treatments]]
+name = "candidate"
+env.MIRA_EXAMPLE_VARIANT = "candidate"
+files = ["./study.py"]
+
+[compare]
+baseline = "baseline"
+
+[compare.gates]
+max_regressions = 0
+max_score_drop = 0.0

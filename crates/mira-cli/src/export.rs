@@ -7,10 +7,8 @@
 //! visualization tooling can consume directly.
 //!
 //! Source of a document's steps, in order:
-//! 1. the case's real [`Transcript::trajectory`] — available only from an
-//!    `execute` artifact (`run --execute-only --artifacts DIR`), passed via
-//!    `--artifacts`, since a saved run folder keeps only the lightweight
-//!    [`TranscriptSummary`];
+//! 1. the case's real [`Transcript::trajectory`] from the saved `artifacts/`
+//!    directory, or an explicit `--artifacts DIR`;
 //! 2. otherwise a **synthesized** trajectory projected from the flat summary
 //!    fields ([`Trajectory::from_transcript`] — the lossy inverse of
 //!    `project_into`).
@@ -89,9 +87,13 @@ fn run_at(
     }
 
     // Full transcripts (with trajectories) from execution artifacts, keyed by
-    // case key. Empty without `--artifacts` — a run folder keeps only summaries.
+    // case key. Summary-only older/run-only studies use the synthesis fallback.
+    let default_artifacts = dir.join("artifacts");
+    let artifacts = artifacts
+        .map(PathBuf::from)
+        .or_else(|| default_artifacts.is_dir().then_some(default_artifacts));
     let full: BTreeMap<String, Transcript> = match artifacts {
-        Some(adir) => crate::load_artifacts(adir)
+        Some(adir) => crate::load_artifacts_checked(&adir)?
             .into_iter()
             .map(|a| (a.key(), a.transcript))
             .collect(),

@@ -44,4 +44,21 @@ Relative environment values beginning with `./` or `../` are resolved relative t
 
 Do not put secrets directly in a plan: the original and resolved manifests are archived with every treatment run. Secret environment variables already present in the parent process remain available to launched studies without being copied into the manifest.
 
-The current format records baseline identity but does not yet apply automated comparison gates or hash treatment binaries and input files. Saved runs remain independently reportable and comparable through the normal run interfaces.
+Mira attempts all treatments before evaluating the experiment outcome. With
+`[compare]`, each candidate is paired with the baseline. The default gate allows
+zero logical-case pass-rate regressions. Optional `compare.filter` and
+`compare.scorer` select a case slice and scoring dimension. An explicit
+`[compare.gates]` table replaces the default limits and accepts `max_regressions`,
+`max_score_drop`, `max_cost_increase`, and `max_latency_increase`. Relative
+operational limits use fractions (`0.10` means 10%).
+
+Each treatment can declare `files = ["./binary", "./prompt.txt"]`; these paths
+resolve relative to the plan and their SHA-256 hashes are saved in
+`treatment-files.json`. Changed declared files or plans cannot be overwritten
+when resuming a treatment run.
+
+The experiment writes `results/experiments/<experiment_id>/comparison.json`.
+Quality failures do not stop subsequent treatments. Missing or incomplete runs
+and failed comparison gates fail the experiment. Without a comparison, any
+unsuccessful treatment fails the experiment after all have been attempted.
+See [Evaluation quality](evaluation-quality.md) for comparison semantics.

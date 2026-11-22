@@ -339,9 +339,10 @@ negotiation, and the operational metrics above.
 Running a subject and scoring its transcript are **separable phases**. The
 `Scorer` trait already depends only on `(Sample, Transcript)`, never on the
 subject, so the only coupling was operational: `run_case` did both in one call,
-and a saved case result carries a *summary* transcript with the raw
-`events`/`files` dropped, so a stored case can be resumed but not re-scored from
-the run folder alone (full re-scoring uses execution artifacts; see below).
+and a case result carries a *summary* transcript with the raw
+`events`/`files` dropped. Saved runs additionally retain full execution artifacts
+for studies advertising `execute` and `score`, so they support rescoring from
+the run folder; run-only studies retain the summary-only behavior.
 
 This matters for two real workflows:
 
@@ -375,12 +376,13 @@ JSON per case into `<dir>` (resumable: an existing artifact is skipped; delete t
 dir to force a fresh run). `mira score --artifacts <dir>` loads those, replays each through
 `score`, and produces the normal report, re-running it is a re-score. Execution
 artifacts (full transcripts) are thus stored **separately** from eval results
-(scores), and either can be regenerated from the other's inputs.
+(scores). Saved runs from execute/score-capable studies now capture these full
+artifacts by default before scoring; `score --run-id` replays them into a new run.
 
 ## 12. Deferred (extension points defined above)
 
 Cost caps as a hard run limit (vs. a scorer), historical trend aggregation
-across runs, and a live-streaming transcript view. Each has a defined extension
+across runs (paired comparison is implemented), and a live-streaming transcript view. Each has a defined extension
 point and does not require a breaking change to land. The transcript-view
 extension point is now
 half-built: `event` notifications carry a typed, schematized payload
@@ -708,3 +710,48 @@ no trajectory" when none exists, mirroring `ttft_within`'s
 unverifiable-budget precedent (N/A stays reserved for infra). Follow-ups
 (separate changes): retiring `events` from `RuntimeSubject` output; HTML
 report step viewer; `mira export --atif`.
+
+## Evaluation quality, comparison, and evidence identity
+
+- Target quality and evaluation coverage are independent. Optional host gates
+  require real scores, required-scorer globs, and bounded infrastructure rates;
+  N/A does not become a target failure. Coverage failures exit 2, quality failures
+  exit 1, and ungated offline behavior remains green.
+- The host uses execute then score for saved runs when both capabilities are
+  available, persisting each full artifact before scoring. Run-only studies keep
+  the fused summary path. Scoring from a saved run creates new artifacts and
+  lineage, preserving the source run.
+- Studies snapshot the original Sample in reserved transcript metadata
+  `mira.sample`; score uses it even after catalog changes. Current-reference
+  grading requires explicitly removing the snapshot. Sample and execution
+  fingerprints use SHA-256. Rust scorer definitions archive public configuration;
+  LLM-judge identities include rubric, threshold, evidence settings, provider,
+  model, endpoint, system prompt, and integration version.
+- Saved provenance contains catalog, selection, sample fingerprints, source
+  commit and tracked-diff hash. Resume rejects changes. Experiment treatments
+  explicitly declare input files to hash; no environment scanning is performed.
+- Paired comparison requires identical sample snapshots, seeds, complete trial
+  sets, and scorer identities. N/A, missing cases, and incompatible evidence are
+  incomplete. Pass-rate deltas weight logical cases equally; deterministic
+  percentile bootstrap intervals resample logical cases with all trials inside.
+  Score deltas stay separated by scorer. Optional gates cover regressions,
+  per-scorer mean decreases, and relative total subject cost/duration increases.
+- Experiments attempt every treatment before reporting their outcome. Quality
+  failures are comparison data. Declared comparisons default to zero pass-rate
+  regressions; explicit gates replace that default. Missing/incomplete runs and
+  breached gates fail the experiment.
+- Calibration pairs exact execution keys with unique reviewed boolean labels,
+  reports agreement/confusion/false-pass rate, and can compare grader versions
+  only when execution fingerprints agree. It is an offline developer workflow.
+- Failure export creates non-executable review records containing nested samples
+  and evidence, deduplicated across trials and targets. A reviewer promotes
+  approved samples into a versioned dataset. No production service is required.
+
+Coverage policy and outcome are public provider-independent types in
+`mira::evaluation`. Run metadata persists the original policy and outcome;
+rendering a slice evaluates that saved policy on the selected results. All report
+formats carry the outcome: JSON/HTML embed it, Markdown/HTML display it, JUnit
+adds a coverage suite, and row formats preserve it as per-case metadata. Empty
+row exports require the JSON sidecar for run-level evidence. Everruns publishing
+preserves coverage in source metadata and case provenance in transcript metadata;
+its viewer UI remains owned by that product.

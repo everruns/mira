@@ -246,9 +246,13 @@ let eval = Eval::new("qa")
 ```
 
 - **`Include`** selects the surface the judge sees: `Response` (final answer
-  only), `Transcript` (answer + tool calls, the default), or `Full` (also
-  tokens/cost/latency). This is how a judge grades the result, the transcript,
-  or the metrics.
+  only), `Transcript` (answer + tool names + structured ATIF steps, the default), or `Full` (also
+  tokens/cost/latency). ATIF evidence includes intermediate messages, tool arguments, and correlated
+  observations. It retains whole steps up to `max_evidence_chars` (64,000 Unicode
+  characters by default), reports omitted steps explicitly, and asks the judge to
+  cite step IDs in its reason. Without ATIF, the context explicitly reports that
+  tool names cannot verify arguments or observations. Structured expected values
+  are included as JSON.
 - **Infra-safe by construction.** No API key, a non-2xx, a transport error, or
   an unparseable reply all yield **N/A**: never a crash or a spurious fail. A
   key-free run stays green.
@@ -289,3 +293,15 @@ impl Scorer for MinLength {
 
 // .scorer(Box::new(MinLength(20)))
 ```
+
+### Grader identity and coverage
+
+`LlmJudgeScorer` names include a SHA-256 configuration identity. Changing the
+rubric, threshold, model, transport, evidence settings, endpoint, system prompt,
+or integration version creates a new identity. Public scorer definitions are
+archived in the study catalog without API keys. Custom Rust scorers can override
+`Scorer::definition()` to record their public configuration.
+
+N/A continues to describe unavailable evidence. Use required-scorer and coverage
+gates when missing evidence must block CI; see [Evaluation quality](evaluation-quality.md).
+That guide also covers calibration against human labels and comparing grader versions.

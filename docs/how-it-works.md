@@ -253,7 +253,7 @@ SFT / RL / trajectory-visualization tooling in the wider ATIF ecosystem. Like
 `report`, it reads the run folder from disk: no study process, no re-execution.
 
 - **Steps source.** The case's real `trajectory` when an execution artifact
-  carries one (`--artifacts DIR`, from `run --execute-only`); otherwise a
+  carries one (saved `artifacts/` by default, or `--artifacts DIR`); otherwise a
   trajectory is *synthesized* from the saved flat summary fields
   (`final_response`, `tool_calls`, `usage`), the lossy inverse of the
   projection (tool arguments, observations, per-step metrics, and the reported
