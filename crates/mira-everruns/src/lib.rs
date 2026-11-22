@@ -1,31 +1,30 @@
-//! Mira `Subject` adapter for [`everruns-runtime`](https://crates.io/crates/everruns-runtime).
+//! Mira `Subject` adapter for the [Everruns Framework](https://crates.io/crates/everruns).
 //!
-//! [`RuntimeSubject`] drives a real `InProcessRuntime` session for each sample —
-//! the in-process path to evaluating everruns-based agents (the canonical
-//! migration target for everruns' `llm-tests` and the everruns coding CLI).
+//! [`RuntimeSubject`] drives a real in-process `everruns::Session` for each
+//! sample — the in-process path to evaluating everruns-based agents.
 //!
 //! Mira's core stays provider-agnostic: a [`Target`] carries only
-//! `(provider, model)` labels. The **embedder** owns runtime/driver/tool wiring
-//! via a [`RuntimeFactory`] closure that maps a `Target` onto a built runtime
-//! and the session to drive. This crate just normalizes the runtime's
-//! `TurnResult` and `Event` stream into a Mira [`Transcript`], so every Mira
+//! `(provider, model)` labels. The **embedder** owns agent/provider/tool wiring
+//! via a [`SessionFactory`] closure that maps a `Target` onto a built
+//! [`Session`]. This crate just normalizes each [`Turn`](everruns::Turn) and the
+//! session's canonical event stream into a Mira [`Transcript`], so every Mira
 //! scorer and report works unchanged.
 //!
 //! ```no_run
-//! use std::sync::Arc;
+//! use everruns::{Agent, Engine};
 //! use mira::{Eval, scorer::contains};
-//! use mira_everruns::RuntimeSubject;
-//! # use everruns_runtime::InProcessRuntime;
-//! # use everruns_core::typed_id::SessionId;
+//! use mira_everruns::{RuntimeSubject, target_to_model};
 //!
-//! // The embedder builds a runtime for each matrix case (provider/model from
-//! // the Target) and returns it with the session id to drive.
-//! let subject = RuntimeSubject::new(|model| Box::pin(async move {
-//!     // ... construct an InProcessRuntime registering a driver for
-//!     // `target.provider` / `target.model`, then return (runtime, session_id).
-//!     # let _ = model;
-//!     # Err::<(InProcessRuntime, SessionId), String>("wire me up".into())
-//! }));
+//! // The embedder builds an agent for each matrix case (provider/model from
+//! // the Target) and returns a fresh session to drive.
+//! let subject = RuntimeSubject::new(|target| async move {
+//!     let agent = Agent::builder()
+//!         .instructions("Answer concisely.")
+//!         .model(target_to_model(&target)?)
+//!         .build()
+//!         .map_err(|e| e.to_string())?;
+//!     Ok(Engine::new().create(agent))
+//! });
 //!
 //! let _eval = Eval::new("greet")
 //!     .sample("hi", "Say hi and tell me the answer.")
@@ -33,19 +32,18 @@
 //!     .scorer(contains("42"));
 //! ```
 //!
-//! See `mira_everruns::target_to_resolved` for mapping a `Target` onto an
-//! everruns `ResolvedModel` inside your factory.
+//! Decision: events are read back through `Session::events_after(0)` and each
+//! envelope's `canonical_json` is decoded into `everruns_core::Event`. The
+//! facade's reviewed `SessionEventKind` deliberately withholds usage, thinking
+//! and tool arguments, all of which the ATIF fold needs; the canonical envelope
+//! is the full typed event the runtime committed.
 
 use std::future::Future;
 use std::pin::Pin;
 
 use async_trait::async_trait;
-use everruns_core::provider::DriverId;
-use everruns_core::typed_id::SessionId;
-use everruns_core::{
-    ContentPart, Event, EventData, InputMessage, Message, ResolvedModel, TokenUsage,
-};
-use everruns_runtime::InProcessRuntime;
+use everruns::{Model, Session};
+use everruns_core::{ContentPart, Event, EventData, RuntimeMessage, TokenUsage};
 
 use mira::subject::summarize_events;
 use mira::trajectory::{
@@ -53,35 +51,30 @@ use mira::trajectory::{
 };
 use mira::{ErrorKind, RunCx, Sample, Subject, Target, Transcript};
 
-/// The `everruns-runtime` version line this adapter is built against — stamped
-/// as `agent.version` on folded trajectories. Kept in lockstep with the
-/// workspace's `everruns-runtime` dependency pin (a test asserts this).
-const EVERRUNS_RUNTIME_VERSION: &str = "0.17";
+/// The `everruns` version line this adapter is built against — stamped as
+/// `agent.version` on folded trajectories. Kept in lockstep with the
+/// workspace's `everruns` dependency pin (a test asserts this).
+const EVERRUNS_VERSION: &str = "0.53";
 
-/// A built runtime plus the session to drive for one matrix case.
-pub type RuntimeHandle = (InProcessRuntime, SessionId);
-
-/// Builds a fresh runtime for a given matrix case. The embedder owns
-/// platform/capability/tool/driver wiring here — Mira stays agnostic to it.
-pub type RuntimeFactory = Box<
-    dyn Fn(Target) -> Pin<Box<dyn Future<Output = Result<RuntimeHandle, String>> + Send>>
-        + Send
-        + Sync,
+/// Builds a fresh session for a given matrix case. The embedder owns
+/// agent/provider/capability/tool wiring here — Mira stays agnostic to it.
+pub type SessionFactory = Box<
+    dyn Fn(Target) -> Pin<Box<dyn Future<Output = Result<Session, String>> + Send>> + Send + Sync,
 >;
 
-/// Drives a real `everruns-runtime` session: sends each input turn, then
-/// normalizes `TurnResult` + the event stream into a Mira [`Transcript`].
+/// Drives a real everruns [`Session`]: sends each input turn, then normalizes
+/// the turn results + the canonical event stream into a Mira [`Transcript`].
 pub struct RuntimeSubject {
-    factory: RuntimeFactory,
+    factory: SessionFactory,
 }
 
 impl RuntimeSubject {
-    /// Build from a factory closure. Each sample gets a fresh runtime (no state
+    /// Build from a factory closure. Each sample gets a fresh session (no state
     /// leaks across samples).
     pub fn new<F, Fut>(factory: F) -> Self
     where
         F: Fn(Target) -> Fut + Send + Sync + 'static,
-        Fut: Future<Output = Result<RuntimeHandle, String>> + Send + 'static,
+        Fut: Future<Output = Result<Session, String>> + Send + 'static,
     {
         Self {
             factory: Box::new(move |m| Box::pin(factory(m))),
@@ -93,26 +86,23 @@ impl RuntimeSubject {
 impl Subject for RuntimeSubject {
     async fn run(&self, sample: &Sample, cx: &RunCx) -> Transcript {
         let started = std::time::Instant::now();
-        let (runtime, session_id) = match (self.factory)(cx.target.clone()).await {
-            // Building the runtime failed before the model ran a turn — that's
+        let session = match (self.factory)(cx.target.clone()).await {
+            // Building the session failed before the model ran a turn — that's
             // scaffolding (config/transport), so attribute it to infrastructure.
-            Err(e) => return Transcript::infra_error(format!("runtime build failed: {e}")),
-            Ok(handle) => handle,
+            Err(e) => return Transcript::infra_error(format!("session build failed: {e}")),
+            Ok(session) => session,
         };
 
         let mut transcript = Transcript::default();
         for prompt in &sample.input {
-            match runtime
-                .run_turn(session_id, InputMessage::user(prompt.clone()))
-                .await
-            {
-                Ok(result) => {
-                    transcript.final_response = result.response;
-                    transcript.iterations += result.iterations;
-                    if !result.success {
+            match session.run(prompt.clone()).await {
+                Ok(turn) => {
+                    transcript.final_response = turn.response;
+                    transcript.iterations += turn.iterations;
+                    if !turn.success {
                         // A failed turn may be the model's doing or the
                         // provider's; classify by the error text.
-                        let msg = result.error.unwrap_or_else(|| "turn failed".into());
+                        let msg = turn.error.unwrap_or_else(|| "turn failed".into());
                         transcript.error_kind = classify_runtime_error(&msg);
                         transcript.error = Some(msg);
                         break;
@@ -127,19 +117,24 @@ impl Subject for RuntimeSubject {
             }
         }
 
-        if let Ok(events) = runtime.events().await {
-            // The primary structured contract: fold the typed event stream
-            // into an ATIF trajectory. The raw `events` channel is retained for debugging.
+        if let Ok(session_events) = session.events_after(0).await {
+            // The raw `events` channel keeps the canonical envelopes as-is (for
+            // debugging and the tool-call extractor); the typed decode feeds the
+            // ATIF fold, the primary structured contract.
+            transcript.events = session_events
+                .iter()
+                .map(|e| e.canonical_json().clone())
+                .collect();
+            let events: Vec<Event> = transcript
+                .events
+                .iter()
+                .filter_map(|v| serde_json::from_value(v.clone()).ok())
+                .collect();
             let mut trajectory = atif_from_events(&events);
             if trajectory.agent.model_name.is_none() {
                 trajectory.agent.model_name = Some(cx.target.model.clone());
             }
             transcript.trajectory = Some(trajectory);
-            for event in &events {
-                if let Ok(value) = serde_json::to_value(event) {
-                    transcript.events.push(value);
-                }
-            }
         }
         // `summarize_events` totals usage from a generic JSON walk, but its
         // tool-call detection only matches `{ name, input }` objects, which the
@@ -163,7 +158,7 @@ impl Subject for RuntimeSubject {
 
 /// All text parts of an everruns message, joined by newlines (non-text parts
 /// are skipped — ATIF images are referenced files, not inline bytes).
-fn message_text(message: &Message) -> String {
+fn message_text(message: &RuntimeMessage) -> String {
     message
         .content
         .iter()
@@ -247,11 +242,11 @@ impl Fold {
 ///   block, only when the iteration's `reason.completed` didn't carry one —
 ///   they describe the same LLM call, so counting both would double-bill).
 ///
-/// `agent` is `everruns-runtime`/`EVERRUNS_RUNTIME_VERSION`; `model_name`
+/// `agent` is `everruns`/`EVERRUNS_VERSION`; `model_name`
 /// comes from the first model the stream mentions ([`RuntimeSubject`] falls
 /// back to the target's model when the stream never names one).
 pub fn atif_from_events(events: &[Event]) -> Trajectory {
-    let mut trajectory = Trajectory::new(Agent::new("everruns-runtime", EVERRUNS_RUNTIME_VERSION));
+    let mut trajectory = Trajectory::new(Agent::new("everruns", EVERRUNS_VERSION));
     trajectory.session_id = events.first().map(|e| e.session_id.to_string());
 
     let mut fold = Fold {
@@ -393,7 +388,7 @@ pub fn atif_from_events(events: &[Event]) -> Trajectory {
 
 /// Record a structured tool call on the step, deduped by id (`tool.started`
 /// and `tool.call_requested` may both announce the same call).
-fn push_tool_call(step: &mut Step, call: &everruns_core::ToolCall) {
+fn push_tool_call(step: &mut Step, call: &everruns::ToolCall) {
     if step.tool_calls.iter().any(|c| c.tool_call_id == call.id) {
         return;
     }
@@ -470,37 +465,42 @@ pub fn classify_runtime_error(message: &str) -> ErrorKind {
     }
 }
 
-/// Map a Mira [`Target`] onto an everruns [`ResolvedModel`]. A convenience
-/// for factory authors; reads the provider's API key from the conventional env
-/// var. Unknown providers default to [`DriverId::LlmSim`] (offline).
-pub fn target_to_resolved(target: &Target) -> ResolvedModel {
-    let (provider_type, api_key) = match target.provider.as_str() {
-        "anthropic" => (DriverId::Anthropic, std::env::var("ANTHROPIC_API_KEY").ok()),
-        "openai" => (DriverId::OpenAI, std::env::var("OPENAI_API_KEY").ok()),
-        "gemini" => (DriverId::Gemini, std::env::var("GEMINI_API_KEY").ok()),
-        "openrouter" => (
-            DriverId::OpenRouter,
-            std::env::var("OPENROUTER_API_KEY").ok(),
+/// Map a Mira [`Target`] onto a live everruns [`Model`]. A convenience for
+/// factory authors; each provider reads its API key from the conventional env
+/// var (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `GEMINI_API_KEY`,
+/// `OPENROUTER_API_KEY`). Any other provider (including [`Target::sim`]) is an
+/// error: an offline run picks its own [`Model::simulated`] reply.
+pub fn target_to_model(target: &Target) -> Result<Model, String> {
+    let id = target.model.clone();
+    let model = match target.provider.as_str() {
+        "anthropic" => Model::new(
+            id,
+            everruns::Anthropic::from_env().map_err(|e| e.to_string())?,
         ),
-        _ => (DriverId::LlmSim, Some("sim".to_string())),
+        "openai" => Model::new(id, everruns::OpenAI::from_env().map_err(|e| e.to_string())?),
+        "gemini" => Model::new(id, everruns::Gemini::from_env().map_err(|e| e.to_string())?),
+        "openrouter" => Model::new(
+            id,
+            everruns::OpenRouter::from_env().map_err(|e| e.to_string())?,
+        ),
+        other => {
+            return Err(format!(
+                "no everruns provider for target provider {other:?}"
+            ));
+        }
     };
-    ResolvedModel {
-        model: target.model.clone(),
-        provider_type,
-        api_key,
-        base_url: None,
-        provider_metadata: None,
-    }
+    Ok(model)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use everruns_core::typed_id::{HarnessId, TurnId};
+    use everruns::{SessionId, ToolCall, TurnId};
+    use everruns_contracts::typed_id::HarnessId;
     use everruns_core::{
         Event, EventContext, InputMessageData, ModelMetadata, OutputMessageCompletedData,
-        ReasonCompletedData, ReasonStartedData, ReasonThinkingCompletedData, ToolCall,
-        ToolCompletedData, ToolStartedData,
+        ReasonCompletedData, ReasonStartedData, ReasonThinkingCompletedData, ToolCompletedData,
+        ToolStartedData,
     };
     use serde_json::json;
 
@@ -571,7 +571,7 @@ mod tests {
             provider_id: None,
         };
         vec![
-            event(InputMessageData::new(everruns_core::Message::user(
+            event(InputMessageData::new(RuntimeMessage::user(
                 "what does GOOGL trade at?",
             ))),
             event(ReasonStartedData {
@@ -599,6 +599,7 @@ mod tests {
                 tool_call_fingerprint: None,
                 display_name: None,
                 narration: None,
+                side_effect_class: None,
             }),
             event(ToolCompletedData::success(
                 "call_1".into(),
@@ -619,7 +620,7 @@ mod tests {
                 Some(TokenUsage::new(200, 30)),
             )),
             event(
-                OutputMessageCompletedData::new(everruns_core::Message::assistant(
+                OutputMessageCompletedData::new(RuntimeMessage::assistant(
                     "GOOGL trades at $185.35.",
                 ))
                 .with_metadata(meta)
@@ -633,8 +634,8 @@ mod tests {
         let events = two_iteration_stream();
         let t = atif_from_events(&events);
 
-        assert_eq!(t.agent.name, "everruns-runtime");
-        assert_eq!(t.agent.version, EVERRUNS_RUNTIME_VERSION);
+        assert_eq!(t.agent.name, "everruns");
+        assert_eq!(t.agent.version, EVERRUNS_VERSION);
         assert_eq!(t.agent.model_name.as_deref(), Some("llmsim-1"));
         assert!(t.session_id.is_some());
 
@@ -720,29 +721,27 @@ mod tests {
     }
 
     #[test]
-    fn everruns_runtime_version_stays_in_lockstep_with_the_dependency_pin() {
+    fn everruns_version_stays_in_lockstep_with_the_dependency_pin() {
         // The fold stamps agent.version from this constant; make a dependency
         // bump impossible to ship without updating it.
         let workspace_manifest = include_str!("../../../Cargo.toml");
-        let pin = format!("everruns-runtime = \"{EVERRUNS_RUNTIME_VERSION}\"");
+        let pin = format!("everruns = {{ version = \"{EVERRUNS_VERSION}\"");
         assert!(
             workspace_manifest.contains(&pin),
-            "EVERRUNS_RUNTIME_VERSION ({EVERRUNS_RUNTIME_VERSION}) does not match the \
-             workspace everruns-runtime pin — update the constant alongside the dependency"
+            "EVERRUNS_VERSION ({EVERRUNS_VERSION}) does not match the \
+             workspace everruns pin — update the constant alongside the dependency"
         );
     }
 
     #[test]
-    fn maps_known_providers() {
-        let r = target_to_resolved(&Target::new("a", "anthropic", "claude-opus-5-5"));
-        assert_eq!(r.provider_type, DriverId::Anthropic);
-        assert_eq!(r.model, "claude-opus-5-5");
-    }
-
-    #[test]
-    fn unknown_provider_falls_back_to_sim() {
-        let r = target_to_resolved(&Target::sim());
-        assert_eq!(r.provider_type, DriverId::LlmSim);
+    fn unknown_provider_has_no_live_model() {
+        // Offline targets pick their own simulated reply; mapping one to a
+        // live provider would be a silent misroute.
+        let Err(err) = target_to_model(&Target::sim()) else {
+            panic!("sim is not live");
+        };
+        assert!(err.contains("sim"), "{err}");
+        assert!(target_to_model(&Target::new("x", "acme", "m")).is_err());
     }
 
     #[tokio::test]

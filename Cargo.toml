@@ -71,9 +71,12 @@ syn = "2"
 quote = "1"
 proc-macro2 = "1"
 
-# Integration crate: the published everruns runtime (optional, separate crate).
-everruns-core = "0.17"
-everruns-runtime = "0.17"
+# Integration crate: the Everruns Framework (optional, separate crate).
+# `everruns` is the application-facing facade (Agent/Engine/Session); the
+# adapter reads the canonical event envelope back into `everruns-core`'s typed
+# `Event` for the ATIF fold. Provider drivers are opted into per crate.
+everruns = { version = "0.53", default-features = false }
+everruns-core = "0.53"
 
 # HTTP client for provider-backed judge scorers (mira-judge). rustls keeps the
 # build free of a system OpenSSL dependency; its platform verifier trusts the

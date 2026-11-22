@@ -120,23 +120,27 @@ route on the matrix case.
 
 ## Runtime sessions: `mira-everruns`
 
-`mira_everruns::RuntimeSubject` drives a real `everruns-runtime`
-`InProcessRuntime` session, the in-process path to evaluating everruns agents.
-The embedder supplies a factory that builds a runtime for each matrix case; Mira
-normalizes the `TurnResult` and `Event` stream into a `Transcript`, folding the
-typed events into an ATIF trajectory (`mira_everruns::atif_from_events`: one
+`mira_everruns::RuntimeSubject` drives a real everruns `Session` (the
+[Everruns Framework](https://crates.io/crates/everruns)), the in-process path to
+evaluating everruns agents. The embedder supplies a factory that builds a
+session for each matrix case; Mira normalizes each `Turn` and the session's
+canonical event stream into a `Transcript`, folding the typed events into an
+ATIF trajectory (`mira_everruns::atif_from_events`: one
 agent step per reasoning iteration, with structured tool calls, correlated
 observations, and per-step metrics) alongside the raw `events` channel.
 
 ```rust
-use mira_everruns::{RuntimeSubject, target_to_resolved};
+use everruns::{Agent, Engine};
+use mira_everruns::{RuntimeSubject, target_to_model};
 
-let subject = RuntimeSubject::new(|model| Box::pin(async move {
-    let resolved = target_to_resolved(&model);   // Target → everruns ResolvedModel
-    // …build an InProcessRuntime registering a driver for `resolved`,
-    // create a session, and return (runtime, session_id)…
-    Ok((runtime, session_id))
-}));
+let subject = RuntimeSubject::new(|target| async move {
+    let agent = Agent::builder()
+        .instructions("Answer concisely.")
+        .model(target_to_model(&target)?)   // Target → live everruns Model
+        .build()
+        .map_err(|e| e.to_string())?;
+    Ok(Engine::new().create(agent))         // a fresh Session per sample
+});
 ```
 
 See the [`mira-everruns` crate docs](https://docs.rs/mira-everruns) for the full

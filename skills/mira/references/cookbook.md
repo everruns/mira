@@ -88,8 +88,9 @@ use serde_json::json;
 
 ## everruns runtime subject
 
-`mira_everruns::RuntimeSubject` drives a real `everruns-runtime` session (add
-`cargo add mira-everruns`). Offline, point it at the `LlmSim` driver; example:
+`mira_everruns::RuntimeSubject` drives a real everruns `Session` (add
+`cargo add mira-everruns everruns`). Offline, give the agent
+`Model::simulated(..)`; live, `target_to_model(&target)?`. Example:
 <https://github.com/everruns/mira/tree/main/examples/llmsim>.
 
 ## In-process testing

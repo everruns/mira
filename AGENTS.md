@@ -55,7 +55,7 @@ crates/mira-eval     core library (lib name `mira`): types, traits, scorers,
                      runner, report.  NO heavy deps.
 crates/mira-cli      the `mira` host binary.
 crates/mira-macros   the `#[eval]` proc-macro (re-exported as `mira::eval`).
-crates/mira-everruns RuntimeSubject over the published everruns-runtime.
+crates/mira-everruns RuntimeSubject over the published everruns framework.
 crates/mira-judge    LlmJudge scorers (OpenAI completions/responses, Claude).
 crates/mira-schema-gen  non-published tool: generates schema/ from protocol types.
 examples/            runnable, offline example studies (one folder each).

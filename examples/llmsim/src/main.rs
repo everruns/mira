@@ -1,53 +1,45 @@
-//! Drive a **real** `everruns-runtime` session as the subject, against the
-//! offline `LlmSim` driver — no API keys, deterministic, free in CI. This is the
-//! in-process path for evaluating everruns-based agents; swap the driver/model
-//! for a cloud provider and the same eval runs for real.
+//! Drive a **real** everruns `Session` as the subject, against the offline
+//! simulated model — no API keys, deterministic, free in CI. This is the
+//! in-process path for evaluating everruns-based agents; swap the simulated
+//! model for `target_to_model(&target)?` and the same eval runs for real.
 //!
 //! ```bash
 //! mira run --study-bin llmsim
 //! ```
 //!
-//! The embedder owns runtime wiring inside the [`RuntimeSubject`] factory: build
-//! an `InProcessRuntime` with a harness/agent/session and return the session to
-//! drive. Mira normalizes the runtime's result into a `Transcript`, so every
-//! scorer and report works unchanged.
+//! The embedder owns agent wiring inside the [`RuntimeSubject`] factory: build
+//! an `Agent` and return a fresh `Session` to drive. Mira normalizes each turn
+//! and the session's events into a `Transcript`, so every scorer and report
+//! works unchanged.
 
-use everruns_core::driver_registry::DriverRegistry;
-use everruns_core::llmsim_driver::LlmSimConfig;
-use everruns_core::{CapabilityRegistry, PlatformDefinition};
-use everruns_runtime::InProcessRuntimeBuilder;
+use everruns::{Agent, Engine, Model};
 use mira::scorer::{contains, succeeded};
 use mira::{Eval, Target, eval};
-use mira_everruns::{RuntimeSubject, target_to_resolved};
+use mira_everruns::{RuntimeSubject, target_to_model};
 
 #[eval]
 fn llmsim() -> Eval {
-    let subject = RuntimeSubject::new(|model| async move {
-        let platform = PlatformDefinition::new(CapabilityRegistry::new(), DriverRegistry::new());
-        let runtime = InProcessRuntimeBuilder::new()
-            .platform_definition(platform)
-            // The offline simulator: a fixed assistant reply, no network.
-            .llm_sim(LlmSimConfig::fixed("Hi! The answer to life is 42."))
-            .default_model(target_to_resolved(&model))
-            .single_session(|s| {
-                s.harness("assistant", "You are a helpful assistant.")
-                    .agent("assistant-agent", "Answer concisely.")
-                    .agent_max_iterations(4)
-                    .session_title("Eval Session")
-            })
+    let subject = RuntimeSubject::new(|target| async move {
+        // `Target::sim()` gets the offline simulator: a fixed assistant reply,
+        // no network. Any provider target maps to its live model.
+        let model = if target == Target::sim() {
+            Model::simulated("Hi! The answer to life is 42.")
+        } else {
+            target_to_model(&target)?
+        };
+        let agent = Agent::builder()
+            .name("assistant")
+            .instructions("You are a helpful assistant. Answer concisely.")
+            .model(model)
+            .max_iterations(4)
             .build()
-            .await
             .map_err(|e| e.to_string())?;
-        let session_id = runtime
-            .default_session_id()
-            .ok_or_else(|| "runtime built no default session".to_string())?;
-        Ok((runtime, session_id))
+        Ok(Engine::new().create(agent))
     });
 
     Eval::new("llmsim")
-        .describe("Drives an everruns InProcessRuntime against the LlmSim driver")
+        .describe("Drives an everruns Session against the simulated model")
         .sample("greet", "Say hi and tell me the answer to life.")
-        // `Target::sim()` routes to the LlmSim driver via `target_to_resolved`.
         .targets([Target::sim()])
         .subject(subject)
         .scorer(succeeded())
