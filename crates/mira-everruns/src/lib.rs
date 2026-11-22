@@ -56,7 +56,7 @@ use mira::{ErrorKind, RunCx, Sample, Subject, Target, Transcript};
 /// The `everruns-runtime` version line this adapter is built against — stamped
 /// as `agent.version` on folded trajectories. Kept in lockstep with the
 /// workspace's `everruns-runtime` dependency pin (a test asserts this).
-const EVERRUNS_RUNTIME_VERSION: &str = "0.15";
+const EVERRUNS_RUNTIME_VERSION: &str = "0.16";
 
 /// A built runtime plus the session to drive for one matrix case.
 pub type RuntimeHandle = (InProcessRuntime, SessionId);

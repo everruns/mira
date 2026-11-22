@@ -200,8 +200,10 @@ fn check_config_section() -> (Config, Section) {
                 Ok(text) => {
                     // Unknown-key lint works off the raw TOML, so typos that
                     // serde silently ignores (e.g. `[preset.x]`) surface here.
-                    if let Ok(value) = text.parse::<toml::Value>() {
-                        findings.extend(check_unknown_keys(&value));
+                    // Parse as a document (`Table`): since toml 1,
+                    // `str::parse::<toml::Value>` reads a single value only.
+                    if let Ok(doc) = text.parse::<toml::Table>() {
+                        findings.extend(check_unknown_keys(&toml::Value::Table(doc)));
                     }
                     let base = path.parent().unwrap_or(Path::new("."));
                     match Config::parse_at(&text, base) {
@@ -877,7 +879,7 @@ mod tests {
     }
 
     fn keys(text: &str) -> Vec<Finding> {
-        check_unknown_keys(&text.parse::<toml::Value>().unwrap())
+        check_unknown_keys(&toml::Value::Table(text.parse::<toml::Table>().unwrap()))
     }
 
     fn messages(findings: &[Finding]) -> Vec<&str> {

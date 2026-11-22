@@ -37,7 +37,7 @@ jobs:
             runner: ubuntu-latest
             archive: mira-x86_64-unknown-linux-gnu.tar.gz
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
         with:
           ref: ${{ inputs.tag }}
 
@@ -47,7 +47,7 @@ jobs:
           targets: ${{ matrix.target }}
 
       - name: Cache Rust
-        uses: Swatinem/rust-cache@v2
+        uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
         with:
           shared-key: "cli-${{ matrix.target }}"
 
@@ -176,7 +176,7 @@ jobs:
           cat mira.rb
 
       - name: Install Doppler CLI
-        uses: dopplerhq/cli-action@v3
+        uses: dopplerhq/cli-action@4819d808ab99e5cde19a0637a16536a4038fad73 # v4
 
       - name: Push formula to homebrew-tap
         env:

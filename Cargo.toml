@@ -59,9 +59,9 @@ schemars = "1"
 regex = "1"
 clap = { version = "4", features = ["derive"] }
 # Live progress bar for the host runner (TTY only; hidden in CI/non-TTY).
-indicatif = "0.17"
+indicatif = "0.18"
 # Host config file (mira.toml) parsing.
-toml = "0.8"
+toml = "1"
 
 # Distributed eval registration (the `register_eval!` macro / `#[eval]` attribute).
 inventory = "0.3"
@@ -72,13 +72,14 @@ quote = "1"
 proc-macro2 = "1"
 
 # Integration crate: the published everruns runtime (optional, separate crate).
-everruns-core = "0.15"
-everruns-runtime = "0.15"
+everruns-core = "0.16"
+everruns-runtime = "0.16"
 
 # HTTP client for provider-backed judge scorers (mira-judge). rustls keeps the
-# build free of a system OpenSSL dependency; native-roots trusts the OS cert
-# store so the judge also works behind TLS-intercepting corporate proxies.
-reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls-native-roots"] }
+# build free of a system OpenSSL dependency; its platform verifier trusts the
+# OS cert store so the judge also works behind TLS-intercepting corporate
+# proxies.
+reqwest = { version = "0.13", default-features = false, features = ["json", "rustls"] }
 
 # Testing.
 tempfile = "3"
