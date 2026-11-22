@@ -122,7 +122,7 @@ jobs:
       - name: Set up Node
         uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
         with:
-          node-version: "20"
+          node-version: "24"
 
       # The TypeScript polyglot example imports the SDK's build, so build it first.
       - name: Build the TypeScript SDK
@@ -163,7 +163,7 @@ jobs:
       - name: Set up Node
         uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
         with:
-          node-version: "20"
+          node-version: "24"
 
       - name: Install TypeScript SDK deps
         run: cd sdks/typescript && npm ci
