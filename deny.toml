@@ -13,6 +13,9 @@ allow = [
     # Permissive data license used by webpki-roots for the Mozilla CA bundle
     # (pulled in transitively via everruns-core's HTTP stack).
     "CDLA-Permissive-2.0",
+    # MIT-0 (borrow-or-share, via jsonschema in everruns-core and
+    # mira-schema-gen's dev tree): permissive, no attribution required.
+    "MIT-0",
 ]
 confidence-threshold = 0.9
 

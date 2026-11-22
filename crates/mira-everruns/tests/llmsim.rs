@@ -1,39 +1,25 @@
-//! Integration tests driving a real `everruns-runtime` `InProcessRuntime`
-//! against the offline `LlmSim` driver through Mira's [`RuntimeSubject`], and on
-//! through the full eval engine ([`run_case`] / [`Runner`]). No network, no
-//! keys — exercises the everruns adapter end-to-end and deterministically.
+//! Integration tests driving a real everruns `Session` against the offline
+//! simulated model through Mira's [`RuntimeSubject`], and on through the full
+//! eval engine ([`Runner`]). No network, no keys — exercises the everruns
+//! adapter end-to-end and deterministically.
 
-use everruns_core::driver_registry::DriverRegistry;
-use everruns_core::llmsim_driver::LlmSimConfig;
-use everruns_core::{CapabilityRegistry, PlatformDefinition};
-use everruns_runtime::InProcessRuntimeBuilder;
+use everruns::{Agent, Engine, Model};
 use mira::scorer::{contains, succeeded};
 use mira::subject::Subject;
 use mira::{Eval, RunCx, Runner, Sample, Target, Transcript};
-use mira_everruns::{RuntimeSubject, target_to_resolved};
+use mira_everruns::RuntimeSubject;
 
-/// Build a `RuntimeSubject` whose factory spins up an `InProcessRuntime` with a
-/// fixed `LlmSim` reply.
+/// Build a `RuntimeSubject` whose factory spins up a session on an agent with
+/// a fixed simulated reply.
 fn llmsim_subject(reply: &'static str) -> RuntimeSubject {
-    RuntimeSubject::new(move |target| async move {
-        let platform = PlatformDefinition::new(CapabilityRegistry::new(), DriverRegistry::new());
-        let runtime = InProcessRuntimeBuilder::new()
-            .platform_definition(platform)
-            .llm_sim(LlmSimConfig::fixed(reply))
-            .default_model(target_to_resolved(&target))
-            .single_session(|s| {
-                s.harness("assistant", "You are a helpful assistant.")
-                    .agent("assistant-agent", "Answer concisely.")
-                    .agent_max_iterations(4)
-                    .session_title("Eval Session")
-            })
+    RuntimeSubject::new(move |_target| async move {
+        let agent = Agent::builder()
+            .name("assistant")
+            .instructions("Answer concisely.")
+            .model(Model::simulated(reply))
             .build()
-            .await
             .map_err(|e| e.to_string())?;
-        let session_id = runtime
-            .default_session_id()
-            .ok_or_else(|| "no default session".to_string())?;
-        Ok((runtime, session_id))
+        Ok(Engine::new().create(agent))
     })
 }
 
@@ -52,14 +38,14 @@ async fn runtime_subject_produces_a_transcript() {
     // The adapter timed the run.
     assert!(t.timing.duration_ms < 60_000);
 
-    // The adapter folds the real runtime event stream into an ATIF trajectory
+    // The adapter folds the real session event stream into an ATIF trajectory
     // (the primary structured contract) alongside the raw events channel.
     let trajectory = t.trajectory.as_ref().expect("trajectory attached");
-    assert_eq!(trajectory.agent.name, "everruns-runtime");
-    assert_eq!(
-        trajectory.agent.model_name.as_deref(),
-        Some(Target::sim().model.as_str())
-    );
+    assert_eq!(trajectory.agent.name, "everruns");
+    // The model name comes from the session's own reason/output metadata
+    // (the simulated provider's id), not the target fallback — proof the
+    // canonical envelopes decode into typed events.
+    assert_eq!(trajectory.agent.model_name.as_deref(), Some("llmsim-model"));
     assert!(
         trajectory.steps.iter().any(
             |s| s.source == mira::trajectory::StepSource::User && s.message.text() == "Say hi."
@@ -89,4 +75,65 @@ async fn full_eval_runs_green_against_llmsim() {
     let report = Runner::new().add(eval).run().await;
     assert_eq!(report.total(), 1);
     assert!(report.all_passed(), "skipped: {:?}", report.skipped);
+}
+
+#[tokio::test]
+async fn real_tool_calls_reach_the_transcript_and_trajectory() {
+    // A scripted model calls a real `FunctionTool`, then answers. Pins the
+    // live event wire shape the adapter reads: `tool.completed` names for
+    // tool-selection scorers, and structured calls + observations in ATIF.
+    use everruns::{FunctionTool, LlmSimConfig, SimToolCall, SimTurn};
+    use serde_json::json;
+
+    let subject = RuntimeSubject::new(|_target| async {
+        let price = FunctionTool::new(
+            "price",
+            "Look up a ticker price.",
+            json!({"type": "object", "properties": {"ticker": {"type": "string"}}}),
+            |_args: serde_json::Value| async move { Ok::<_, String>(json!({"usd": 42})) },
+        );
+        let model = Model::simulated_with_config(LlmSimConfig::scripted(vec![
+            SimTurn::ToolCalls(vec![SimToolCall {
+                name: "price".into(),
+                arguments: json!({"ticker": "GOOGL"}),
+                id: Some("call_1".into()),
+            }]),
+            SimTurn::Assistant("GOOGL trades at 42.".into()),
+        ]));
+        let agent = Agent::builder()
+            .instructions("Use price for tickers.")
+            .model(model)
+            .tool(price)
+            .build()
+            .map_err(|e| e.to_string())?;
+        Ok(Engine::new().create(agent))
+    });
+
+    let t = subject
+        .run(
+            &Sample::new("price", "What does GOOGL trade at?"),
+            &RunCx::new(Target::sim()),
+        )
+        .await;
+    assert!(t.succeeded(), "unexpected error: {:?}", t.error);
+    assert!(t.final_response.contains("42"), "{:?}", t.final_response);
+    assert_eq!(t.tool_calls, vec!["price"]);
+
+    let trajectory = t.trajectory.expect("trajectory attached");
+    let call = trajectory
+        .steps
+        .iter()
+        .flat_map(|s| &s.tool_calls)
+        .find(|c| c.function_name == "price")
+        .expect("structured tool call folded");
+    assert_eq!(call.arguments, json!({"ticker": "GOOGL"}));
+    assert!(
+        trajectory
+            .steps
+            .iter()
+            .filter_map(|s| s.observation.as_ref())
+            .flat_map(|o| &o.results)
+            .any(|r| r.source_call_id.as_deref() == Some(call.tool_call_id.as_str())),
+        "observation correlated to the call"
+    );
 }

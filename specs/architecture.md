@@ -62,7 +62,7 @@ Eval = Dataset(Sample…) + Subject + [Scorer…]  ×  target matrix
   - `CliSubject`, an external binary; the **polyglot / other-language** path
     (reads stdout or a canonical JSONL `Event` transcript, seeds/captures
     files).
-  - `mira_everruns::RuntimeSubject`, drives a live `everruns-runtime` session.
+  - `mira_everruns::RuntimeSubject`, drives a live everruns `Session`.
 - **`Transcript`**: normalized run result: final response, iteration/tool
   counts, token+cost `Usage`, tool names, captured files, metadata, optional
   error, plus an optional structured **`trajectory`** (ATIF; the primary
@@ -199,7 +199,7 @@ publishable; heavy integrations are separate, optional crates.
 |-------|---------|------|-----------|
 | `mira-eval` | lib `mira` | Core: types, traits, scorers, `subject_fn`/`CliSubject`, protocol, study, host, runner, report. | none |
 | `mira-cli` | bin `mira` | The host CLI. | none |
-| `mira-everruns` | lib | `RuntimeSubject` over published `everruns-runtime`. | everruns |
+| `mira-everruns` | lib | `RuntimeSubject` over the published `everruns` framework. | everruns |
 | `mira-publish-everruns` | lib | Publish a saved run to an everruns instance (host/viewer for external results) over HTTP. | reqwest |
 
 Like `mira-everruns`, the **publish** path is a separate integration crate

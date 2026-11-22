@@ -173,7 +173,7 @@ somewhere else. Mira is the one framework they can converge on:
 | [`crates/mira-eval`](crates/mira-eval) | `mira-eval` (lib `mira`) | The framework: types, traits, scorers, subjects, protocol, study, host. |
 | [`crates/mira-cli`](crates/mira-cli) | `mira-cli` (bin `mira`) | The host CLI that drives eval studies. |
 | [`crates/mira-macros`](crates/mira-macros) | `mira-macros` | The `#[eval]` attribute macro (re-exported as `mira::eval`). |
-| [`crates/mira-everruns`](crates/mira-everruns) | `mira-everruns` | `RuntimeSubject` over the published `everruns-runtime`. |
+| [`crates/mira-everruns`](crates/mira-everruns) | `mira-everruns` | `RuntimeSubject` over the [Everruns Framework](https://crates.io/crates/everruns) (`everruns`). |
 | [`crates/mira-judge`](crates/mira-judge) | `mira-judge` | `LlmJudge` scorers (OpenAI completions and responses, Claude). |
 | [`crates/mira-publish-everruns`](crates/mira-publish-everruns) | `mira-publish-everruns` | Publishes eval run results to an Everruns instance. |
 | [`sdks/`](sdks) | per-language packages | Native Python and TypeScript study SDKs over the protocol. |
@@ -208,8 +208,8 @@ research discussion are welcome on [Discord](https://everruns.com/discord).
 Related:
 
 - [everruns.com](https://everruns.com), the Everruns agent runtime.
-- [`everruns-runtime`](https://crates.io/crates/everruns-runtime), the embeddable
-  in-process agent runtime that `mira-everruns` drives.
+- [`everruns`](https://crates.io/crates/everruns), the Everruns Framework: the
+  in-process agent sessions that `mira-everruns` drives.
 - [github.com/everruns](https://github.com/everruns), the rest of the ecosystem.
 
 ## Contributing

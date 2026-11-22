@@ -43,7 +43,7 @@ cargo run -p mira-cli -- run --study-cmd "node examples/greet-typescript/study.m
 | [`cli_subject`](cli_subject) | Rust · `--study-bin` | The polyglot subject path, driving an external program ([`subject.sh`](cli_subject/subject.sh)); stays a crate for its sibling script. |
 | [`metrics`](metrics) | Rust · `--study-bin` | Operational budgets: tokens, cost, latency, TTFT, exact/ordered tool use. Multi-file crate. |
 | [`matrix`](matrix) | Rust · `--study-bin` | A multi-axis matrix: targets × a custom `effort` axis. Multi-file crate. |
-| [`llmsim`](llmsim) | Rust · `--study-bin` | Driving a real `everruns-runtime` session against the offline `LlmSim` driver (heavy dep). |
+| [`llmsim`](llmsim) | Rust · `--study-bin` | Driving a real everruns `Session` against the offline simulated model (heavy dep). |
 | [`greet-python`](greet-python) | Python · `--study-cmd` | A whole eval **study** in another language, via the [Python SDK](../sdks/python). |
 | [`greet-typescript`](greet-typescript) | TypeScript · `--study-cmd` | The same study via the [TypeScript SDK](../sdks/typescript). |
 

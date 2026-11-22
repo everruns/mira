@@ -42,8 +42,8 @@
   },
   "dependencies": {},
   "devDependencies": {
-    "@types/node": "^20.14.0",
-    "ajv": "^8.17.1",
-    "typescript": "^5.6.0"
+    "@types/node": "^24.19.2",
+    "ajv": "^8.20.0",
+    "typescript": "^7.0.2"
   }
 }

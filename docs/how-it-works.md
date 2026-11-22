@@ -19,7 +19,7 @@ Eval = Dataset(Sample…) + Subject + [Scorer…]  ×  model matrix × axes
   - `CliSubject`, an external binary; the **polyglot / other-language** path.
     It reads stdout, an ATIF trajectory file (recommended for tool-using
     agents), or a canonical JSONL transcript, and can seed/capture files.
-  - `mira_everruns::RuntimeSubject`, drives a live `everruns-runtime` session.
+  - `mira_everruns::RuntimeSubject`, drives a live everruns `Session`.
 - **`Transcript`**: the normalized result of a run: final response,
   iteration/tool counts, token + cost usage, tool names, captured files, the
   structured ATIF `trajectory` (the **primary** trajectory contract: tool
@@ -277,7 +277,7 @@ publishable, with heavy integrations as separate optional crates.
 |-------|---------|------|
 | `mira-eval` | lib `mira` | Core: types, traits, scorers, `subject_fn`/`CliSubject`, protocol, study, host, runner, report. |
 | `mira-cli` | bin `mira` | The host CLI. |
-| `mira-everruns` | lib | `RuntimeSubject` over the published `everruns-runtime`. |
+| `mira-everruns` | lib | `RuntimeSubject` over the published `everruns` framework. |
 
 The core takes **no everruns dependency**: `Target` is provider-agnostic and
 `mira-everruns` maps it to an everruns model. This keeps `cargo install

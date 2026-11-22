@@ -120,9 +120,9 @@ jobs:
           cargo run -q -p mira-cli -- run --study-cmd "python3 examples/greet-python/study.py"
 
       - name: Set up Node
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
         with:
-          node-version: "20"
+          node-version: "24"
 
       # The TypeScript polyglot example imports the SDK's build, so build it first.
       - name: Build the TypeScript SDK
@@ -144,7 +144,7 @@ jobs:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
         with:
           python-version: "3.11"
 
@@ -161,9 +161,9 @@ jobs:
           cd sdks/python && python3 -m pytest -q
 
       - name: Set up Node
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
         with:
-          node-version: "20"
+          node-version: "24"
 
       - name: Install TypeScript SDK deps
         run: cd sdks/typescript && npm ci
