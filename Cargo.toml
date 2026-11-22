@@ -72,8 +72,8 @@ quote = "1"
 proc-macro2 = "1"
 
 # Integration crate: the published everruns runtime (optional, separate crate).
-everruns-core = "0.17"
-everruns-runtime = "0.17"
+everruns-core = "0.16"
+everruns-runtime = "0.16"
 
 # HTTP client for provider-backed judge scorers (mira-judge). rustls keeps the
 # build free of a system OpenSSL dependency; its platform verifier trusts the

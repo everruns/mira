@@ -14,7 +14,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
-- Dependency refresh: `reqwest` 0.13 (judges and publishing; TLS still rustls with the OS trust store), `everruns-core`/`everruns-runtime` 0.17, `indicatif` 0.18, `toml` 1, plus a lockfile update to the latest compatible releases. TypeScript SDK builds with TypeScript 7; CI runs Node 24.
+- Dependency refresh: `reqwest` 0.13 (judges and publishing; TLS still rustls with the OS trust store), `everruns-core`/`everruns-runtime` 0.16, `indicatif` 0.18, `toml` 1, plus a lockfile update to the latest compatible releases. TypeScript SDK builds with TypeScript 7; CI runs Node 24.
 
 ### Fixed
 
