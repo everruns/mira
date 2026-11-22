@@ -193,6 +193,11 @@ Indexed in [`docs/`](docs/README.md):
 - [Extensibility](docs/extensibility.md), the map of every extension point
 - [The eval protocol](docs/protocol.md), the wire format, ACP-style reference
 
+## Resources
+
+- [You don't need a server for evals](https://chaliy.name/blog/you-dont-need-a-server-for-evals/)
+  (blog post)
+
 ## Ecosystem
 
 Mira is part of [Everruns](https://everruns.com/projects/), a free, non-commercial
