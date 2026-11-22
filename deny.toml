@@ -13,6 +13,13 @@ allow = [
     # Permissive data license used by webpki-roots for the Mozilla CA bundle
     # (pulled in transitively via everruns-core's HTTP stack).
     "CDLA-Permissive-2.0",
+    # Pulled in transitively by everruns-core 0.17 (web fetch / HTML parsing
+    # and archive support): MIT-0 (borrow-or-share) and bzip2-1.0.6
+    # (libbz2-rs-sys) are permissive; MPL-2.0 (cssparser, selectors,
+    # dtoa-short) is file-level copyleft, satisfied as unmodified deps.
+    "MIT-0",
+    "bzip2-1.0.6",
+    "MPL-2.0",
 ]
 confidence-threshold = 0.9
 
