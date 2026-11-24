@@ -44,12 +44,14 @@
 #![forbid(unsafe_code)]
 
 pub mod aggregate;
+pub mod assessment;
 pub mod content;
 pub mod dataset;
 pub mod eval;
 pub mod evaluation;
 pub mod exec;
 pub mod glob;
+pub mod grading;
 pub mod host;
 pub mod protocol;
 pub mod provenance;
@@ -542,6 +544,9 @@ pub struct Score {
     #[serde(default, skip_serializing_if = "is_false")]
     pub na: bool,
     pub reason: String,
+    /// Resources consumed by this scorer; absent when unreported.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub grading: Option<grading::GradingUsage>,
 }
 
 fn is_false(b: &bool) -> bool {
@@ -556,6 +561,7 @@ impl Score {
             value: 1.0,
             pass: true,
             na: false,
+            grading: None,
             reason: reason.into(),
         }
     }
@@ -567,6 +573,7 @@ impl Score {
             value: 0.0,
             pass: false,
             na: false,
+            grading: None,
             reason: reason.into(),
         }
     }
@@ -581,6 +588,7 @@ impl Score {
             value: 0.0,
             pass: false,
             na: true,
+            grading: None,
             reason: reason.into(),
         }
     }
@@ -598,8 +606,15 @@ impl Score {
             value,
             pass: value >= threshold,
             na: false,
+            grading: None,
             reason: reason.into(),
         }
+    }
+
+    /// Attach measured grading resources without changing the verdict.
+    pub fn with_grading(mut self, usage: grading::GradingUsage) -> Self {
+        self.grading = Some(usage);
+        self
     }
 
     /// True when this score did not apply (see [`Score::na`]).

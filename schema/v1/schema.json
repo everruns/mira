@@ -383,6 +383,61 @@
       },
       "type": "object"
     },
+    "GradingUsage": {
+      "description": "Resources consumed by a scorer, including unsuccessful grading requests.",
+      "properties": {
+        "cost_usd": {
+          "description": "Cost using explicit configured prices; absent when unpriced/unmeasured.",
+          "format": "double",
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "duration_ms": {
+          "description": "Measured scorer wall time.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "errors": {
+          "description": "Requests that failed transport, HTTP, response-shape, or verdict parsing.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "input_tokens": {
+          "description": "Provider-reported input tokens; absent when unavailable.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "output_tokens": {
+          "description": "Provider-reported output tokens; absent when unavailable.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "requests": {
+          "description": "Number of outbound grading requests.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "requests",
+        "errors",
+        "duration_ms"
+      ],
+      "type": "object"
+    },
     "ImageSource": {
       "description": "An image stored alongside the trajectory and referenced by path/URL (ATIF\n_ImageSourceSchema_) — never embedded bytes.",
       "properties": {
@@ -913,6 +968,17 @@
     "Score": {
       "description": "Outcome of a single [`Scorer`] on a [`Transcript`].\n\n`value` is a continuous score in `0.0..=1.0`; `pass` is the boolean verdict\n(often `value >= threshold`). Keeping both lets a scorer report a graded\nsignal while still contributing a pass/fail to the matrix.\n\nA third state — **N/A** ([`na`](Score::na)) — lets a scorer say \"I couldn't\nevaluate this\" (an unreachable judge, a missing API key, any infra hiccup)\nrather than crashing the run or lying with a `fail`. An N/A score is excluded\nfrom the case verdict and the aggregate: it neither passes nor fails.",
       "properties": {
+        "grading": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/GradingUsage"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Resources consumed by this scorer; absent when unreported."
+        },
         "na": {
           "description": "True when the scorer did not apply / could not run (infra issue, missing\ncredentials, …). Excluded from the case verdict and aggregate.",
           "type": "boolean"
@@ -1615,6 +1681,6 @@
       "$ref": "#/$defs/Notification"
     }
   ],
-  "description": "Wire schema for the Mira host<->study protocol (newline-delimited JSON over stdio). Protocol version 1.1. Generated from mira::protocol by `mira-schema-gen` (`just schema`); do not edit by hand.",
+  "description": "Wire schema for the Mira host<->study protocol (newline-delimited JSON over stdio). Protocol version 1.2. Generated from mira::protocol by `mira-schema-gen` (`just schema`); do not edit by hand.",
   "title": "Mira Eval Protocol"
 }

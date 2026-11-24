@@ -96,6 +96,34 @@ pub struct LlmJudge {
     include: Include,
     max_evidence_chars: usize,
     client: reqwest::Client,
+    pricing: Option<Pricing>,
+}
+
+/// Explicit flat effective rates per million tokens. Prices are configuration,
+/// never fetched implicitly, so archived grader identities remain reproducible.
+#[derive(Clone, Copy, Debug, serde::Serialize)]
+pub struct Pricing {
+    input_per_million: f64,
+    output_per_million: f64,
+}
+impl Pricing {
+    /// Validate finite, nonnegative effective rates (including cache discounts).
+    pub fn new(input_per_million: f64, output_per_million: f64) -> Result<Self, String> {
+        if [input_per_million, output_per_million]
+            .iter()
+            .any(|v| !v.is_finite() || *v < 0.0)
+        {
+            return Err("grading prices must be finite and nonnegative".into());
+        }
+        Ok(Self {
+            input_per_million,
+            output_per_million,
+        })
+    }
+}
+struct JudgeReply {
+    text: Result<String, String>,
+    usage: mira::grading::GradingUsage,
 }
 
 impl LlmJudge {
@@ -105,6 +133,7 @@ impl LlmJudge {
             provider,
             model: model.into(),
             api_key,
+            pricing: None,
             base_url: None,
             threshold: 0.5,
             include: Include::default(),
@@ -183,6 +212,57 @@ impl LlmJudge {
         self.api_key.is_some()
     }
 
+    /// Set explicit effective token rates for estimated grading cost. Without
+    /// prices, token usage is still reported and cost remains unknown.
+    pub fn pricing(mut self, pricing: Pricing) -> Self {
+        self.pricing = Some(pricing);
+        self
+    }
+
+    fn reply(&self, value: &serde_json::Value, text: Result<String, String>) -> JudgeReply {
+        let usage = &value["usage"];
+        let (input, output) = match self.provider {
+            Provider::OpenAiCompletions => (
+                usage["prompt_tokens"].as_u64(),
+                usage["completion_tokens"].as_u64(),
+            ),
+            Provider::OpenAiResponses | Provider::Claude => (
+                usage["input_tokens"].as_u64(),
+                usage["output_tokens"].as_u64(),
+            ),
+        };
+        // Anthropic reports cached input separately from uncached input.
+        let input = input.map(|n| {
+            n + usage["cache_read_input_tokens"].as_u64().unwrap_or(0)
+                + usage["cache_creation_input_tokens"].as_u64().unwrap_or(0)
+        });
+        let cost = self.pricing.zip(input.zip(output)).map(|(p, (i, o))| {
+            (i as f64 * p.input_per_million + o as f64 * p.output_per_million) / 1_000_000.0
+        });
+        JudgeReply {
+            text,
+            usage: mira::grading::GradingUsage {
+                requests: 1,
+                input_tokens: input,
+                output_tokens: output,
+                cost_usd: cost,
+                ..Default::default()
+            },
+        }
+    }
+
+    /// Grade whether each factual answer claim is supported by retrieved tool
+    /// observations. Requires captured evidence; calibrate on reviewed labels.
+    pub fn groundedness(self) -> Box<dyn Scorer> {
+        self.include(Include::Transcript).scorer("Grade factual grounding only. Identify each factual claim in the final response and check support in captured retrieval/tool observations. Return the supported fraction. Cite supporting or contradicting step_id values. Missing evidence cannot establish support. Do not grade style or answer completeness.")
+    }
+
+    /// Grade retention of facts and constraints across the sample's input turns.
+    /// Keep this separate from factual grounding and style; calibrate first.
+    pub fn conversation_retention(self) -> Box<dyn Scorer> {
+        self.include(Include::Transcript).scorer("Grade conversation retention only. Use all input turns and the structured expected reference to identify earlier user facts and constraints that remain applicable to the final request. Score the fraction correctly retained and applied in the final response. Cite relevant step_id values when present. Do not penalize the omission of facts irrelevant to the final request; do not grade style.")
+    }
+
     /// Build a [`Scorer`] that grades transcripts against `rubric`.
     pub fn scorer(self, rubric: impl Into<String>) -> Box<dyn Scorer> {
         Box::new(LlmJudgeScorer {
@@ -218,7 +298,7 @@ impl LlmJudge {
 
     /// Call the configured model with `system`/`user` prompts and return the raw
     /// assistant text. Any transport, status, or shape error becomes `Err`.
-    async fn call(&self, system: &str, user: &str) -> Result<String, String> {
+    async fn call(&self, system: &str, user: &str) -> Result<JudgeReply, String> {
         let key = self
             .api_key
             .as_deref()
@@ -235,7 +315,7 @@ impl LlmJudge {
         key: &str,
         system: &str,
         user: &str,
-    ) -> Result<String, String> {
+    ) -> Result<JudgeReply, String> {
         let body = serde_json::json!({
             "model": self.model,
             // Current OpenAI models (GPT-5 and later) reject any temperature
@@ -253,10 +333,13 @@ impl LlmJudge {
                 |req| req.bearer_auth(key),
             )
             .await?;
-        v["choices"][0]["message"]["content"]
-            .as_str()
-            .map(str::to_string)
-            .ok_or_else(|| "no choices[0].message.content in response".to_string())
+        Ok(self.reply(
+            &v,
+            v["choices"][0]["message"]["content"]
+                .as_str()
+                .map(str::to_string)
+                .ok_or_else(|| "no choices[0].message.content in response".to_string()),
+        ))
     }
 
     async fn call_openai_responses(
@@ -264,7 +347,7 @@ impl LlmJudge {
         key: &str,
         system: &str,
         user: &str,
-    ) -> Result<String, String> {
+    ) -> Result<JudgeReply, String> {
         // The Responses API requires the word "json" to appear in the *input*
         // messages (not `instructions`) to use the `json_object` text format, so
         // the system prompt rides along as an input message like Completions.
@@ -297,13 +380,15 @@ impl LlmJudge {
                 }
             }
         }
-        if text.is_empty() {
-            return Err("no output_text in responses payload".to_string());
-        }
-        Ok(text)
+        let text = if text.is_empty() {
+            Err("no output_text in responses payload".to_string())
+        } else {
+            Ok(text)
+        };
+        Ok(self.reply(&v, text))
     }
 
-    async fn call_claude(&self, key: &str, system: &str, user: &str) -> Result<String, String> {
+    async fn call_claude(&self, key: &str, system: &str, user: &str) -> Result<JudgeReply, String> {
         let body = serde_json::json!({
             "model": self.model,
             "max_tokens": 1024,
@@ -327,10 +412,12 @@ impl LlmJudge {
                 }
             }
         }
-        if text.is_empty() {
-            return Err("no text block in messages payload".to_string());
-        }
-        Ok(text)
+        let text = if text.is_empty() {
+            Err("no text block in messages payload".to_string())
+        } else {
+            Ok(text)
+        };
+        Ok(self.reply(&v, text))
     }
 
     /// POST `body` as JSON, apply auth headers, and parse the JSON response.
@@ -490,7 +577,7 @@ impl LlmJudgeScorer {
     fn configuration(&self) -> serde_json::Value {
         serde_json::json!({"provider":self.judge.provider.label(),"model":self.judge.model,
             "rubric":self.rubric,"threshold":self.judge.threshold,"include":format!("{:?}",self.judge.include),
-            "max_evidence_chars":self.judge.max_evidence_chars,"endpoint":self.judge.public_endpoint(),
+            "pricing":self.judge.pricing,"max_evidence_chars":self.judge.max_evidence_chars,"endpoint":self.judge.public_endpoint(),
             "endpoint_sha256":mira::provenance::fingerprint(self.judge.base().as_bytes()),
             "system_sha256":mira::provenance::fingerprint(SYSTEM.as_bytes()),"version":env!("CARGO_PKG_VERSION")})
     }
@@ -516,7 +603,14 @@ impl Scorer for LlmJudgeScorer {
         let name = self.name();
         // No credentials → N/A, so a key-free run stays green instead of failing.
         if !self.judge.is_configured() {
-            return Score::na(name, "no API key configured — judge skipped");
+            return Score::na(name, "no API key configured — judge skipped").with_grading(
+                mira::grading::GradingUsage {
+                    input_tokens: Some(0),
+                    output_tokens: Some(0),
+                    cost_usd: Some(0.0),
+                    ..Default::default()
+                },
+            );
         }
         let user = build_context_limited(
             self.judge.include,
@@ -525,15 +619,27 @@ impl Scorer for LlmJudgeScorer {
             transcript,
             self.judge.max_evidence_chars,
         );
-        match self.judge.call(SYSTEM, &user).await {
-            Ok(reply) => match parse_verdict(&reply) {
-                Ok(v) => Score::graded(name, v.score, self.judge.threshold, v.reason),
-                // The judge answered but malformed — an infra/judge problem, not
-                // a subject failure, so N/A rather than a spurious fail.
-                Err(e) => Score::na(name, e),
-            },
-            Err(e) => Score::na(name, format!("judge unavailable: {e}")),
-        }
+        let started = std::time::Instant::now();
+        let (mut score, mut usage) = match self.judge.call(SYSTEM, &user).await {
+            Ok(reply) => {
+                let score = match reply.text.and_then(|text| parse_verdict(&text)) {
+                    Ok(v) => Score::graded(name, v.score, self.judge.threshold, v.reason),
+                    Err(e) => Score::na(name, e),
+                };
+                (score, reply.usage)
+            }
+            Err(e) => (
+                Score::na(name, format!("judge unavailable: {e}")),
+                mira::grading::GradingUsage {
+                    requests: 1,
+                    ..Default::default()
+                },
+            ),
+        };
+        usage.errors = u64::from(score.na);
+        usage.duration_ms = started.elapsed().as_millis().min(u64::MAX as u128) as u64;
+        score.grading = Some(usage);
+        score
     }
 }
 
@@ -701,6 +807,45 @@ mod tests {
         assert_eq!(body["model"], "gpt-6-luna");
         assert!(!body.as_object().unwrap().contains_key("temperature"));
         assert!(score.pass, "{}", score.reason);
+    }
+
+    #[tokio::test]
+    async fn usage_survives_invalid_verdict_and_prices_are_explicit() {
+        let (address, server) = serve_once(serde_json::json!({
+            "choices":[{"message":{"content":"invalid verdict"}}],
+            "usage":{"prompt_tokens":100,"completion_tokens":20}
+        }))
+        .await;
+        let score = grade_with(
+            LlmJudge::openai_completions("fixture").pricing(Pricing::new(2.0, 4.0).unwrap()),
+            address,
+        )
+        .await;
+        server.await.unwrap();
+        assert!(score.na);
+        let usage = score.grading.unwrap();
+        assert_eq!((usage.requests, usage.errors), (1, 1));
+        assert_eq!(usage.input_tokens, Some(100));
+        assert!((usage.cost_usd.unwrap() - 0.00028).abs() < 1e-10);
+        assert!(Pricing::new(f64::NAN, 1.0).is_err());
+        let judge = LlmJudge::claude("fixture");
+        let reply=judge.reply(&serde_json::json!({"usage":{"input_tokens":10,"cache_read_input_tokens":40,"cache_creation_input_tokens":5,"output_tokens":2}}),Ok("ok".into()));
+        assert_eq!(reply.usage.input_tokens, Some(55));
+        assert_eq!(reply.usage.cost_usd, None);
+    }
+
+    #[tokio::test]
+    async fn responses_and_shape_errors_keep_usage() {
+        for provider in [Provider::OpenAiResponses, Provider::Claude] {
+            let judge = LlmJudge::from_env(provider, "fixture", "MIRA_NONEXISTENT_TEST_KEY")
+                .pricing(Pricing::new(0.0, 0.0).unwrap());
+            let reply = judge.reply(
+                &serde_json::json!({"usage":{"input_tokens":7,"output_tokens":3}}),
+                Err("no content".into()),
+            );
+            assert_eq!(reply.usage.cost_usd, Some(0.0));
+            assert_eq!(reply.usage.output_tokens, Some(3));
+        }
     }
 
     fn transcript() -> Transcript {

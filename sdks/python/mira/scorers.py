@@ -21,7 +21,7 @@ import re
 from dataclasses import dataclass
 from typing import Any, Callable, Dict, Iterator, List, Optional, Sequence, Tuple, Union
 
-from ._wire import Score, Trajectory
+from ._wire import GradingUsage, Score, Trajectory
 from .trajectory import _content_text
 
 
@@ -494,21 +494,27 @@ def _combine(name: str, scorers: Sequence[Scorer], require_all: bool) -> Scorer:
     def fn(sample, transcript) -> Score:
         values: List[tuple] = []
         reasons: List[str] = []
+        usage = []
         for sc in scorers:
             s = sc.score(sample, transcript)
+            usage.append(s.grading)
             reasons.append(f"{_glyph(s)}{s.scorer}")
             if not s.na:
                 values.append((s.value, s.pass_))
         reason = ", ".join(reasons)
         if not values:
-            return make_score(name, 0.0, False, reason, na=True)
+            result = make_score(name, 0.0, False, reason, na=True)
+            result.grading = _grading_total(usage)
+            return result
         if require_all:
             passed = all(p for _, p in values)
             value = sum(v for v, _ in values) / len(values)
         else:
             passed = any(p for _, p in values)
             value = max(v for v, _ in values)
-        return make_score(name, value, passed, reason)
+        result = make_score(name, value, passed, reason)
+        result.grading = _grading_total(usage)
+        return result
     return Scorer(name, fn)
 
 
@@ -529,8 +535,11 @@ def not_(inner: Scorer) -> Scorer:
     def fn(sample, transcript) -> Score:
         s = inner.score(sample, transcript)
         if s.na:
-            return make_score(f"not({s.scorer})", 0.0, False, f"inner N/A: {s.reason}", na=True)
-        return make_score(f"not({s.scorer})", 1.0 - s.value, not s.pass_, f"inverted: {s.reason}")
+            result = make_score(f"not({s.scorer})", 0.0, False, f"inner N/A: {s.reason}", na=True)
+        else:
+            result = make_score(f"not({s.scorer})", 1.0 - s.value, not s.pass_, f"inverted: {s.reason}")
+        result.grading = s.grading
+        return result
     return Scorer(name, fn)
 
 
@@ -547,3 +556,92 @@ def scorer(name: str, fn: Callable[["object", "object"], Union[bool, Score]], *,
             return out
         return make_score(name, 1.0 if out else 0.0, bool(out), "ok" if out else "failed")
     return Scorer(name, wrapped, configuration)
+
+
+def tool_invocation(tool: str, pointer: str, expected: Any, observation: str) -> Scorer:
+    """Require arguments and observation on the same correlated invocation."""
+    name = f"tool_invocation({tool},{pointer},{expected!r},{observation!r})"
+    def fn(_sample, transcript):
+        tr = transcript.trajectory
+        if tr is None:
+            return make_score(name, 0.0, False, "subject reported no trajectory")
+        calls = [call for step in tr.steps for call in step.tool_calls]
+        if len({c.tool_call_id for c in calls}) != len(calls):
+            return make_score(name, 0.0, False, "ambiguous duplicate tool_call_id values")
+        for index, step in enumerate(tr.steps):
+            results = [r for s in tr.steps[index:] if s.observation for r in s.observation.results]
+            for call in step.tool_calls:
+                value = _json_pointer(call.arguments, pointer)
+                if call.function_name == tool and value is not _MISSING and _json_eq(value, expected):
+                    if any(r.source_call_id == call.tool_call_id and r.content is not None and observation in _content_text(r.content) for r in results):
+                        return make_score(name, 1.0, True, f"step_id={step.step_id} call_id={call.tool_call_id}: matched")
+        return make_score(name, 0.0, False, "no single matching invocation")
+    return Scorer(name, fn)
+
+
+def tool_sequence(tools: Sequence[str]) -> Scorer:
+    """Match a tool subsequence across distinct trajectory steps."""
+    tools = list(tools)
+    name = f"tool_sequence({tools!r})"
+    def fn(_sample, transcript):
+        if transcript.trajectory is None or not tools:
+            return make_score(name, 0.0, False, "trajectory and nonempty sequence required")
+        steps = transcript.trajectory.steps
+        if any(a.step_id >= b.step_id for a, b in zip(steps, steps[1:])):
+            return make_score(name, 0.0, False, "step_id values must increase strictly")
+        at = 0
+        for step in steps:
+            if any(c.function_name == tools[at] for c in step.tool_calls):
+                at += 1
+                if at == len(tools):
+                    return make_score(name, 1.0, True, f"matched through step_id={step.step_id}")
+        return make_score(name, 0.0, False, f"matched {at}/{len(tools)} tools")
+    return Scorer(name, fn)
+
+
+def _retrieval_metric(kind: str, k: int, threshold: float) -> Scorer:
+    import math
+    name = f"retrieval_{kind}_at({k},{threshold})"
+    def fn(sample, transcript):
+        if isinstance(k, bool) or not isinstance(k, int) or k <= 0 or not math.isfinite(threshold) or not 0 <= threshold <= 1:
+            return make_score(name, 0.0, False, "k must be positive and threshold in 0..1")
+        expected = sample.expected if isinstance(sample.expected, dict) else {}
+        relevant = expected.get("relevant_ids")
+        ranked = (transcript.metadata or {}).get("retrieved_ids")
+        def valid(ids):
+            return isinstance(ids, list) and all(isinstance(i, str) and i for i in ids) and len(ids) == len(set(ids))
+        if not valid(relevant) or not relevant or not valid(ranked):
+            return make_score(name, 0.0, False, "unique retrieval/reference string IDs required")
+        hits, total = 0, 0.0
+        for rank, id_ in enumerate(ranked[:k], 1):
+            if id_ in relevant:
+                hits += 1
+                total += hits / rank
+        value = hits / k if kind == "precision" else hits / len(relevant) if kind == "recall" else total / min(k, len(relevant))
+        return make_score(name, value, value >= threshold, f"{hits} hits in top {k}")
+    return Scorer(name, fn)
+
+
+def retrieval_precision_at(k: int, threshold: float) -> Scorer:
+    """Relevant hits / k; absent ranks count as misses."""
+    return _retrieval_metric("precision", k, threshold)
+
+
+def retrieval_recall_at(k: int, threshold: float) -> Scorer:
+    """Relevant hits / total relevant reference IDs."""
+    return _retrieval_metric("recall", k, threshold)
+
+
+def retrieval_average_precision_at(k: int, threshold: float) -> Scorer:
+    """Sum precision at relevant ranks / min(k, reference count)."""
+    return _retrieval_metric("average_precision", k, threshold)
+
+
+def _grading_total(items):
+    reported = [g for g in items if g is not None]
+    if not reported:
+        return None
+    def total(key):
+        values = [getattr(g, key) if g is not None else None for g in items]
+        return sum(values) if all(v is not None for v in values) else None
+    return GradingUsage(requests=sum(g.requests for g in reported), errors=sum(g.errors for g in reported), duration_ms=sum(g.duration_ms for g in reported), input_tokens=total("input_tokens"), output_tokens=total("output_tokens"), cost_usd=total("cost_usd"))

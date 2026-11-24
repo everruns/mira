@@ -33,6 +33,12 @@ UNSUPPORTED = {"model_graded", "scorer"}
 def build(spec: dict) -> mira.Scorer:
     """Construct a scorer from a canonical descriptor (recursive for combinators)."""
     kind = spec["kind"]
+    if kind == "tool_invocation":
+        return mira.tool_invocation(spec["tool"], spec["pointer"], spec["expected"], spec["observation"])
+    if kind == "tool_sequence":
+        return mira.tool_sequence(spec["tools"])
+    if kind.startswith("retrieval_"):
+        return getattr(mira, kind)(spec["k"], spec["threshold"])
     if kind == "contains":
         return mira.contains(spec["needle"])
     if kind == "not_contains":
@@ -147,3 +153,16 @@ def test_every_vector_kind_is_implemented():
             if kind not in UNSUPPORTED:
                 missing.append(kind)
     assert not missing, f"scorer kinds in vectors not implemented in Python: {missing}"
+
+
+def test_combinators_preserve_failed_grading_and_unknown_cost():
+    measured = mira.make_score("judge", 0.0, False, "invalid", na=True)
+    measured.grading = mira.GradingUsage(requests=1, errors=1, duration_ms=4,
+                                         input_tokens=10, output_tokens=2, cost_usd=0.01)
+    child = mira.scorer("judge", lambda s, t: measured)
+    sample, transcript = mira.Sample("s", prompt="q"), mira.transcript("a")
+    combined = mira.all_of("combined", [child]).score(sample, transcript)
+    assert combined.na and combined.grading.errors == 1 and combined.grading.cost_usd == 0.01
+    assert mira.not_(child).score(sample, transcript).grading.cost_usd == 0.01
+    unknown = mira.all_of("combined", [child, mira.succeeded()]).score(sample, transcript)
+    assert unknown.grading.requests == 1 and unknown.grading.cost_usd is None

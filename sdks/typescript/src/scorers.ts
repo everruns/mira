@@ -13,7 +13,7 @@
 // human-facing and may differ across languages; the verdict (pass/value/na)
 // must not. The LLM-judge (`model_graded`) is deliberately not mirrored — it is
 // not a deterministic, portable scorer.
-import type { Score, StepContent, Trajectory, Transcript, Part } from "./wire.js";
+import type { GradingUsage, Score, StepContent, Trajectory, Transcript, Part } from "./wire.js";
 import type { Sample } from "./study.js";
 import { contentText } from "./trajectory.js";
 
@@ -489,13 +489,15 @@ function combine(name: string, scorers: Scorer[], requireAll: boolean): Scorer {
   return named(name, (sample, t) => {
     const values: Array<[number, boolean]> = [];
     const reasons: string[] = [];
+    const usage: Array<GradingUsage|null|undefined> = [];
     for (const sc of scorers) {
       const s = sc.score(sample, t);
+      usage.push(s.grading);
       reasons.push(`${glyph(s)}${s.scorer}`);
       if (!s.na) values.push([s.value, s.pass]);
     }
     const reason = reasons.join(", ");
-    if (values.length === 0) return makeScore(name, 0, false, reason, true);
+    if (values.length === 0) return {...makeScore(name, 0, false, reason, true),grading: gradingTotal(usage)};
     let passed: boolean;
     let value: number;
     if (requireAll) {
@@ -505,7 +507,7 @@ function combine(name: string, scorers: Scorer[], requireAll: boolean): Scorer {
       passed = values.some(([, p]) => p);
       value = values.reduce((a, [v]) => Math.max(a, v), 0);
     }
-    return makeScore(name, value, passed, reason);
+    return {...makeScore(name, value, passed, reason),grading: gradingTotal(usage)};
   });
 }
 
@@ -524,8 +526,8 @@ export function not(inner: Scorer): Scorer {
   const name = `not(${inner.name})`;
   return named(name, (sample, t) => {
     const s = inner.score(sample, t);
-    if (s.na) return makeScore(`not(${s.scorer})`, 0, false, `inner N/A: ${s.reason}`, true);
-    return makeScore(`not(${s.scorer})`, 1 - s.value, !s.pass, `inverted: ${s.reason}`);
+    if (s.na) return {...makeScore(`not(${s.scorer})`, 0, false, `inner N/A: ${s.reason}`, true),grading:s.grading};
+    return {...makeScore(`not(${s.scorer})`, 1 - s.value, !s.pass, `inverted: ${s.reason}`),grading:s.grading};
   });
 }
 
@@ -550,4 +552,61 @@ export function scorer(
   });
   result.configuration = configuration;
   return result;
+}
+
+/** Require arguments and observation on the same correlated invocation. */
+export function toolInvocation(tool: string, pointer: string, expected: unknown, observation: string): Scorer {
+  const name = `tool_invocation(${tool},${pointer},${JSON.stringify(expected)},${observation})`;
+  return named(name, (_s,t) => {
+    const tr=t.trajectory;
+    if (!tr) return makeScore(name,0,false,"subject reported no trajectory");
+    const calls=tr.steps.flatMap(s=>s.tool_calls??[]);
+    if(new Set(calls.map(c=>c.tool_call_id)).size!==calls.length)return makeScore(name,0,false,"ambiguous duplicate tool_call_id values");
+    for (const [index,step] of tr.steps.entries()) for (const call of step.tool_calls??[]) {
+      const results=tr.steps.slice(index).flatMap(s=>s.observation?.results??[]);
+      const value=jsonPointer(call.arguments,pointer);
+      if (call.function_name===tool&&value!==MISSING&&jsonEq(value,expected)&&results.some(r=>r.source_call_id===call.tool_call_id&&r.content!=null&&contentText(r.content).includes(observation)))
+        return makeScore(name,1,true,`step_id=${step.step_id} call_id=${call.tool_call_id}: matched`);
+    }
+    return makeScore(name,0,false,"no single matching invocation");
+  });
+}
+/** Match a tool subsequence across distinct trajectory steps. */
+export function toolSequence(sequence: string[]): Scorer {
+  const tools=[...sequence],name=`tool_sequence(${JSON.stringify(tools)})`;
+  return named(name,(_s,t)=>{
+    if (!t.trajectory||!tools.length) return makeScore(name,0,false,"trajectory and nonempty sequence required");
+    if(t.trajectory.steps.some((s,i,steps)=>{const previous=steps[i-1];return previous!==undefined&&previous.step_id>=s.step_id;}))return makeScore(name,0,false,"step_id values must increase strictly");
+    let at=0;
+    for(const step of t.trajectory.steps) if((step.tool_calls??[]).some(c=>c.function_name===tools[at])){
+      if(++at===tools.length)return makeScore(name,1,true,`matched through step_id=${step.step_id}`);
+    }
+    return makeScore(name,0,false,`matched ${at}/${tools.length} tools`);
+  });
+}
+function retrievalMetric(kind: "precision"|"recall"|"average_precision",k:number,threshold:number):Scorer {
+  const name=`retrieval_${kind}_at(${k},${threshold})`;
+  return named(name,(s,t)=>{
+    if(!Number.isSafeInteger(k)||k<=0||!Number.isFinite(threshold)||threshold<0||threshold>1)return makeScore(name,0,false,"k must be positive and threshold in 0..1");
+    const expected=s.expected as {relevant_ids?:unknown}|null, relevant=expected?.relevant_ids, ranked=t.metadata?.retrieved_ids;
+    const valid=(v:unknown):v is string[]=>Array.isArray(v)&&v.every(i=>typeof i==="string"&&i.length>0)&&new Set(v).size===v.length;
+    if(!valid(relevant)||!relevant.length||!valid(ranked))return makeScore(name,0,false,"unique retrieval/reference string IDs required");
+    let hits=0,total=0;
+    ranked.slice(0,k).forEach((id,index)=>{if(relevant.includes(id)){hits++;total+=hits/(index+1);}});
+    const value=kind==="precision"?hits/k:kind==="recall"?hits/relevant.length:total/Math.min(k,relevant.length);
+    return makeScore(name,value,value>=threshold,`${hits} hits in top ${k}`);
+  });
+}
+/** Relevant hits / k; absent ranks count as misses. */
+export function retrievalPrecisionAt(k:number,threshold:number):Scorer{return retrievalMetric("precision",k,threshold);}
+/** Relevant hits / total relevant reference IDs. */
+export function retrievalRecallAt(k:number,threshold:number):Scorer{return retrievalMetric("recall",k,threshold);}
+/** Sum precision at relevant ranks / min(k, reference count). */
+export function retrievalAveragePrecisionAt(k:number,threshold:number):Scorer{return retrievalMetric("average_precision",k,threshold);}
+
+function gradingTotal(items: Array<GradingUsage|null|undefined>): GradingUsage|null {
+  const reported=items.filter((g):g is GradingUsage=>g!=null);
+  if(!reported.length)return null;
+  const total=(key:"input_tokens"|"output_tokens"|"cost_usd")=>items.every(g=>g?.[key]!=null)?reported.reduce((n,g)=>n+(g[key]??0),0):null;
+  return {requests:reported.reduce((n,g)=>n+g.requests,0),errors:reported.reduce((n,g)=>n+g.errors,0),duration_ms:reported.reduce((n,g)=>n+g.duration_ms,0),input_tokens:total("input_tokens"),output_tokens:total("output_tokens"),cost_usd:total("cost_usd")};
 }

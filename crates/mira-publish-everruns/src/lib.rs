@@ -358,6 +358,15 @@ fn import_case(r: &RunResult) -> ImportCase {
     if !t.metadata.is_empty() {
         transcript.insert("metadata".into(), json!(t.metadata));
     }
+    let grading: BTreeMap<_, _> = r
+        .scores
+        .iter()
+        .filter_map(|s| s.grading.as_ref().map(|usage| (s.scorer.clone(), usage)))
+        .collect();
+    if !grading.is_empty() {
+        let metadata = transcript.entry("metadata").or_insert_with(|| json!({}));
+        metadata["mira.grading"] = json!(grading);
+    }
     if let Some(expected) = &r.expected {
         transcript.insert("expected".into(), expected.clone());
     }
@@ -701,6 +710,13 @@ mod tests {
     #[test]
     fn published_source_preserves_coverage_and_case_provenance() {
         let mut r = result("e", "s", "sim", true);
+        r.scores = vec![
+            Score::pass("judge", "ok").with_grading(mira::grading::GradingUsage {
+                requests: 1,
+                cost_usd: Some(0.02),
+                ..Default::default()
+            }),
+        ];
         r.expected = Some(json!("42"));
         r.transcript.metadata.insert(
             "mira.sample".into(),
@@ -726,6 +742,10 @@ mod tests {
         assert_eq!(
             payload["evals"][0]["cases"][0]["transcript"]["expected"],
             "42"
+        );
+        assert_eq!(
+            payload["evals"][0]["cases"][0]["transcript"]["metadata"]["mira.grading"]["judge"]["cost_usd"],
+            0.02
         );
     }
 

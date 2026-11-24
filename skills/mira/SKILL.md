@@ -235,3 +235,12 @@ depth:
 
 Or run `mira help --full` for the self-orienting CLI guide (overview, every flag,
 examples, links).
+
+## Diagnostics and acceptance
+
+Use `mira assess RUN --policy policy.toml` for absolute per-slice acceptance and
+scenario/dimension coverage inventory; `mira review CANDIDATE --baseline BASELINE
+--out review.html` for offline trajectory review and execution-bound human labels.
+Diagnostic scorers and independent grading resources are documented in the
+[diagnostic guide](https://github.com/everruns/mira/blob/main/docs/diagnostics.md)
+with an [offline workflow](https://github.com/everruns/mira/tree/main/examples/diagnostics).

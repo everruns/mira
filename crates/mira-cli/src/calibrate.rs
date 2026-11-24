@@ -33,6 +33,8 @@ pub struct CalibrateArgs {
 pub struct Label {
     pub case_key: String,
     pub pass: bool,
+    #[serde(default)]
+    pub execution_sha256: Option<String>,
 }
 
 #[derive(Default, Debug, Serialize)]
@@ -57,6 +59,7 @@ pub struct Calibration {
 pub struct Judgment {
     pub case_key: String,
     pub human_pass: bool,
+    pub execution_sha256: Option<String>,
     pub judge_pass: Option<bool>,
     pub previous_pass: Option<bool>,
 }
@@ -84,13 +87,36 @@ pub fn evaluate(results: &[RunResult], labels: &[Label], scorer: &str) -> Calibr
         ..Default::default()
     };
     for label in labels {
+        let identity_matches = label.execution_sha256.as_ref().is_none_or(|hash| {
+            by_key
+                .get(&label.case_key)
+                .and_then(|r| r.transcript.metadata.get("mira.execution_sha256"))
+                .and_then(|v| v.as_str())
+                == Some(hash.as_str())
+        });
         out.judgments.push(Judgment {
             case_key: label.case_key.clone(),
             human_pass: label.pass,
-            judge_pass: by_key.get(&label.case_key).and_then(|r| verdict(r, scorer)),
+            execution_sha256: if identity_matches {
+                by_key
+                    .get(&label.case_key)
+                    .and_then(|r| r.transcript.metadata.get("mira.execution_sha256"))
+                    .and_then(|v| v.as_str())
+                    .map(str::to_owned)
+            } else {
+                label.execution_sha256.clone()
+            },
+            judge_pass: by_key
+                .get(&label.case_key)
+                .filter(|_| identity_matches)
+                .and_then(|r| verdict(r, scorer)),
             previous_pass: None,
         });
-        let Some(actual) = by_key.get(&label.case_key).and_then(|r| verdict(r, scorer)) else {
+        let Some(actual) = by_key
+            .get(&label.case_key)
+            .filter(|_| identity_matches)
+            .and_then(|r| verdict(r, scorer))
+        else {
             out.unavailable.push(label.case_key.clone());
             continue;
         };
@@ -224,19 +250,42 @@ pub fn run(args: &CalibrateArgs) -> Result<i32, Box<dyn std::error::Error>> {
 mod tests {
     use super::*;
     #[test]
+    fn mismatched_label_identity_cannot_be_rebound_in_review_report() {
+        let mut result = crate::compare::fixture("a", true, 0);
+        result
+            .transcript
+            .metadata
+            .insert("mira.execution_sha256".into(), "actual".into());
+        let label = Label {
+            case_key: result.key(),
+            pass: true,
+            execution_sha256: Some("other".into()),
+        };
+        let report = evaluate(&[result], &[label], "correct");
+        assert_eq!(report.evaluated, 0);
+        assert_eq!(report.judgments[0].judge_pass, None);
+        assert_eq!(
+            report.judgments[0].execution_sha256.as_deref(),
+            Some("other")
+        );
+    }
+    #[test]
     fn confusion_matrix_keeps_missing_verdicts_visible() {
         let a = crate::compare::fixture("a", true, 0);
         let b = crate::compare::fixture("b", false, 0);
         let labels = vec![
             Label {
+                execution_sha256: None,
                 case_key: a.key(),
                 pass: false,
             },
             Label {
+                execution_sha256: None,
                 case_key: b.key(),
                 pass: false,
             },
             Label {
+                execution_sha256: None,
                 case_key: "missing".into(),
                 pass: true,
             },

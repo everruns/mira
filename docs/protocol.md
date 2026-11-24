@@ -129,14 +129,14 @@ study.
 **Params**
 
 ```json
-{ "protocol_version": "1.1", "host": "mira-cli" }
+{ "protocol_version": "1.2", "host": "mira-cli" }
 ```
 
 **Result**
 
 ```json
 {
-  "protocol_version": "1.1",
+  "protocol_version": "1.2",
   "study": "my-evals",
   "evals": 3,
   "study_version": "0.1.0",
@@ -153,7 +153,7 @@ study.
 The study replies with the `protocol_version` it implements. Compatibility is
 by **major**: a host refuses a study whose major differs from its own; a
 differing minor is additive and tolerated (see [Versioning](#versioning)). The
-current version is **`1.1`**.
+current version is **`1.2`**.
 
 `capabilities` lets a host feature-detect additively instead of sniffing
 versions. Defined tokens: `axes` (study advertises extra axes and honours
@@ -675,7 +675,7 @@ stdin, by contrast, ends *every* in-flight run at once.)
 
 ## Versioning
 
-The protocol uses `MAJOR.MINOR` (`PROTOCOL_VERSION`, currently `1.1`). `1.0` is
+The protocol uses `MAJOR.MINOR` (`PROTOCOL_VERSION`, currently `1.2`). `1.0` is
 the initial stable baseline: the full method set (`initialize`, `list`,
 `list_samples`, `run`, `execute`, `score`, `cancel`), typed and
 `request_id`-correlated `event`/`log` notifications, JSON-RPC-shaped error
@@ -689,7 +689,7 @@ ignores both and keeps interoperating (see the compatibility note in that
 section for the one artifact-persistence consequence). A study that implements
 only the base methods
 (`initialize`, `list`, `run`), advertising no capabilities and emitting no
-notifications, interoperates with a full `1.1` host: every method and field
+notifications, interoperates with a full `1.2` host: every method and field
 beyond the base is feature-detected or defaulted. Future additions bump the minor.
 
 - A **MINOR** bump is **additive**: new optional fields, new notification kinds,
@@ -809,3 +809,14 @@ transcripts without a snapshot use the current study row.
 carry public scorer definitions across Rust, Python, and TypeScript; `SampleInfo.metadata["mira.sample_sha256"]` identifies catalog rows.
 These conventions support provenance checking without exposing provider keys.
 See [Evaluation quality](evaluation-quality.md) for host persistence and gates.
+
+## Grading resources (protocol 1.2)
+
+`Score.grading` is an optional object carrying `requests`, `errors`, and
+`duration_ms` (nonnegative integers), plus nullable `input_tokens`,
+`output_tokens`, and `cost_usd`. It measures the scorer's work independently
+of `Transcript.usage`, which measures the subject. Missing grading or nullable
+values mean unreported/unknown, never measured zero. Provider integrations retain
+usage on malformed verdicts and mark errors without converting them to target
+failures. Native SDK wire types are generated from the same schema. See
+[diagnostic workflows](diagnostics.md#account-for-grading-separately).

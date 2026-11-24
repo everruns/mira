@@ -41,6 +41,12 @@ import {
   toolCalled,
   toolCalledBefore,
   toolCalledWith,
+  toolInvocation,
+  toolSequence,
+  retrievalPrecisionAt,
+  retrievalRecallAt,
+  retrievalAveragePrecisionAt,
+
   toolCallsWithin,
   toolNotCalled,
   toolsUsedExactly,
@@ -59,6 +65,11 @@ const UNSUPPORTED = new Set(["model_graded", "scorer"]);
 
 function build(spec) {
   switch (spec.kind) {
+    case "tool_invocation": return toolInvocation(spec.tool,spec.pointer,spec.expected,spec.observation);
+    case "tool_sequence": return toolSequence(spec.tools);
+    case "retrieval_precision_at": return retrievalPrecisionAt(spec.k,spec.threshold);
+    case "retrieval_recall_at": return retrievalRecallAt(spec.k,spec.threshold);
+    case "retrieval_average_precision_at": return retrievalAveragePrecisionAt(spec.k,spec.threshold);
     case "contains": return contains(spec.needle);
     case "not_contains": return notContains(spec.needle);
     case "equals": return equals(spec.expected);
@@ -127,4 +138,14 @@ test("coverage: every vector kind is implemented", () => {
     }
   }
   assert.deepEqual(missing, [], `scorer kinds in vectors not implemented in TS: ${missing}`);
+});
+
+test("combinators retain failed grading and unknown child cost", () => {
+  const child={name:"judge",score:()=>({scorer:"judge",value:0,pass:false,na:true,reason:"invalid",grading:{requests:1,errors:1,duration_ms:4,input_tokens:10,output_tokens:2,cost_usd:0.01}})};
+  const sample={id:"s",input:["q"]}, transcript={error:null};
+  const combined=allOf("combined",[child]).score(sample,transcript);
+  assert.equal(combined.na,true);
+  assert.equal(combined.grading.cost_usd,0.01);
+  assert.equal(not(child).score(sample,transcript).grading.errors,1);
+  assert.equal(allOf("combined",[child,succeeded()]).score(sample,transcript).grading.cost_usd,null);
 });

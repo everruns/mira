@@ -88,6 +88,7 @@ run-examples: build-ts-sdk
     cargo run -q -p mira-cli -- run --study-python examples/greet-python/study.py
     cargo run -q -p mira-cli -- run --study-cmd "node examples/greet-typescript/study.mjs"
     python3 examples/quality_workflow/smoke.py --mira target/debug/mira
+    python3 examples/diagnostics/smoke.py --mira target/debug/mira
 
 # === Release ===
 

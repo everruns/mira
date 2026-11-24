@@ -201,3 +201,12 @@ The hosted Everruns viewer owns its UI; transferring metadata does not add a
 coverage-specific screen there. Comparison and calibration do not currently
 provide dedicated HTML viewers. The local smoke verifies report contents and
 publish payload mapping; it does not deploy or test a hosted viewer.
+
+## Diagnose and accept a saved run
+
+Use `mira assess RUN --policy policy.toml` for absolute slice thresholds and a
+declared scenario × quality-dimension inventory. Use `mira review CANDIDATE
+--baseline BASELINE --out review.html` to inspect trajectories side by side and
+export human labels tied to execution fingerprints. Scores can carry grading
+resources independently of subject cost. See [diagnostics and acceptance](diagnostics.md)
+and its [offline workflow](../examples/diagnostics).

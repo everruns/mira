@@ -86,12 +86,19 @@ export {
   toolCalled,
   toolCalledBefore,
   toolCalledWith,
+  toolInvocation,
+  toolSequence,
+  retrievalPrecisionAt,
+  retrievalRecallAt,
+  retrievalAveragePrecisionAt,
+
   toolCallsWithin,
   toolNotCalled,
   toolsUsedExactly,
   ttftWithin,
   turnsWithin,
 } from "./scorers.js";
+export type { GradingUsage } from "./wire.js";
 export type { Scorer } from "./scorers.js";
 
 export { toWire } from "./codec.js";

@@ -102,13 +102,17 @@ impl Comparison {
     }
 }
 
-pub fn load(run: &str) -> Result<Vec<RunResult>, Box<dyn std::error::Error>> {
+pub fn directory(run: &str) -> PathBuf {
     let path = PathBuf::from(run);
-    let path = if path.is_dir() {
+    if path.is_dir() {
         path
     } else {
         crate::config::run_dir(&crate::config::Config::load().results_dir(), run)
-    };
+    }
+}
+
+pub fn load(run: &str) -> Result<Vec<RunResult>, Box<dyn std::error::Error>> {
+    let path = directory(run);
     let meta = crate::config::load_meta(&path).ok_or("run has no valid meta.json")?;
     if meta.finished_unix == 0 {
         return Err("run is unfinished".into());

@@ -36,10 +36,16 @@ from ._serve import (
     target,
     serve,
 )
-from ._wire import AxisInfo, Score, Timing, Trajectory, Transcript, Usage
+from ._wire import GradingUsage, AxisInfo, Score, Timing, Trajectory, Transcript, Usage
 from .trajectory import ATIF_VERSION, from_trajectory, parse_trajectory
 from .scorers import (
     Scorer,
+    tool_invocation,
+    tool_sequence,
+    retrieval_precision_at,
+    retrieval_recall_at,
+    retrieval_average_precision_at,
+
     all_of,
     any_of,
     contains,

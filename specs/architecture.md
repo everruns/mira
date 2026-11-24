@@ -755,3 +755,30 @@ adds a coverage suite, and row formats preserve it as per-case metadata. Empty
 row exports require the JSON sidecar for run-level evidence. Everruns publishing
 preserves coverage in source metadata and case provenance in transcript metadata;
 its viewer UI remains owned by that product.
+
+## Diagnostic evidence and report acceptance
+
+- Provider-independent `assessment::Policy` evaluates complete saved report
+  results. Rules select archived tags/case-key globs and optional scorer globs;
+  absolute pass/score, p95 latency, subject-cost, and grading-cost limits remain
+  separate from paired relative comparisons. All rules must pass. Repetitions
+  are equally weighted within logical cases; unavailable/empty/incomplete trial
+  evidence cannot satisfy acceptance. Policy output retains the exact policy.
+- Inventory declares the scenario × quality-dimension cross product, using
+  archived `Sample.metadata.scenario` and `dimensions`. Empty cells remain
+  visible. Counts are logical cases, not repetitions. Categories express author
+  intent, separate from evaluation-availability coverage; unclassified cases
+  block inventory acceptance.
+- Diagnostic scorers require a single correlated tool invocation, a tool
+  subsequence across distinct steps, or ranked unique retrieval IDs. Portable
+  deterministic semantics are pinned by shared Rust/Python/TypeScript vectors.
+- Protocol 1.2 promotes optional `Score.grading` resource records after schema
+  and cross-language round-trip/conformance tests. Resources belong to scores,
+  survive N/A and combinators, and never inflate subject usage. Unknown prices
+  remain absent. Prices are explicit effective rates in judge identity; cost
+  thresholds are post-run acceptance gates, not live cancellation guarantees.
+- `review` reads full saved artifacts and produces self-contained HTML. It never
+  synthesizes missing trajectory evidence or mutates a run. Untrusted content
+  renders as text; label export is explicit. Human-label/calibration imports
+  bind to execution fingerprints when provided; review calibration imports
+  require them. Live production sampling and sandbox ownership stay with runtimes.
