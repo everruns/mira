@@ -1,0 +1,19 @@
+# Version this file with your study. All independent rules must pass.
+[[rules]]
+name = "release-quality"
+tag = "release"
+min_cases = 2
+min_pass_rate = 1.0
+max_p95_latency_ms = 1000
+max_subject_cost_usd = 0.01
+
+[[rules]]
+name = "grading-spend"
+scorer = "judge:fixture"
+max_grading_cost_usd = 0.001
+min_pass_rate = 1.0
+
+[inventory]
+scenarios = ["support", "search"]
+dimensions = ["correctness", "safety"]
+min_cases = 1

@@ -81,6 +81,15 @@ export interface FinalMetrics {
   total_steps?: number | null;
 }
 
+export interface GradingUsage {
+  cost_usd?: number | null;
+  duration_ms: number;
+  errors: number;
+  input_tokens?: number | null;
+  output_tokens?: number | null;
+  requests: number;
+}
+
 export interface ImageSource {
   media_type: string;
   path: string;
@@ -185,6 +194,7 @@ export interface SampleInfo {
 }
 
 export interface Score {
+  grading?: GradingUsage | null;
   na?: boolean;
   pass: boolean;
   reason: string;
@@ -388,6 +398,14 @@ export const WIRE_FIELDS: Record<string, Record<string, FieldMeta>> = {
     "total_prompt_tokens": { required: false },
     "total_steps": { required: false },
   },
+  GradingUsage: {
+    "cost_usd": { required: false },
+    "duration_ms": { required: true },
+    "errors": { required: true },
+    "input_tokens": { required: false },
+    "output_tokens": { required: false },
+    "requests": { required: true },
+  },
   ImageSource: {
     "media_type": { required: true },
     "path": { required: true },
@@ -475,6 +493,7 @@ export const WIRE_FIELDS: Record<string, Record<string, FieldMeta>> = {
     "tags": { required: false },
   },
   Score: {
+    "grading": { required: false },
     "na": { required: false },
     "pass": { required: true },
     "reason": { required: true },

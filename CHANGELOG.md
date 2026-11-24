@@ -11,6 +11,10 @@ Public entry: [Evaluation coverage, comparisons, and grader calibration](https:/
 
 ### Added
 
+- [Diagnostic and acceptance workflows](https://everruns.com/docs/changelog/2026-11-23-mira-diagnostics/): correlated tool-call and ordered-step checks, ranked retrieval scorers across Rust/Python/TypeScript, absolute saved-run slice policies, declared category coverage, and offline side-by-side evidence review with execution-bound human labels.
+- Per-score grading request/error counts, tokens, latency, and explicitly priced cost estimates; judge usage survives malformed verdicts and combinators, independently of subject cost. Protocol 1.2 adds optional grading records.
+- Documented grounding and conversation-retention judge recipes and a complete offline diagnostics workflow.
+
 - Shared Rust coverage-policy API and persisted gate evidence in every run report format and publishing metadata; saved-run rendering retains the original policy.
 - Complete offline quality-workflow example and SDK custom-scorer configuration provenance, with matching SDK documentation and smoke checks.
 

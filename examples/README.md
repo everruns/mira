@@ -54,3 +54,10 @@ Render a self-contained HTML report from any of them:
 ```bash
 cargo run -p mira-cli -- run --study examples/greet.rs --format html --out report.html
 ```
+
+## Diagnostics and acceptance
+
+[diagnostics/](diagnostics/) runs correlated tool checks, ordered steps, retrieval
+ranking, absolute policies, grading budgets, a category coverage inventory, and
+HTML human review through the real host CLI. Run its `smoke.py` offline; all
+subjects and grading usage are deterministic fixtures.

@@ -50,6 +50,7 @@ use clap::{Args, CommandFactory, Parser, Subcommand};
 use indicatif::{ProgressBar, ProgressDrawTarget, ProgressStyle};
 use tokio::process::Command;
 
+mod assess;
 mod calibrate;
 mod compare;
 mod config;
@@ -60,6 +61,7 @@ mod experiment;
 mod export;
 mod failures;
 mod provenance;
+mod review;
 
 use mira::Host;
 use mira::Trial;
@@ -101,6 +103,10 @@ const GUIDES: &[(&str, &str)] = &[
     (
         "evaluation-quality",
         "coverage gates, comparisons, provenance, calibration, regression datasets",
+    ),
+    (
+        "diagnostics",
+        "evidence scorers, slice policies, grading resources, coverage inventory, human review",
     ),
     ("metrics", "tokens/cost/latency and custom numeric metrics"),
     ("subjects", "in-process, CLI/polyglot, and runtime sessions"),
@@ -290,6 +296,10 @@ enum Cmd {
     List(ListArgs),
     /// Compare saved runs and apply regression, score, cost, or latency gates.
     Compare(compare::CompareArgs),
+    /// Apply absolute slice policies and inspect scenario/dimension coverage.
+    Assess(assess::AssessArgs),
+    /// Review saved trajectories side by side and export human labels.
+    Review(review::ReviewArgs),
     /// Measure grader agreement with human labels and compare grader versions.
     Calibrate(calibrate::CalibrateArgs),
     /// Export failed cases as review records for regression datasets.
@@ -604,6 +614,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         // `report` re-renders a saved run from disk — no study process needed, so
         // handle it before spawning the host.
         Some(Cmd::Report(args)) => return report(args),
+        Some(Cmd::Review(args)) => return review::run(args),
+        Some(Cmd::Assess(args)) => std::process::exit(assess::run(args)?),
         Some(Cmd::Compare(args)) => std::process::exit(compare::run(args)?),
         Some(Cmd::Calibrate(args)) => std::process::exit(calibrate::run(args)?),
         Some(Cmd::Failures(args)) => return failures::run(args),
@@ -684,6 +696,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         | Some(Cmd::Help(_))
         | Some(Cmd::Calibrate(_))
         | Some(Cmd::Failures(_))
+        | Some(Cmd::Review(_))
+        | Some(Cmd::Assess(_))
         | Some(Cmd::Compare(_))
         | Some(Cmd::Report(_))
         | Some(Cmd::Export(_))

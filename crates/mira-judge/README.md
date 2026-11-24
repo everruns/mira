@@ -32,3 +32,10 @@ observations. `max_evidence_chars` bounds whole-step evidence (default 64,000);
 omitted steps are reported. Judge names fingerprint their rubric and configuration,
 and credential-free definitions are archived by the host. See
 [Evaluation quality](../../docs/evaluation-quality.md) for coverage and calibration.
+
+## Diagnostics and grading resources
+
+See [diagnostic workflows](https://github.com/everruns/mira/blob/main/docs/diagnostics.md)
+for correlated tool evidence, ordered steps, ranked retrieval metrics, absolute
+acceptance policies, coverage inventory, and offline human review. Protocol 1.2
+carries optional per-score grading resources separately from subject usage.

@@ -189,6 +189,7 @@ Indexed in [`docs/`](docs/README.md):
 - [Authoring evals](docs/authoring.md)
 - [Scorers](docs/scorers.md)
 - [Evaluation quality](docs/evaluation-quality.md), coverage gates, comparisons, provenance, calibration, and regression datasets
+- [Diagnostics and acceptance](docs/diagnostics.md), evidence scorers, slice policies, coverage inventory, and human review
 - [Metrics](docs/metrics.md), tokens/cost/latency and custom metrics
 - [Subjects](docs/subjects.md)
 - [Extensibility](docs/extensibility.md), the map of every extension point

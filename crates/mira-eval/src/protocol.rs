@@ -73,7 +73,7 @@ use crate::{Metadata, Params, Score, Timing, Transcript, Usage};
 /// interoperating. A later addition bumps the **minor** and must stay additive
 /// (a new optional field, method, or capability token); a breaking wire change
 /// bumps the **major**.
-pub const PROTOCOL_VERSION: &str = "1.1";
+pub const PROTOCOL_VERSION: &str = "1.2";
 
 /// The oldest protocol version this build can still talk to.
 pub const MIN_PROTOCOL_VERSION: &str = "1.0";

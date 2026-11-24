@@ -305,3 +305,13 @@ archived in the study catalog without API keys. Custom Rust scorers can override
 N/A continues to describe unavailable evidence. Use required-scorer and coverage
 gates when missing evidence must block CI; see [Evaluation quality](evaluation-quality.md).
 That guide also covers calibration against human labels and comparing grader versions.
+
+## Diagnostic evidence scorers
+
+Correlate arguments and observations with `tool_invocation`, check an ordered
+subsequence with `tool_sequence`, and grade ranked retrieval IDs with
+`retrieval_precision_at`, `retrieval_recall_at`, and
+`retrieval_average_precision_at`. All five have native Python and TypeScript
+mirrors. See [diagnostics and acceptance](diagnostics.md#grade-specific-evidence)
+for exact evidence contracts, metric definitions, examples, grading usage, and
+grounding/conversation-retention judge recipes.

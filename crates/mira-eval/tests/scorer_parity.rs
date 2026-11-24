@@ -39,6 +39,26 @@ fn build(spec: &Value) -> Box<dyn Scorer> {
         "succeeded" => succeeded(),
         "file_exists" => file_exists(s(spec, "path")),
         "file_contains" => file_contains(s(spec, "path"), s(spec, "needle")),
+        "tool_invocation" => tool_invocation(
+            s(spec, "tool"),
+            s(spec, "pointer"),
+            spec["expected"].clone(),
+            s(spec, "observation"),
+        ),
+        "tool_sequence" => tool_sequence(
+            spec["tools"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|t| t.as_str().unwrap()),
+        ),
+        "retrieval_precision_at" => {
+            retrieval_precision_at(u(spec, "k") as usize, f(spec, "threshold"))
+        }
+        "retrieval_recall_at" => retrieval_recall_at(u(spec, "k") as usize, f(spec, "threshold")),
+        "retrieval_average_precision_at" => {
+            retrieval_average_precision_at(u(spec, "k") as usize, f(spec, "threshold"))
+        }
         "tool_called" => tool_called(s(spec, "tool")),
         "tool_not_called" => tool_not_called(s(spec, "tool")),
         "tool_calls_within" => tool_calls_within(u(spec, "max") as usize),
@@ -88,6 +108,11 @@ fn build(spec: &Value) -> Box<dyn Scorer> {
 /// scorer here without a vector fails `coverage`; the LLM-judge and the
 /// `scorer(name, fn)` escape hatch are intentionally excluded (not portable).
 const KINDS: &[&str] = &[
+    "tool_invocation",
+    "tool_sequence",
+    "retrieval_precision_at",
+    "retrieval_recall_at",
+    "retrieval_average_precision_at",
     "contains",
     "not_contains",
     "equals",
@@ -144,8 +169,8 @@ async fn vectors_match_rust() {
         let transcript: Transcript = serde_json::from_value(transcripts[tname].clone()).unwrap();
 
         let mut sample = Sample::new("s", "q");
-        if let Some(exp) = case["sample"].get("expected").and_then(Value::as_str) {
-            sample = sample.expected(exp);
+        if let Some(exp) = case["sample"].get("expected") {
+            sample = sample.expected(exp.clone());
         }
 
         let score = scorer.score(&sample, &transcript).await;

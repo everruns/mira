@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="en">
+  <meta charset="utf-8" /><meta
+    name="viewport"
+    content="width=device-width, initial-scale=1"
+  />
+  <title>Mira evidence review</title>
+  <style>
+    :root{font:15px/1.5 system-ui;color:#17243d;background:#f5f7fa}*{box-sizing:border-box}body{margin:0}header{padding:24px 32px;background:#0a1636;color:white}h1{margin:0;font-size:24px}header p{margin:6px 0;color:#d0d8e8}nav{position:sticky;top:0;z-index:2;background:white;padding:14px 32px;border-bottom:1px solid #ccd4df;display:flex;gap:10px;flex-wrap:wrap;align-items:center}button,input,select{font:inherit;padding:7px 10px;border:1px solid #b5bfd0;border-radius:5px;background:white;color:#17243d}button{cursor:pointer}button:hover,button[aria-pressed=true]{background:#e5eefc;border-color:#4674b8}main{padding:24px 32px;max-width:1700px;margin:auto}.case{background:white;border:1px solid #d9dfe8;border-radius:8px;margin:0 0 22px;padding:20px}h2{font-size:17px;overflow-wrap:anywhere;margin:0 0 12px}h3{font-size:16px}.columns{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:20px}.panel{min-width:0;padding:16px;background:#f7f9fc;border-radius:6px}pre{white-space:pre-wrap;overflow-wrap:anywhere;font:13px/1.5 ui-monospace,monospace;margin:8px 0}.score{display:block;width:100%;text-align:left;margin:6px 0}.pass{color:#187342}.fail{color:#b12235}.na,.muted{color:#64748b}.step{scroll-margin-top:110px;border-left:3px solid #b9c6db;padding:8px 12px;margin:10px 0}.step:target,.highlight{background:#fff3c9}.labels{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:16px}details{margin:8px 0}summary{cursor:pointer}#status{font-weight:600}#notice{padding:12px 32px;background:#fff4cf}label{display:inline-flex;gap:6px;align-items:center}footer{padding:20px 32px;color:#64748b}@media(max-width:800px){.columns{grid-template-columns:1fr}main,nav,header{padding:16px}}
+  </style>
+  <header>
+    <h1>Mira evidence review</h1>
+    <p id="run"></p>
+    <p>
+      Inspect saved evidence. Review verdicts. Export labels for judge
+      calibration.
+    </p>
+  </header>
+  <nav aria-label="Review controls">
+    <input
+      id="search"
+      aria-label="Filter case keys"
+      placeholder="Filter case keys"
+    /><label
+      >Judge
+      <select id="judge">
+        <option value="">All scorers</option>
+      </select></label
+    ><label><input type="checkbox" id="disagree" />Disagreements only</label
+    ><button id="export">Export human labels</button
+    ><label
+      >Import labels
+      <input
+        id="import"
+        type="file"
+        accept=".jsonl,.json,application/json" /></label
+    ><span id="status" role="status"></span>
+  </nav>
+  <div id="notice" hidden></div>
+  <main id="cases"></main>
+  <footer>
+    Evidence stays in this file. Labels stay in memory until exported. Grading
+    costs are separate from target cost.
+  </footer>
+  <script id="data" type="application/json">
+    __MIRA_REVIEW_DATA__
+  </script>
+  <script>
+    __MIRA_REVIEW_SCRIPT__
+  </script>
+</html>

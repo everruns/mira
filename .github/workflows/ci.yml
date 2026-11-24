@@ -135,6 +135,9 @@ jobs:
       - name: Run evaluation quality workflow (offline)
         run: python3 examples/quality_workflow/smoke.py --mira target/debug/mira --out "$RUNNER_TEMP/mira-quality-workflow"
 
+      - name: Run diagnostics workflow (offline)
+        run: python3 examples/diagnostics/smoke.py --mira target/debug/mira --out "$RUNNER_TEMP/mira-diagnostics"
+
       - name: Render an HTML report (smoke)
         run: |
           cargo run -q -p mira-cli -- run --study-bin metrics --format html --out report.html

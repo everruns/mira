@@ -459,6 +459,7 @@ pub fn results_json(results: &[RunResult]) -> serde_json::Value {
     let mut record = serde_json::json!({
         "summary": crate::run::RunSummary::of(results),
         "cases": results,
+        "grading": crate::grading::Summary::of(results.iter().flat_map(|r| &r.scores)),
     });
     if crate::aggregate::has_trials(results) {
         let trials = crate::aggregate::aggregate_trials(results)
@@ -876,6 +877,15 @@ pub fn html_with_evaluation(
             out.push_str("</ul>");
         }
         out.push_str("</section>\n");
+    }
+
+    let grading = crate::grading::Summary::of(results.iter().flat_map(|r| &r.scores));
+    if let Some(usage) = &grading.usage {
+        let cost = usage
+            .cost_usd
+            .map(|v| format!("${v:.6}"))
+            .unwrap_or_else(|| "unpriced".into());
+        out.push_str(&format!("<section class=\"card\"><h2>Grading resources</h2><p>{} requests · {} errors · {}ms · {} input / {} output tokens · {} (reported scores only; {} unreported scores)</p></section>",usage.requests,usage.errors,usage.duration_ms,usage.input_tokens.map(|n|n.to_string()).unwrap_or_else(||"?".into()),usage.output_tokens.map(|n|n.to_string()).unwrap_or_else(||"?".into()),cost,grading.unreported_scores));
     }
 
     // Summary banner.

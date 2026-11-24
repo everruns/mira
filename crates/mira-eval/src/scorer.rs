@@ -20,6 +20,9 @@
 //!
 //! [`Eval`]: crate::eval::Eval
 
+mod diagnostics;
+pub use diagnostics::*;
+
 use std::future::Future;
 use std::pin::Pin;
 
@@ -641,8 +644,17 @@ impl Scorer for Combinator {
         // combinator is N/A (nothing could be evaluated).
         let mut values = Vec::with_capacity(self.scorers.len());
         let mut reasons = Vec::new();
+        let mut grading: Option<crate::grading::GradingUsage> = None;
+        let mut unreported = false;
         for s in &self.scorers {
             let sc = s.score(sample, transcript).await;
+            if let Some(usage) = &sc.grading {
+                match &mut grading {
+                    Some(total) => total.combine(usage),
+                    None => grading = Some(usage.clone()),
+                }
+            }
+            unreported |= sc.grading.is_none();
             let glyph = if sc.na {
                 "–"
             } else if sc.pass {
@@ -655,9 +667,18 @@ impl Scorer for Combinator {
                 values.push((sc.value, sc.pass));
             }
         }
+        if unreported {
+            if let Some(usage) = &mut grading {
+                usage.cost_usd = None;
+                usage.input_tokens = None;
+                usage.output_tokens = None;
+            }
+        }
         let reason = reasons.join(", ");
         if values.is_empty() {
-            return Score::na(self.name.clone(), reason);
+            let mut score = Score::na(self.name.clone(), reason);
+            score.grading = grading;
+            return score;
         }
         let (pass, value) = if self.require_all {
             (
@@ -676,6 +697,7 @@ impl Scorer for Combinator {
             pass,
             na: false,
             reason,
+            grading,
         }
     }
 }
@@ -691,10 +713,12 @@ impl Scorer for Not {
         let inner = self.0.score(sample, transcript).await;
         // You can't invert "couldn't evaluate" — N/A passes straight through.
         if inner.na {
-            return Score::na(
+            let mut score = Score::na(
                 format!("not({})", inner.scorer),
                 format!("inner N/A: {}", inner.reason),
             );
+            score.grading = inner.grading;
+            return score;
         }
         Score {
             scorer: format!("not({})", inner.scorer),
@@ -702,6 +726,7 @@ impl Scorer for Not {
             pass: !inner.pass,
             na: false,
             reason: format!("inverted: {}", inner.reason),
+            grading: inner.grading,
         }
     }
 }

@@ -96,6 +96,16 @@ class FinalMetrics:
     __required__ = ()
 
 @dataclass
+class GradingUsage:
+    cost_usd: Optional[float] = None
+    duration_ms: int = 0
+    errors: int = 0
+    input_tokens: Optional[int] = None
+    output_tokens: Optional[int] = None
+    requests: int = 0
+    __required__ = ("duration_ms", "errors", "requests")
+
+@dataclass
 class ImageSource:
     media_type: str = ""
     path: str = ""
@@ -215,6 +225,7 @@ class SampleInfo:
 
 @dataclass
 class Score:
+    grading: Optional["GradingUsage"] = None
     na: bool = False
     pass_: bool = field(default=False, metadata={"wire": "pass"})
     reason: str = ""

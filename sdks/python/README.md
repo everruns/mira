@@ -124,3 +124,10 @@ Repeated runs (`mira run --trials 3 --seed 10`) preserve trial identity through
 execution artifacts, scoring, and reports. Subjects receive the zero-based
 `cx.trial`, repetition count `cx.trials`, and optional per-trial `cx.seed`.
 A subject can pass that seed to its model or local random generator.
+
+## Diagnostics and grading resources
+
+See [diagnostic workflows](https://github.com/everruns/mira/blob/main/docs/diagnostics.md)
+for correlated tool evidence, ordered steps, ranked retrieval metrics, absolute
+acceptance policies, coverage inventory, and offline human review. Protocol 1.2
+carries optional per-score grading resources separately from subject usage.

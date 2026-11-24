@@ -25,6 +25,7 @@ in [`specs/`](../specs). Conventions for this directory are in
 ## Feature guides
 
 - [Evaluation quality](evaluation-quality.md), coverage gates, paired comparisons, provenance, judge calibration, and regression-case review.
+- [Diagnostics and acceptance](diagnostics.md), evidence scorers, absolute slice gates, coverage categories, grading resources, and human review.
 
 - [Feature guides](features/README.md), higher-level Mira workflows.
 - [Experiment plans](features/experiment-plans.md), define, run, and reproduce
