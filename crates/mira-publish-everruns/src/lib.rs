@@ -1,7 +1,7 @@
 //! Publish a saved Mira run to an everruns instance.
 //!
 //! everruns hosts and visualizes eval results it did **not** execute (the
-//! `POST /v1/evals/import` endpoint). This crate maps a finished Mira run —
+//! `POST /v1/platform/evals/import` endpoint). This crate maps a finished Mira run —
 //! [`RunMeta`] plus its per-case [`RunResult`]s — onto that import payload and
 //! POSTs it, so a study run with any provider/CLI subject can be published for
 //! hosted comparison without onboarding into everruns' session system.
@@ -61,7 +61,7 @@ pub struct PublishOptions {
     pub experiment: Option<String>,
 }
 
-/// What `GET /v1/evals/import/preflight` reports.
+/// What `GET /v1/platform/evals/import/preflight` reports.
 #[derive(Clone, Debug, Deserialize)]
 pub struct Preflight {
     pub evals_enabled: bool,
@@ -174,7 +174,7 @@ fn everruns_credentials_path() -> Option<PathBuf> {
 }
 
 // ============================================================================
-// Import payload (mirrors everruns' POST /v1/evals/import request shape)
+// Import payload (mirrors everruns' POST /v1/platform/evals/import request shape)
 // ============================================================================
 
 #[derive(Serialize)]
@@ -469,7 +469,7 @@ fn split_target(label: &str) -> (String, String) {
 /// caller holds the import permission). Lets the caller fail clearly before
 /// sending a payload — evals are an optional everruns feature.
 pub async fn preflight(target: &EverrunsTarget) -> Result<Preflight> {
-    let url = format!("{}/v1/evals/import/preflight", target.base_url);
+    let url = format!("{}/v1/platform/evals/import/preflight", target.base_url);
     let resp = authed(reqwest::Client::new().get(&url), target)
         .send()
         .await
@@ -483,7 +483,7 @@ pub async fn preflight(target: &EverrunsTarget) -> Result<Preflight> {
 }
 
 /// Publish a finished run. Resolves credentials, maps the run, and POSTs it to
-/// `/v1/evals/import`. Idempotent on the run id: re-publishing replaces the
+/// `/v1/platform/evals/import`. Idempotent on the run id: re-publishing replaces the
 /// prior run for each eval.
 pub async fn publish(
     meta: &RunMeta,
@@ -541,7 +541,7 @@ async fn send_import(target: &EverrunsTarget, payload: &ImportRequest) -> Result
         bail!("nothing to publish: the run has no case results");
     }
 
-    let url = format!("{}/v1/evals/import", target.base_url);
+    let url = format!("{}/v1/platform/evals/import", target.base_url);
     let resp = authed(reqwest::Client::new().post(&url), target)
         .json(payload)
         .send()
@@ -829,7 +829,7 @@ mod tests {
         let req = server.await.unwrap();
         let lower = req.to_ascii_lowercase();
         assert!(
-            req.starts_with("POST /v1/evals/import "),
+            req.starts_with("POST /v1/platform/evals/import "),
             "request line: {req}"
         );
         assert!(lower.contains("authorization: bearer evr_pat_secret"));

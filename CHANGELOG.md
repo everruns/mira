@@ -29,6 +29,8 @@ Public entry: [Evaluation coverage, comparisons, and grader calibration](https:/
 
 ### Changed
 
+- Everruns publishing and authentication preflight use the canonical `/api/v1/platform/` management namespace. Hosted Agent Execution API URLs are unchanged.
+
 - Dependency refresh: `reqwest` 0.13 (judges and publishing; TLS still rustls with the OS trust store), `indicatif` 0.18, `toml` 1, plus a lockfile update to the latest compatible releases. TypeScript SDK builds with TypeScript 7; CI runs Node 24.
 - **Breaking (`mira-everruns`):** moves from the deprecated `everruns-runtime` to the Everruns Framework (`everruns` 0.53). The `RuntimeSubject` factory now returns an `everruns::Session` instead of `(InProcessRuntime, SessionId)`, and `target_to_resolved` is replaced by `target_to_model`, which maps a provider `Target` to a live `everruns::Model`. Folded trajectories are stamped `everruns`/`0.53` and now carry the model name the session reports.
 

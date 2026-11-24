@@ -204,7 +204,7 @@ publishable; heavy integrations are separate, optional crates.
 
 Like `mira-everruns`, the **publish** path is a separate integration crate
 (`mira-publish-everruns`): it maps a finished run (`RunMeta` + `RunResult`s) onto
-everruns' `POST /v1/evals/import` and POSTs it, so the core never grows an HTTP
+everruns' `POST /v1/platform/evals/import` and POSTs it, so the core never grows an HTTP
 client. It is the *producer* counterpart to `mira-everruns`'s *consumer* role:
 one publishes results out, the other drives the runtime as a subject.
 
